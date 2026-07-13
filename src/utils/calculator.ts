@@ -161,7 +161,7 @@ export function calculateAll(
   // - At least 2 active categories (based on active categories)
   const satisfiesWoz = house.wozWaarde > 0 && house.wozWaarde < 429000;
   const satisfiesLabel = ['D', 'E', 'F', 'G', 'Geen'].includes(house.energielabel);
-  const satisfiesIncome = resident.brutoGezinsinkomen < 60000 || house.inkomenCheck;
+  const satisfiesIncome = (resident.brutoGezinsinkomen < 60000) || house.inkomenCheck;
   const satisfiesNipMeasuresCount = isdeCategoryCount >= 2;
 
   const eligibleNip = satisfiesWoz && satisfiesLabel && satisfiesIncome && satisfiesNipMeasuresCount;
@@ -170,7 +170,7 @@ export function calculateAll(
   if (house.wozWaarde === 0) nipExplanation += 'WOZ-waarde is nog niet ingevuld. ';
   else if (!satisfiesWoz) nipExplanation += 'WOZ-waarde is gelijk of hoger dan €429.000. ';
   if (!satisfiesLabel) nipExplanation += 'Energielabel is A, B of C (enkel D t/m G of geen label komen in aanmerking). ';
-  if (!satisfiesIncome) nipExplanation += 'Gezinsinkomen-verklaring is niet gecontroleerd of inkomen te hoog. ';
+  if (!satisfiesIncome) nipExplanation += 'Bruto gezinsjaarinkomen is €60.000 of hoger en de inkomensverklaring is niet gecontroleerd. ';
   if (!satisfiesNipMeasuresCount) nipExplanation += 'Er zijn minder dan 2 actieve isolatiecategorieën ingevuld. ';
   
   if (eligibleNip) {
@@ -337,8 +337,12 @@ export function calculateAll(
     orientationFactor = 0.85 + 0.30 * cosOrient;
   }
 
+  // Tilt/inclination factor (optimal is 35 degrees)
+  const tilt = tech.dakHellingshoek !== undefined ? tech.dakHellingshoek : 35;
+  const tiltFactor = Math.max(0.5, 1 - 0.0001 * Math.pow(tilt - 35, 2));
+
   const totalWp = tech.aantalZonnepanelen * 400;
-  const annualYieldKwh = (totalWp / 1000) * 900 * orientationFactor;
+  const annualYieldKwh = (totalWp / 1000) * 900 * orientationFactor * tiltFactor;
   const selfConsumptionBase = tech.huidigDirectVerbruik;
 
   // --- MODULE 3: THUISACCU & SALDERINGSREGELING ---
@@ -467,11 +471,40 @@ export function calculateAll(
   const totalGasSaved = measures.reduce((sum, m) => sum + m.savingM3, 0);
   const remainingGasM3 = Math.max(0, verbruikM3 - totalGasSaved);
 
-  // Sufficiently insulated is defined as label is A - B - C, or >= 3 active categories, or remaining gas < 1000m3
-  const isInsulatedSufficiently =
-    ['A - B - C'].includes(updatedHouse.energielabel) ||
-    isdeCategoryCount >= 3 ||
-    remainingGasM3 < 1000;
+  // New smart thermal envelope heuristic based on house type, size (woonoppervlakte), and gas consumption
+  const opp = (updatedHouse.woonoppervlakte && updatedHouse.woonoppervlakte > 0) ? updatedHouse.woonoppervlakte : 120;
+  const soort = (updatedHouse.soortWoning || 'Tussenwoning').toLowerCase();
+  
+  // Benchmark standard gas consumption per m2 (moderately/uninsulated baseline)
+  let benchmarkIntensity = 12.0; // default (m3 per m2 per year)
+  let targetIntensity = 9.0;     // target intensity for heat-pump readiness
+  
+  if (soort.includes('vrijstaand')) {
+    benchmarkIntensity = 15.0;
+    targetIntensity = 11.0;
+  } else if (soort.includes('twee-onder-een-kap') || soort.includes('2-onder-1-kap') || soort.includes('twee onder') || soort.includes('helft van')) {
+    benchmarkIntensity = 12.5;
+    targetIntensity = 9.5;
+  } else if (soort.includes('hoekwoning')) {
+    benchmarkIntensity = 12.0;
+    targetIntensity = 9.0;
+  } else if (soort.includes('tussenwoning')) {
+    benchmarkIntensity = 10.0;
+    targetIntensity = 7.5;
+  } else if (soort.includes('appartement')) {
+    benchmarkIntensity = 9.0;
+    targetIntensity = 6.5;
+  }
+
+  const benchmarkGas = Math.round(opp * benchmarkIntensity);
+  const targetGas = Math.round(opp * targetIntensity);
+  
+  const isLabelSufficient = ['A', 'B', 'C'].some(lbl => 
+    (updatedHouse.energielabel || '').toUpperCase().includes(lbl)
+  );
+  
+  // Sufficiently insulated is defined as either label A, B, C, OR remaining gas <= targetGas, OR remaining gas is low overall (< 800m3)
+  const isInsulatedSufficiently = isLabelSufficient || remainingGasM3 <= targetGas || remainingGasM3 < 800;
 
   let isRecommended = false;
   let estimatedInvestment = 0;
@@ -486,13 +519,21 @@ export function calculateAll(
   const hybridGasSaved = remainingGasM3 * 0.75;
   const hybridGasSavingEuro = hybridGasSaved * gasPrijs;
   const hybridElecUsed = hybridGasSaved * 2.2;
-  const hybridElecCostEuro = hybridElecUsed * updatedHouse.elektraPrijs;
+  
+  // If they have excess solar generation (gridFeedBaseKwh), they can offset some or all of the heat pump electricity!
+  // The cost of that offset solar electricity is the missed feed-in return tariff (opportunity cost), 
+  // while the remaining electricity is bought from the grid at standard price.
+  const returnTariff = 0.05; // fixed feed-in return rate (€/kWh)
+  const hybridSolarCoverage = Math.min(hybridElecUsed, gridFeedBaseKwh);
+  const hybridGridImport = Math.max(0, hybridElecUsed - hybridSolarCoverage);
+  const hybridElecCostEuro = (hybridSolarCoverage * returnTariff) + (hybridGridImport * updatedHouse.elektraPrijs);
+
   const hybridNetSavings = Math.max(0, hybridGasSavingEuro - hybridElecCostEuro);
   const hybridTvt = hybridNetSavings > 0 ? hybridNet / hybridNetSavings : 99;
   const hybridFeasible = isInsulatedSufficiently;
   const hybridFeasibilityReason = isInsulatedSufficiently 
-    ? 'Je woning is voldoende geïsoleerd voor een hybride warmtepomp.'
-    : 'Niet aanbevolen: De isolatie van de woning is nog onvoldoende. Verbeter eerst de thermische schil.';
+    ? `Je woning is voldoende geïsoleerd voor een hybride warmtepomp. Je resterende gasverbruik (${Math.round(remainingGasM3)} m³) ligt onder de streefwaarde van ${targetGas} m³ voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m².`
+    : `Niet aanbevolen: De isolatie is nog onvoldoende. Voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m² is de streefwaarde maximaal ${targetGas} m³ gas per jaar (momenteel ${Math.round(remainingGasM3)} m³). Verbeter eerst de thermische schil door te isoleren.`;
 
   // 2. All-Electric option
   const aeBruto = 13500;
@@ -501,16 +542,20 @@ export function calculateAll(
   const aeGasSaved = remainingGasM3;
   const aeGasSavingEuro = aeGasSaved * gasPrijs;
   const aeElecUsed = aeGasSaved * 2.4;
-  const aeElecCostEuro = aeElecUsed * updatedHouse.elektraPrijs;
+  
+  const aeSolarCoverage = Math.min(aeElecUsed, gridFeedBaseKwh);
+  const aeGridImport = Math.max(0, aeElecUsed - aeSolarCoverage);
+  const aeElecCostEuro = (aeSolarCoverage * returnTariff) + (aeGridImport * updatedHouse.elektraPrijs);
+
   const aeFixedGasSaving = remainingGasM3 > 0 ? 280 : 0; // Complete removal of gas connection saves ~€280/year in vastrecht
   const aeNetSavings = Math.max(0, aeGasSavingEuro + aeFixedGasSaving - aeElecCostEuro);
   const aeTvt = aeNetSavings > 0 ? aeNet / aeNetSavings : 99;
   
   // All-electric is feasible if highly insulated or remaining gas is quite low
-  const aeFeasible = isInsulatedSufficiently && (['A - B - C'].includes(updatedHouse.energielabel) || remainingGasM3 < 1200 || isdeCategoryCount >= 2);
+  const aeFeasible = isInsulatedSufficiently && (isLabelSufficient || remainingGasM3 < targetGas * 0.8 || remainingGasM3 < 1000);
   const aeFeasibilityReason = aeFeasible
-    ? 'Zeer geschikt! Goede isolatie en relatief lage warmtevraag maken gasloos wonen financieel en technisch haalbaar.'
-    : 'Beperkt geschikt: Een volledig elektrische warmtepomp vraagt om uitstekende isolatie en laag-temperatuurverwarming. Isolatie verbeteren is de eerste prioriteit.';
+    ? `Zeer geschikt! Je resterende gasverbruik (${Math.round(remainingGasM3)} m³) ligt ruim onder de All-Electric grens. Gasloos wonen is technisch en financieel uitstekend haalbaar!`
+    : `Beperkt geschikt: All-Electric vereist een uiterst lage warmtevraag. Met een resterend verbruik van ${Math.round(remainingGasM3)} m³ is een hybride warmtepomp nu een verstandigere stap, tenzij je extra isolatiemaatregelen doorvoert.`;
 
   const options: HeatpumpOption[] = [
     {
@@ -522,6 +567,8 @@ export function calculateAll(
       gasSavingsEuro: hybridGasSavingEuro,
       elecIncreaseKwh: hybridElecUsed,
       elecCostEuro: hybridElecCostEuro,
+      solarCoverageKwh: hybridSolarCoverage,
+      gridImportKwh: hybridGridImport,
       fixedGasSavingsEuro: 0,
       netSavingsEuro: hybridNetSavings,
       tvt: hybridTvt,
@@ -537,6 +584,8 @@ export function calculateAll(
       gasSavingsEuro: aeGasSavingEuro,
       elecIncreaseKwh: aeElecUsed,
       elecCostEuro: aeElecCostEuro,
+      solarCoverageKwh: aeSolarCoverage,
+      gridImportKwh: aeGridImport,
       fixedGasSavingsEuro: aeFixedGasSaving,
       netSavingsEuro: aeNetSavings,
       tvt: aeTvt,
@@ -546,7 +595,7 @@ export function calculateAll(
   ];
 
   if (!isInsulatedSufficiently) {
-    explanation = 'Negatief advies: Je woning is momenteel nog onvoldoende geïsoleerd (Energielabel is matig en resterend gasverbruik is hoog). Richt je eerst op de geadviseerde isolatiemaatregelen om warmteverlies te beperken.';
+    explanation = `Isolatie nog onvoldoende: Een warmtepomp is momenteel niet direct rendabel of technisch aanbevolen. Het gemiddelde gasverbruik voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m² is circa ${benchmarkGas} m³ per jaar. Om klaar te zijn voor een warmtepomp adviseren we om het resterende gasverbruik door isolatie te verlagen tot onder de streefwaarde van ${targetGas} m³ (resterend gasverbruik is momenteel ${Math.round(remainingGasM3)} m³). We raden dringend aan eerst de aanbevolen isolatiemaatregelen (zoals spouw- of vloerisolatie en HR++ glas) uit te voeren.`;
   } else {
     isRecommended = remainingGasM3 > 500;
     estimatedInvestment = hybridNet;
@@ -554,12 +603,12 @@ export function calculateAll(
     
     if (isRecommended) {
       if (aeFeasible && aeTvt < hybridTvt + 3) {
-        explanation = `Positief advies: Je woning is uitstekend geïsoleerd met een laag resterend gasverbruik van ${Math.round(remainingGasM3)} m³. Een volledig elektrische warmtepomp (All-Electric) is hier zeer interessant! Hiermee ga je volledig gasloos en bespaar je tevens de vaste gaskosten. Een hybride warmtepomp is ook een veilige en rendabele optie.`;
+        explanation = `Positief advies: Je woning is uitstekend geïsoleerd met een laag resterend gasverbruik van ${Math.round(remainingGasM3)} m³ (ruim onder de streefwaarde van ${targetGas} m³ voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m²). Een volledig elektrische warmtepomp (All-Electric) is hier zeer interessant! Hiermee ga je volledig gasloos en bespaar je tevens de vaste gaskosten. Een hybride warmtepomp is ook een veilige en rendabele optie.`;
       } else {
-        explanation = `Positief advies: Je woning is goed geïsoleerd en heeft nog een resterend gasverbruik van ${Math.round(remainingGasM3)} m³. Een hybride warmtepomp is hier de meest financieel rendabele optie en zal je gasverbruik met circa 75% verminderen!`;
+        explanation = `Positief advies: Je woning is goed geïsoleerd. Je resterende gasverbruik van ${Math.round(remainingGasM3)} m³ ligt netjes onder de streefwaarde van ${targetGas} m³ voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m². Een hybride warmtepomp is hier de meest financieel rendabele optie en zal je gasverbruik met circa 75% verminderen!`;
       }
     } else {
-      explanation = `Technisch mogelijk, maar beperkt rendabel: Je resterende gasverbruik is al erg laag (${Math.round(remainingGasM3)} m³). De investering in een hybride warmtepomp heeft hierdoor een langere terugverdientijd. Volledig elektrisch gaan is wellicht een betere stap om de gaskraan definitief te sluiten.`;
+      explanation = `Technisch mogelijk, maar beperkt rendabel: Je resterende gasverbruik is door isolatie al extreem laag (${Math.round(remainingGasM3)} m³). Een warmtepomp heeft hierdoor een langere terugverdientijd. Volledig elektrisch gaan is wellicht een betere stap om de gaskraan definitief te sluiten.`;
     }
   }
 

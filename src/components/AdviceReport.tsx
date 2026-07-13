@@ -5,7 +5,7 @@ import { CalculationResult } from '../types';
 import { 
   FileText, Copy, Printer, Check, TrendingDown, ShieldAlert, Award, Zap, HelpCircle, 
   BarChart3, LineChart as LineIcon, Landmark, Sparkles, ArrowRightLeft, Clock, PiggyBank,
-  Sun, Battery, Flame, ArrowUpRight, TrendingUp, Info
+  Sun, Battery, Flame, ArrowUpRight, TrendingUp, Info, Mail, Send, Loader2
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -30,11 +30,57 @@ interface AdviceReportProps {
   calculation: CalculationResult;
   adviceMarkdown: string | null;
   loading: boolean;
+  activeTab: 'isolatie' | 'zon' | 'accu' | 'saldering' | 'warmtepomp' | 'laadpaal';
+  setActiveTab: (tab: 'isolatie' | 'zon' | 'accu' | 'saldering' | 'warmtepomp' | 'laadpaal') => void;
 }
 
-export default function AdviceReport({ calculation, adviceMarkdown, loading }: AdviceReportProps) {
+export default function AdviceReport({ 
+  calculation, 
+  adviceMarkdown, 
+  loading,
+  activeTab: outerTab,
+  setActiveTab
+}: AdviceReportProps) {
   const [copied, setCopied] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState<'graph' | 'solar' | 'battery' | 'heatpump' | 'text'>('graph'); // Expanded tabs!
+  const [isEmailModalOpen, setIsEmailModalOpen] = React.useState(false);
+  const [targetEmail, setTargetEmail] = React.useState(calculation.resident.email || '');
+  const [sendingEmail, setSendingEmail] = React.useState(false);
+  const [emailStatus, setEmailStatus] = React.useState<'idle' | 'success' | 'error'>('idle');
+  const [emailStatusMessage, setEmailStatusMessage] = React.useState('');
+
+  // Use a local state for the active tab inside AdviceReport
+  const [localActiveTab, setLocalActiveTab] = React.useState<'graph' | 'solar' | 'battery' | 'heatpump' | 'laadpaal' | 'text'>('graph');
+
+  // Synchronize targetEmail from calculation when it loads/changes
+  React.useEffect(() => {
+    if (calculation.resident.email) {
+      setTargetEmail(calculation.resident.email);
+    }
+  }, [calculation.resident.email]);
+
+  // Synchronize local tab from outer tab changes
+  React.useEffect(() => {
+    if (outerTab === 'isolatie') {
+      setLocalActiveTab('graph');
+    } else if (outerTab === 'zon' || outerTab === 'saldering') {
+      setLocalActiveTab('solar');
+    } else if (outerTab === 'accu') {
+      setLocalActiveTab('battery');
+    } else if (outerTab === 'warmtepomp') {
+      setLocalActiveTab('heatpump');
+    } else if (outerTab === 'laadpaal') {
+      setLocalActiveTab('laadpaal');
+    }
+  }, [outerTab]);
+
+  // If adviceMarkdown becomes available (loading finishes), automatically switch to 'text' (AI Advies) tab!
+  React.useEffect(() => {
+    if (adviceMarkdown) {
+      setLocalActiveTab('text');
+    }
+  }, [adviceMarkdown]);
+
+  const activeTab = localActiveTab;
 
   const handleCopy = () => {
     if (adviceMarkdown) {
@@ -46,6 +92,93 @@ export default function AdviceReport({ calculation, adviceMarkdown, loading }: A
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleSendEmail = async () => {
+    if (!targetEmail || !targetEmail.includes('@')) {
+      setEmailStatus('error');
+      setEmailStatusMessage('Vul a.u.b. een geldig e-mailadres in.');
+      return;
+    }
+
+    setSendingEmail(true);
+    setEmailStatus('idle');
+    setEmailStatusMessage('');
+
+    try {
+      const clientName = `${calculation.resident.aanhef || ''} ${calculation.resident.voorletters || ''} ${calculation.resident.achternaam || ''}`.trim() || 'Bewoner';
+      
+      const response = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: targetEmail,
+          clientName: clientName,
+          reportText: adviceMarkdown || `
+Energieplanner Peel en Maas Adviesrapport
+
+Beste ${clientName},
+
+Hierbij ontvang je de berekende resultaten voor jouw woning aan de ${calculation.resident.straat || ''} ${calculation.resident.huisnummer || ''}.
+
+- Totale bruto kosten: €${Math.round(calculation.totals.bruto).toLocaleString('nl-NL')}
+- Totale ISDE subsidie: €${Math.round(calculation.totals.isde).toLocaleString('nl-NL')}
+- Totale NIP subsidie: €${Math.round(calculation.totals.nip).toLocaleString('nl-NL')}
+- Netto eigen bijdrage: €${Math.round(calculation.totals.net).toLocaleString('nl-NL')}
+- Verwachte jaarlijkse besparing: €${Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}
+- Terugverdientijd: ${calculation.totals.tvt.toFixed(1)} jaar
+
+Met vriendelijke groet,
+Energieplanner Peel en Maas
+          `.trim()
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setEmailStatus('success');
+        if (data.isSimulated) {
+          setEmailStatusMessage('Advies succesvol verzonden! (Simulatiemodus: de e-mail is gelogd op de server console omdat er geen SMTP is geconfigureerd).');
+        } else {
+          setEmailStatusMessage(`Advies succesvol verzonden naar ${targetEmail}!`);
+        }
+      } else {
+        throw new Error(data.error || 'Er ging iets fout bij het verzenden.');
+      }
+    } catch (err: any) {
+      setEmailStatus('error');
+      setEmailStatusMessage(err.message || 'Mislukt om e-mail te verzenden. Controleer de verbinding of server configuratie.');
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  const handleMailto = () => {
+    const clientName = `${calculation.resident.aanhef || ''} ${calculation.resident.voorletters || ''} ${calculation.resident.achternaam || ''}`.trim() || 'Bewoner';
+    const subject = encodeURIComponent(`Jouw Energieplanner Peel en Maas Adviesrapport - ${clientName}`);
+    
+    const bodyContent = adviceMarkdown || `
+Beste ${clientName},
+
+Bedankt voor het invullen van de Energieplanner Peel en Maas. Hierbij ontvang je jouw persoonlijke, onafhankelijke verduurzamingsadvies.
+
+Hier zijn jouw belangrijkste resultaten:
+- Totale bruto kosten: €${Math.round(calculation.totals.bruto).toLocaleString('nl-NL')}
+- Totale ISDE subsidie: €${Math.round(calculation.totals.isde).toLocaleString('nl-NL')}
+- Totale NIP subsidie: €${Math.round(calculation.totals.nip).toLocaleString('nl-NL')}
+- Netto eigen bijdrage: €${Math.round(calculation.totals.net).toLocaleString('nl-NL')}
+- Verwachte jaarlijkse besparing: €${Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}
+- Gemiddelde terugverdientijd: ${calculation.totals.tvt.toFixed(1)} jaar
+
+Met vriendelijke groet,
+Energieplanner Peel en Maas
+    `.trim();
+
+    const body = encodeURIComponent(bodyContent);
+    window.location.href = `mailto:${targetEmail}?subject=${subject}&body=${body}`;
   };
 
   if (loading) {
@@ -144,82 +277,86 @@ export default function AdviceReport({ calculation, adviceMarkdown, loading }: A
   return (
     <div className="space-y-6" id="advice-report-section">
       {/* Interactieve KPI Kaarten */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
-          <div className="p-2 bg-emerald-50 rounded-xl text-emerald-600">
-            <TrendingDown className="w-5 h-5" />
+      {outerTab === 'isolatie' && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
+            <div className="p-2 bg-emerald-50 rounded-xl text-emerald-600">
+              <TrendingDown className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Gasbesparing</span>
+              <span className="text-lg font-bold text-slate-800">
+                {Math.round(calculation.measures.reduce((sum, m) => sum + m.savingM3, 0))} m³
+              </span>
+              <span className="block text-[10px] text-emerald-600">/ jaar</span>
+            </div>
           </div>
-          <div>
-            <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Gasbesparing</span>
-            <span className="text-lg font-bold text-slate-800">
-              {Math.round(calculation.measures.reduce((sum, m) => sum + m.savingM3, 0))} m³
-            </span>
-            <span className="block text-[10px] text-emerald-600">/ jaar</span>
-          </div>
-        </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
-          <div className="p-2 bg-blue-50 rounded-xl text-blue-600">
-            <Award className="w-5 h-5" />
+          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
+            <div className="p-2 bg-blue-50 rounded-xl text-blue-600">
+              <Award className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Subsidies</span>
+              <span className="text-lg font-bold text-slate-800">
+                €{Math.round(calculation.totals.isde + calculation.totals.nip).toLocaleString('nl-NL')}
+              </span>
+              <span className="block text-[10px] text-blue-600">ISDE + NIP</span>
+            </div>
           </div>
-          <div>
-            <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Subsidies</span>
-            <span className="text-lg font-bold text-slate-800">
-              €{Math.round(calculation.totals.isde + calculation.totals.nip).toLocaleString('nl-NL')}
-            </span>
-            <span className="block text-[10px] text-blue-600">ISDE + NIP</span>
-          </div>
-        </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
-          <div className="p-2 bg-orange-50 rounded-xl text-orange-600">
-            <Zap className="w-5 h-5" />
+          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
+            <div className="p-2 bg-orange-50 rounded-xl text-orange-600">
+              <Zap className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Eigen Bijdrage</span>
+              <span className="text-lg font-bold text-slate-800">
+                €{Math.round(calculation.totals.net).toLocaleString('nl-NL')}
+              </span>
+              <span className="block text-[10px] text-orange-600">Netto kosten</span>
+            </div>
           </div>
-          <div>
-            <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Eigen Bijdrage</span>
-            <span className="text-lg font-bold text-slate-800">
-              €{Math.round(calculation.totals.net).toLocaleString('nl-NL')}
-            </span>
-            <span className="block text-[10px] text-orange-600">Netto kosten</span>
-          </div>
-        </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
-          <div className="p-2 bg-amber-50 rounded-xl text-amber-600">
-            <Zap className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Zonnestroom</span>
-            <span className="text-lg font-bold text-slate-800">
-              {Math.round(calculation.solar.annualYieldKwh)} kWh
-            </span>
-            <span className="block text-[10px] text-amber-600">Prognose / jr</span>
+          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
+            <div className="p-2 bg-amber-50 rounded-xl text-amber-600">
+              <Zap className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Zonnestroom</span>
+              <span className="text-lg font-bold text-slate-800">
+                {Math.round(calculation.solar.annualYieldKwh)} kWh
+              </span>
+              <span className="block text-[10px] text-amber-600">Prognose / jr</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* NIP Subsidie alert panel */}
-      {calculation.eligibleNip ? (
-        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex gap-3 items-start">
-          <Award className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-          <div>
-            <h4 className="text-sm font-bold text-emerald-800">NIP-Subsidie €2.900 Beschikbaar!</h4>
-            <p className="text-xs text-emerald-700/90 mt-0.5">
-              Fantastisch nieuws! Je voldoet aan de criteria voor het gemeentelijke Nationaal Isolatieprogramma (NIP). 
-              De €2.900 is in de berekening hiernaast reeds in mindering gebracht op de netto eigen bijdrage.
-            </p>
+      {outerTab === 'isolatie' && (
+        calculation.eligibleNip ? (
+          <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex gap-3 items-start">
+            <Award className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="text-sm font-bold text-emerald-800">NIP-Subsidie €2.900 Beschikbaar!</h4>
+              <p className="text-xs text-emerald-700/90 mt-0.5">
+                Fantastisch nieuws! Je voldoet aan de criteria voor het gemeentelijke Nationaal Isolatieprogramma (NIP). 
+                De €2.900 is in de berekening hiernaast reeds in mindering gebracht op de netto eigen bijdrage.
+              </p>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex gap-3 items-start">
-          <ShieldAlert className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
-          <div>
-            <h4 className="text-sm font-bold text-slate-700">Geen NIP-Subsidie (€2.900) mogelijk</h4>
-            <p className="text-xs text-slate-600 mt-0.5">
-              {calculation.nipExplanation}
-            </p>
+        ) : (
+          <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex gap-3 items-start">
+            <ShieldAlert className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="text-sm font-bold text-slate-700">Geen NIP-Subsidie (€2.900) mogelijk</h4>
+              <p className="text-xs text-slate-600 mt-0.5">
+                {calculation.nipExplanation}
+              </p>
+            </div>
           </div>
-        </div>
+        )
       )}
 
       {/* Advies rapportage container */}
@@ -229,7 +366,10 @@ export default function AdviceReport({ calculation, adviceMarkdown, loading }: A
         <div className="bg-slate-50 border-b border-slate-100 px-6 py-3 flex flex-wrap justify-between items-center gap-3 print:hidden">
           <div className="flex flex-wrap bg-slate-200/60 p-1 rounded-2xl gap-1">
             <button
-              onClick={() => setActiveTab('graph')}
+              onClick={() => {
+                setLocalActiveTab('graph');
+                setActiveTab('isolatie');
+              }}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition ${
                 activeTab === 'graph' 
                   ? 'bg-white text-emerald-700 shadow-sm' 
@@ -240,7 +380,10 @@ export default function AdviceReport({ calculation, adviceMarkdown, loading }: A
               <span>📊 Financiële Planner</span>
             </button>
             <button
-              onClick={() => setActiveTab('solar')}
+              onClick={() => {
+                setLocalActiveTab('solar');
+                setActiveTab('zon');
+              }}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition ${
                 activeTab === 'solar' 
                   ? 'bg-white text-amber-700 shadow-sm' 
@@ -248,10 +391,13 @@ export default function AdviceReport({ calculation, adviceMarkdown, loading }: A
               }`}
             >
               <Sun className="w-3.5 h-3.5 text-amber-500" />
-              <span>☀️ Zonnepanelen & Saldering</span>
+              <span>☀️ Zonnepanelen &amp; Saldering</span>
             </button>
             <button
-              onClick={() => setActiveTab('battery')}
+              onClick={() => {
+                setLocalActiveTab('battery');
+                setActiveTab('accu');
+              }}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition ${
                 activeTab === 'battery' 
                   ? 'bg-white text-blue-700 shadow-sm' 
@@ -262,7 +408,10 @@ export default function AdviceReport({ calculation, adviceMarkdown, loading }: A
               <span>🔋 Thuisbatterij</span>
             </button>
             <button
-              onClick={() => setActiveTab('heatpump')}
+              onClick={() => {
+                setLocalActiveTab('heatpump');
+                setActiveTab('warmtepomp');
+              }}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition ${
                 activeTab === 'heatpump' 
                   ? 'bg-white text-orange-700 shadow-sm' 
@@ -273,7 +422,23 @@ export default function AdviceReport({ calculation, adviceMarkdown, loading }: A
               <span>🔥 Warmtepomp</span>
             </button>
             <button
-              onClick={() => setActiveTab('text')}
+              onClick={() => {
+                setLocalActiveTab('laadpaal');
+                setActiveTab('laadpaal');
+              }}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition ${
+                activeTab === 'laadpaal' 
+                  ? 'bg-white text-emerald-800 shadow-sm' 
+                  : 'text-slate-600 hover:text-slate-800'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 text-emerald-600" />
+              <span>🚗 Laadpaal</span>
+            </button>
+            <button
+              onClick={() => {
+                setLocalActiveTab('text');
+              }}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition ${
                 activeTab === 'text' 
                   ? 'bg-white text-slate-700 shadow-sm' 
@@ -313,6 +478,97 @@ export default function AdviceReport({ calculation, adviceMarkdown, loading }: A
               <Printer className="w-3.5 h-3.5" />
               <span>Afdrukken / PDF</span>
             </button>
+
+            {/* Email send widget */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setIsEmailModalOpen(!isEmailModalOpen);
+                  setEmailStatus('idle');
+                  setEmailStatusMessage('');
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition shadow-sm ${
+                  isEmailModalOpen 
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-bold' 
+                    : 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50'
+                }`}
+                id="mail-report-btn"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Mail Advies</span>
+              </button>
+
+              {isEmailModalOpen && (
+                <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-150 rounded-2xl shadow-xl z-50 p-4 space-y-3 animate-fadeIn" id="email-popover" style={{ transformOrigin: 'top right' }}>
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                    <span className="text-xs font-bold text-slate-700">Adviesrapport mailen</span>
+                    <button 
+                      type="button"
+                      onClick={() => setIsEmailModalOpen(false)}
+                      className="text-slate-400 hover:text-slate-600 text-xs font-medium cursor-pointer"
+                    >
+                      Sluiten
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">E-mailadres van de klant</label>
+                    <input
+                      type="email"
+                      value={targetEmail}
+                      onChange={(e) => setTargetEmail(e.target.value)}
+                      placeholder="bijv. klant@example.nl"
+                      className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 font-medium bg-slate-50/50 focus:bg-white transition"
+                    />
+                  </div>
+
+                  {emailStatusMessage && (
+                    <div className={`p-2.5 rounded-xl text-[11px] leading-relaxed border ${
+                      emailStatus === 'success' 
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-100' 
+                        : 'bg-rose-50 text-rose-800 border-rose-100'
+                    }`}>
+                      {emailStatusMessage}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={sendingEmail}
+                      onClick={handleSendEmail}
+                      className="flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:bg-slate-200 disabled:cursor-not-allowed text-white text-xs font-bold py-2 px-3 rounded-xl transition shadow-sm cursor-pointer"
+                    >
+                      {sendingEmail ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Mailing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Direct Mailen</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleMailto}
+                      className="flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition cursor-pointer"
+                      title="Open in je eigen e-mailprogramma"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>Eigen Mailer</span>
+                    </button>
+                  </div>
+
+                  <p className="text-[9px] text-slate-400 leading-normal text-center">
+                    Stuurt direct een mail met de berekeningen en de AI samenvatting naar de klant.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -521,7 +777,7 @@ export default function AdviceReport({ calculation, adviceMarkdown, loading }: A
                 Zonnepanelen & Einde Salderingsregeling
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                Gepersonaliseerd advies gebaseerd op een jaaropbrengst van <strong>{Math.round(calculation.solar.annualYieldKwh)} kWh</strong> met <strong>{calculation.tech.aantalZonnepanelen} zonnepanelen</strong>.
+                Gepersonaliseerd advies gebaseerd op een jaaropbrengst van <strong>{Math.round(calculation.solar.annualYieldKwh)} kWh</strong> met <strong>{calculation.tech.aantalZonnepanelen} zonnepanelen</strong>, een oriëntatie van <strong>{calculation.tech.dakOrientatie}°</strong> en een hellingshoek van <strong>{calculation.tech.dakHellingshoek !== undefined ? calculation.tech.dakHellingshoek : 35}°</strong>.
               </p>
             </div>
 
@@ -1042,6 +1298,12 @@ export default function AdviceReport({ calculation, adviceMarkdown, loading }: A
                           <span>Extra elektriciteitsverbruik:</span>
                           <span className="font-semibold text-rose-600">+{Math.round(opt.elecIncreaseKwh)} kWh (+€ {Math.round(opt.elecCostEuro)})</span>
                         </div>
+                        {opt.solarCoverageKwh !== undefined && opt.solarCoverageKwh > 0 && (
+                          <div className="flex justify-between text-[11px] text-emerald-600 bg-emerald-50/40 px-2 py-0.5 rounded">
+                            <span>↪ Waarvan gedekt door zonne-overschot:</span>
+                            <span className="font-semibold">-{Math.round(opt.solarCoverageKwh)} kWh (lage kosten)</span>
+                          </div>
+                        )}
                         {opt.fixedGasSavingsEuro > 0 && (
                           <div className="flex justify-between text-indigo-700 font-semibold bg-indigo-50/50 px-2 py-1 rounded">
                             <span>Vastrecht gas gespaard:</span>
@@ -1154,9 +1416,81 @@ export default function AdviceReport({ calculation, adviceMarkdown, loading }: A
           </div>
         )}
 
-        {/* Tab Content 5: Original Text-based advice markdown */}
+        {/* Tab Content 5: Dedicated Laadpaal results */}
+        {activeTab === 'laadpaal' && (
+          <div className="p-8 print:p-0 space-y-6">
+            <div className="bg-emerald-50/40 border border-emerald-100 rounded-3xl p-6 space-y-4 shadow-sm animate-fadeIn">
+              <div className="flex items-center gap-2 pb-2 border-b border-emerald-100/60">
+                <Zap className="w-5 h-5 text-emerald-600 animate-pulse" />
+                <h3 className="text-sm font-bold text-slate-800">🚗 Financiële Analyse: Eigen Laadpaal &amp; ERE-vergoeding</h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm space-y-1">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Thuisgeladen volume</span>
+                  <span className="text-lg font-extrabold text-slate-800">
+                    {Math.round(((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100).toLocaleString('nl-NL')} kWh
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">
+                    ({calculation.tech?.evThuisLaden ?? 70}% van jaarlijks EV verbruik)
+                  </span>
+                </div>
+
+                <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm space-y-1">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Laadpaal Besparing</span>
+                  <span className="text-lg font-extrabold text-emerald-600">
+                    € {Math.round(
+                      (((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * (0.50 - (calculation.house?.elektraPrijs ?? 0.30))
+                    ).toLocaleString('nl-NL')} / jr
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">
+                    (t.o.v. openbaar laden à €0,50/kWh)
+                  </span>
+                </div>
+
+                <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm space-y-1">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Wettelijke ERE-vergoeding</span>
+                  <span className="text-lg font-extrabold text-indigo-600">
+                    € {Math.round(
+                      (((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * 0.12
+                    ).toLocaleString('nl-NL')} / jr
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">
+                    (Opbrengst van €0,12 / kWh geladen)
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div className="space-y-0.5">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Gecombineerd Jaarlijks Voordeel</span>
+                  <span className="text-2xl font-black text-slate-900">
+                    € {Math.round(
+                      ((((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * (0.50 - (calculation.house?.elektraPrijs ?? 0.30))) + 
+                      ((((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * 0.12)
+                    ).toLocaleString('nl-NL')} / jr
+                  </span>
+                </div>
+                <div className="bg-emerald-50 text-emerald-800 font-extrabold text-xs px-3 py-1.5 rounded-lg border border-emerald-100 font-mono">
+                  Terugverdientijd: ~{(
+                    1200 / 
+                    ((((((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * (0.50 - (calculation.house?.elektraPrijs ?? 0.30))) + 
+                    ((((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * 0.12)) || 1)
+                  ).toFixed(1)} jaar
+                </div>
+              </div>
+
+              <div className="bg-indigo-50/50 rounded-xl p-4 text-xs text-indigo-950 leading-relaxed border border-indigo-100/60">
+                <span className="font-bold block mb-1">💡 Hoe werkt de ERE-claim?</span>
+                Bovenop alles wat je al bespaart, verdien je ook nog eens geld terug! Voor elke kWh die je thuis laadt, zijn oliemaatschappijen zoals Shell en BP wettelijk verplicht een vergoeding te betalen van circa <strong>€ 0,12 per kWh</strong>. Deze vergoeding (de ERE / HBE-vergoeding) kun je claimen door je laadpaal aan te melden bij partijen zoals <strong>Zonneplan</strong>, <strong>Laadpaal App</strong> of <strong>EREclaim.nl</strong>. Je laadsessies worden automatisch verwerkt en jaarlijks uitbetaald!
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab Content 6: Original Text-based advice markdown */}
         {activeTab === 'text' && (
-          <div className="p-8 print:p-0">
+          <div className="p-8 print:p-0 space-y-6">
             {adviceMarkdown ? (
               <div className="prose prose-slate max-w-none prose-p:text-slate-600 prose-p:leading-relaxed prose-headings:font-bold prose-headings:text-slate-800 prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg" id="markdown-viewer">
                 <ReactMarkdown

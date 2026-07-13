@@ -73,13 +73,22 @@ const defaultInsulation: InsulationData = {
 const defaultTech: TechData = {
   aantalZonnepanelen: 4,
   dakOrientatie: 45,
+  dakHellingshoek: 35,
   huidigDirectVerbruik: 30,
   capaciteitAccu: 0,
   omzettingsverliezen: 10,
   typeContract: 'Vast',
+  evKilometers: 15000,
+  evVerbruik: 18,
+  evThuisLaden: 70,
+  laadvermogen: 11,
+  opslagLeverancier: 0.02,
 };
 
 export default function App() {
+  // Synchronized active tab across inputs & results
+  const [activeTab, setActiveTab] = useState<'isolatie' | 'zon' | 'accu' | 'saldering' | 'warmtepomp' | 'laadpaal'>('isolatie');
+
   // Load from localStorage or defaults
   const [resident, setResident] = useState<ResidentData>(() => {
     const cached = localStorage.getItem('pem_resident');
@@ -150,7 +159,9 @@ export default function App() {
   }, [resident, house, insulation, tech, opmerkingenOffertes, opmerkingenAlgemeen]);
 
   // AI Advice state
-  const [adviceMarkdown, setAdviceMarkdown] = useState<string | null>(null);
+  const [adviceMarkdown, setAdviceMarkdown] = useState<string | null>(() => {
+    return localStorage.getItem('pem_advice_markdown') || null;
+  });
   const [loadingAdvice, setLoadingAdvice] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -161,17 +172,23 @@ export default function App() {
     if (!resident.huisnummer) ontbrekend.push("Huisnummer");
     if (!resident.achternaam) ontbrekend.push("Achternaam");
     if (!resident.telefoon) ontbrekend.push("Telefoonnummer");
-    if (!resident.akkoord) ontbrekend.push("Akkoord gegevensverwerking");
     if (!house.soortWoning) ontbrekend.push("Soort woning");
     if (!house.wozWaarde) ontbrekend.push("WOZ-waarde");
 
-    const activeMeasuresCount = calculation.measures.length;
-    if (activeMeasuresCount < 2) {
-      ontbrekend.push("Minimaal 2 isolatiemaatregelen (vul m² in)");
-    }
-
     if (ontbrekend.length > 0) {
       alert("⚠️ Let op, het formulier is nog niet compleet of bevat fouten.\n\nControleer de volgende velden:\n\n- " + ontbrekend.join("\n- "));
+      return;
+    }
+
+    // Checking cache for identical calculation parameters
+    const currentCalculationStr = JSON.stringify(calculation);
+    const cachedInputsStr = localStorage.getItem('pem_advice_inputs');
+    const cachedAdviceStr = localStorage.getItem('pem_advice_markdown');
+
+    if (cachedInputsStr === currentCalculationStr && cachedAdviceStr) {
+      console.log("[Cache] Reusing identical cached advice report instantly.");
+      setAdviceMarkdown(cachedAdviceStr);
+      setActiveTab('laadpaal');
       return;
     }
 
@@ -190,6 +207,10 @@ export default function App() {
 
       const data = await response.json();
       setAdviceMarkdown(data.advice);
+      localStorage.setItem('pem_advice_markdown', data.advice);
+      localStorage.setItem('pem_advice_inputs', currentCalculationStr);
+      // Automatically navigate to the results/advice tab (laadpaal displays the text advice)
+      setActiveTab('laadpaal');
     } catch (err: any) {
       console.error(err);
       setError('Er is een fout opgetreden bij het genereren van het adviesrapport. Probeer het opnieuw.');
@@ -341,162 +362,172 @@ export default function App() {
             setTech={setTech}
             onGenerate={generateReport}
             loading={loadingAdvice}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
           />
         </div>
 
         {/* Right Column: Live Table & Dynamic Advice */}
         <div className="lg:col-span-7 space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <span className="bg-emerald-600 text-white text-xs w-5 h-5 rounded-full inline-flex items-center justify-center font-bold">2</span>
-              Resultaten &amp; Persoonlijk Advies
-            </h2>
-            {calculation.addedMeasureForOptimization && (
-              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-full animate-pulse">
-                Subsidie-optimalisatie actief!
-              </span>
-            )}
-          </div>
+          {activeTab === 'isolatie' && (
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <span className="bg-emerald-600 text-white text-xs w-5 h-5 rounded-full inline-flex items-center justify-center font-bold">2</span>
+                Resultaten &amp; Persoonlijk Advies
+              </h2>
+              {calculation.addedMeasureForOptimization && (
+                <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-full animate-pulse">
+                  Subsidie-optimalisatie actief!
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Quick Realtime Math Spreadsheet (Direct feedback on changes) */}
-          <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-md space-y-4">
-            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-              <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4 text-slate-400" />
-                Live Rekenoverzicht (Basis vs Optimalisatie)
-              </h3>
-              <span className="text-[10px] text-slate-400 uppercase font-mono">Gasprijs €{(house.gasPrijs ?? 1.30).toFixed(2)}/m³</span>
-            </div>
+          {activeTab === 'isolatie' && (
+            <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-md space-y-4">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                  <FileSpreadsheet className="w-4 h-4 text-slate-400" />
+                  Live Rekenoverzicht (Basis vs Optimalisatie)
+                </h3>
+                <span className="text-[10px] text-slate-400 uppercase font-mono">Gasprijs €{(house.gasPrijs ?? 1.30).toFixed(2)}/m³</span>
+              </div>
 
-            {calculation.measures.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-slate-400">
-                      <th className="py-2.5 font-semibold">Maatregel</th>
-                      <th className="py-2.5 font-semibold text-center">m²</th>
-                      <th className="py-2.5 font-semibold text-right">Bruto</th>
-                      <th className="py-2.5 font-semibold text-right">ISDE</th>
-                      <th className="py-2.5 font-semibold text-right">NIP</th>
-                      <th className="py-2.5 font-semibold text-right">Netto</th>
-                      <th className="py-2.5 font-semibold text-right">TVT</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {calculation.measures.map((m) => (
-                      <tr key={m.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors text-slate-600">
-                        <td className="py-2.5 font-medium text-slate-800">{m.name}</td>
-                        <td className="py-2.5 text-center">{m.area}</td>
-                        <td className="py-2.5 text-right">€{m.brutoCosts}</td>
-                        <td className="py-2.5 text-right text-emerald-600">
-                          {m.isdeSubsidy > 0 ? `€${Math.round(m.isdeSubsidy)}` : '€0'}
-                        </td>
-                        <td className="py-2.5 text-right text-blue-600">
-                          {m.nipSubsidy > 0 ? `€${Math.round(m.nipSubsidy)}` : '€0'}
-                        </td>
-                        <td className="py-2.5 text-right font-semibold text-slate-800">€{Math.round(m.netCosts)}</td>
-                        <td className="py-2.5 text-right font-mono">{m.tvt > 0 ? `${(m.tvt ?? 0).toFixed(1)}j` : '0j'}</td>
+              {calculation.measures.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-slate-400">
+                        <th className="py-2.5 font-semibold">Maatregel</th>
+                        <th className="py-2.5 font-semibold text-center">m²</th>
+                        <th className="py-2.5 font-semibold text-right">Bruto</th>
+                        <th className="py-2.5 font-semibold text-right">ISDE</th>
+                        <th className="py-2.5 font-semibold text-right">NIP</th>
+                        <th className="py-2.5 font-semibold text-right">Netto</th>
+                        <th className="py-2.5 font-semibold text-right">TVT</th>
                       </tr>
-                    ))}
-                    {/* Totale sommen */}
-                    <tr className="bg-slate-50/50 font-bold border-t border-slate-200">
-                      <td className="py-3 text-slate-800 pl-2">Totaal (Basis)</td>
-                      <td className="py-3 text-center">-</td>
-                      <td className="py-3 text-right">€{calculation.totals.bruto}</td>
-                      <td className="py-3 text-right text-emerald-600">€{Math.round(calculation.totals.isde)}</td>
-                      <td className="py-3 text-right text-blue-600">€{Math.round(calculation.totals.nip)}</td>
-                      <td className="py-3 text-right text-slate-900">€{Math.round(calculation.totals.net)}</td>
-                      <td className="py-3 text-right font-mono pr-2">{(calculation.totals.tvt ?? 0).toFixed(1)}j</td>
-                    </tr>
-                    {/* Toon geoptimaliseerd resultaat indien aanwezig */}
-                    {calculation.addedMeasureForOptimization && (
-                      <tr className="bg-emerald-50 font-bold text-emerald-950">
-                        <td className="py-3 text-emerald-900 pl-2 flex items-center gap-1">
-                          <Sparkles className="w-3.5 h-3.5 fill-emerald-500/20 text-emerald-600 shrink-0" />
-                          <span>Totaal (Geoptimaliseerd)</span>
-                        </td>
+                    </thead>
+                    <tbody>
+                      {calculation.measures.map((m) => (
+                        <tr key={m.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors text-slate-600">
+                          <td className="py-2.5 font-medium text-slate-800">{m.name}</td>
+                          <td className="py-2.5 text-center">{m.area}</td>
+                          <td className="py-2.5 text-right">€{m.brutoCosts}</td>
+                          <td className="py-2.5 text-right text-emerald-600">
+                            {m.isdeSubsidy > 0 ? `€${Math.round(m.isdeSubsidy)}` : '€0'}
+                          </td>
+                          <td className="py-2.5 text-right text-blue-600">
+                            {m.nipSubsidy > 0 ? `€${Math.round(m.nipSubsidy)}` : '€0'}
+                          </td>
+                          <td className="py-2.5 text-right font-semibold text-slate-800">€{Math.round(m.netCosts)}</td>
+                          <td className="py-2.5 text-right font-mono">{m.tvt > 0 ? `${(m.tvt ?? 0).toFixed(1)}j` : '0j'}</td>
+                        </tr>
+                      ))}
+                      {/* Totale sommen */}
+                      <tr className="bg-slate-50/50 font-bold border-t border-slate-200">
+                        <td className="py-3 text-slate-800 pl-2">Totaal (Basis)</td>
                         <td className="py-3 text-center">-</td>
-                        <td className="py-3 text-right">€{calculation.totalsOptimal.bruto}</td>
-                        <td className="py-3 text-right">€{Math.round(calculation.totalsOptimal.isde)}</td>
-                        <td className="py-3 text-right">€{Math.round(calculation.totalsOptimal.nip)}</td>
-                        <td className="py-3 text-right">€{Math.round(calculation.totalsOptimal.net)}</td>
-                        <td className="py-3 text-right font-mono pr-2">{(calculation.totalsOptimal.tvt ?? 0).toFixed(1)}j</td>
+                        <td className="py-3 text-right">€{calculation.totals.bruto}</td>
+                        <td className="py-3 text-right text-emerald-600">€{Math.round(calculation.totals.isde)}</td>
+                        <td className="py-3 text-right text-blue-600">€{Math.round(calculation.totals.nip)}</td>
+                        <td className="py-3 text-right text-slate-900">€{Math.round(calculation.totals.net)}</td>
+                        <td className="py-3 text-right font-mono pr-2">{(calculation.totals.tvt ?? 0).toFixed(1)}j</td>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="text-center py-6 text-slate-400 text-xs">
-                Voer isolatiemaatregelen in het linkerpaneel in om live berekeningen te starten.
-              </div>
-            )}
+                      {/* Toon geoptimaliseerd resultaat indien aanwezig */}
+                      {calculation.addedMeasureForOptimization && (
+                        <tr className="bg-emerald-50 font-bold text-emerald-950">
+                          <td className="py-3 text-emerald-900 pl-2 flex items-center gap-1">
+                            <Sparkles className="w-3.5 h-3.5 fill-emerald-500/20 text-emerald-600 shrink-0" />
+                            <span>Totaal (Geoptimaliseerd)</span>
+                          </td>
+                          <td className="py-3 text-center">-</td>
+                          <td className="py-3 text-right">€{calculation.totalsOptimal.bruto}</td>
+                          <td className="py-3 text-right">€{Math.round(calculation.totalsOptimal.isde)}</td>
+                          <td className="py-3 text-right">€{Math.round(calculation.totalsOptimal.nip)}</td>
+                          <td className="py-3 text-right">€{Math.round(calculation.totalsOptimal.net)}</td>
+                          <td className="py-3 text-right font-mono pr-2">{(calculation.totalsOptimal.tvt ?? 0).toFixed(1)}j</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-6 text-slate-400 text-xs">
+                  Voer isolatiemaatregelen in het linkerpaneel in om live berekeningen te starten.
+                </div>
+              )}
 
-            {/* Toelichtende nootje */}
-            <div className="bg-slate-50 rounded-xl p-3 flex gap-2 items-start text-[10px] text-slate-500">
-              <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-              <p>
-                Bovenstaande is een directe, real-time rekenberekening gebaseerd op de Panningen EAC leidende kengetallen. 
-                De NIP subsidie (€2.900) wordt toegekend bij minimaal twee isolatiemaatregelen mits wordt voldaan aan de WOZ- en inkomenseisen.
-              </p>
+              {/* Toelichtende nootje */}
+              <div className="bg-slate-50 rounded-xl p-3 flex gap-2 items-start text-[10px] text-slate-500">
+                <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                <p>
+                  Bovenstaande is een directe, real-time rekenberekening gebaseerd op de Panningen EAC leidende kengetallen. 
+                  De NIP subsidie (€2.900) wordt toegekend bij minimaal twee isolatiemaatregelen mits wordt voldaan aan de WOZ- en inkomenseisen.
+                </p>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Opmerkingen Textareas */}
-          <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-md space-y-4">
-            <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-              <FileSpreadsheet className="w-4 h-4 text-slate-400" />
-              Opmerkingen &amp; Bijzonderheden
-            </h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Opmerkingen voor offertes (isolatiebedrijven)</label>
-                <textarea
-                  value={opmerkingenOffertes}
-                  onChange={(e) => setOpmerkingenOffertes(e.target.value)}
-                  placeholder="Bijv. Kruipruimte is circa 60cm hoog, goed toegankelijk via luik bij de voordeur..."
-                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-emerald-500 h-16 resize-none"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Bijzonderheden / leidraad verwerkers</label>
-                <textarea
-                  value={opmerkingenAlgemeen}
-                  onChange={(e) => setOpmerkingenAlgemeen(e.target.value)}
-                  placeholder="Bijv. Bewoner wil graag eerst vloerisolatie aanpakken, daarna spouw..."
-                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-emerald-500 h-16 resize-none"
-                />
+          {activeTab === 'isolatie' && (
+            <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-md space-y-4">
+              <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                <FileSpreadsheet className="w-4 h-4 text-slate-400" />
+                Opmerkingen &amp; Bijzonderheden
+              </h3>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Opmerkingen voor offertes (isolatiebedrijven)</label>
+                  <textarea
+                    value={opmerkingenOffertes}
+                    onChange={(e) => setOpmerkingenOffertes(e.target.value)}
+                    placeholder="Bijv. Kruipruimte is circa 60cm hoog, goed toegankelijk via luik bij de voordeur..."
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-emerald-500 h-16 resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Bijzonderheden / leidraad verwerkers</label>
+                  <textarea
+                    value={opmerkingenAlgemeen}
+                    onChange={(e) => setOpmerkingenAlgemeen(e.target.value)}
+                    placeholder="Bijv. Bewoner wil graag eerst vloerisolatie aanpakken, daarna spouw..."
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-emerald-500 h-16 resize-none"
+                  />
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* EAC Actieknoppen Opslaan en Verzenden */}
-          <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-md flex justify-between items-center gap-3">
-            <button
-              onClick={wisFormulier}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl hover:bg-red-100 transition shadow-sm"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Nieuw formulier (Wis)</span>
-            </button>
-            
-            <div className="flex gap-2">
+          {activeTab === 'isolatie' && (
+            <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-md flex justify-between items-center gap-3">
               <button
-                onClick={downloadExcel}
-                className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition shadow-sm"
+                onClick={wisFormulier}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl hover:bg-red-100 transition shadow-sm"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>Opslaan (Excel)</span>
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Nieuw formulier (Wis)</span>
               </button>
-              <button
-                onClick={downloadJSON}
-                className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-xl hover:bg-slate-200 transition shadow-sm"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Opslaan (JSON)</span>
-              </button>
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={downloadExcel}
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Opslaan (Excel)</span>
+                </button>
+                <button
+                  onClick={downloadJSON}
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-xl hover:bg-slate-200 transition shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Opslaan (JSON)</span>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Error banner */}
           {error && (
@@ -510,6 +541,8 @@ export default function App() {
             calculation={calculation}
             adviceMarkdown={adviceMarkdown}
             loading={loadingAdvice}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
           />
         </div>
       </main>

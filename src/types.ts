@@ -62,10 +62,16 @@ export interface InsulationData {
 export interface TechData {
   aantalZonnepanelen: number;
   dakOrientatie: number; // degrees relative to South (0 is South, -90 East, 90 West, 180 North)
+  dakHellingshoek?: number; // degrees (0 flat, 90 vertical, default 35)
   huidigDirectVerbruik: number; // % (0-100)
   capaciteitAccu: number; // kWh
   omzettingsverliezen: number; // % (0-100)
   typeContract: 'Vast' | 'Dynamisch';
+  evKilometers?: number;
+  evVerbruik?: number;
+  evThuisLaden?: number;
+  laadvermogen?: number;
+  opslagLeverancier?: number; // €/kWh dynamic contract surcharge
 }
 
 export interface CalculatedMeasure {
@@ -130,6 +136,8 @@ export interface HeatpumpOption {
   gasSavingsEuro: number;
   elecIncreaseKwh: number;
   elecCostEuro: number;
+  solarCoverageKwh?: number;
+  gridImportKwh?: number;
   fixedGasSavingsEuro: number; // Saving fixed gas costs (vastrecht) by removing gas connection
   netSavingsEuro: number;
   tvt: number; // Payback time in years
