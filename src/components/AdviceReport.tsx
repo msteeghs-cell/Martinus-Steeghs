@@ -1,11 +1,12 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { CalculationResult } from '../types';
+import { CalculationResult, TechData } from '../types';
+import BatteryMarketOverview from './BatteryMarketOverview';
 import { 
   FileText, Copy, Printer, Check, TrendingDown, ShieldAlert, Award, Zap, HelpCircle, 
   BarChart3, LineChart as LineIcon, Landmark, Sparkles, ArrowRightLeft, Clock, PiggyBank,
-  Sun, Battery, Flame, ArrowUpRight, TrendingUp, Info, Mail, Send, Loader2
+  Sun, Battery, Flame, ArrowUpRight, TrendingUp, Info, Mail, Send, Loader2, Layers
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -32,6 +33,7 @@ interface AdviceReportProps {
   loading: boolean;
   activeTab: 'isolatie' | 'zon' | 'accu' | 'saldering' | 'warmtepomp' | 'laadpaal';
   setActiveTab: (tab: 'isolatie' | 'zon' | 'accu' | 'saldering' | 'warmtepomp' | 'laadpaal') => void;
+  setTech?: React.Dispatch<React.SetStateAction<TechData>>;
 }
 
 export default function AdviceReport({ 
@@ -39,7 +41,8 @@ export default function AdviceReport({
   adviceMarkdown, 
   loading,
   activeTab: outerTab,
-  setActiveTab
+  setActiveTab,
+  setTech
 }: AdviceReportProps) {
   const [copied, setCopied] = React.useState(false);
   const [isEmailModalOpen, setIsEmailModalOpen] = React.useState(false);
@@ -226,6 +229,55 @@ Energieplanner Peel en Maas
     };
   });
 
+  // ROI calculations for Insulation, Solar panels, and Battery
+  const insulationNet = Math.round(calculation.totals.net);
+  const insulationSavings = Math.round(calculation.totals.savingsEuro);
+  const insulationROI = insulationNet > 0 ? Number(((insulationSavings / insulationNet) * 100).toFixed(1)) : 0;
+
+  const solarPanelsCount = calculation.tech.aantalZonnepanelen || 0;
+  const solarNetInvestment = (calculation.tech.customZonnepanelenPrijs !== undefined && calculation.tech.customZonnepanelenPrijs > 0)
+    ? calculation.tech.customZonnepanelenPrijs
+    : solarPanelsCount * 500; // Realistic standard net cost of €500 per panel
+  const solarSavings = Math.round(calculation.solar.annualYieldKwh * (calculation.house.elektraPrijs - 0.05));
+  const solarROI = solarNetInvestment > 0 ? Number(((solarSavings / solarNetInvestment) * 100).toFixed(1)) : 0;
+
+  const selectedCap = calculation.tech.capaciteitAccu || 0;
+  const batteryOpt = calculation.battery.options.find(opt => opt.capacityKwh === selectedCap) ||
+                     calculation.battery.options.find(opt => opt.bestSuited) ||
+                     calculation.battery.options[1] ||
+                     calculation.battery.options[0];
+
+  const batteryNetInvestment = batteryOpt ? batteryOpt.netInvestment : 7500;
+  const batterySavings = batteryOpt ? (calculation.tech.typeContract === 'Dynamisch' ? batteryOpt.annualSavingsDynamisch : batteryOpt.annualSavingsVastPost2027) : 0;
+  const batteryROI = batteryNetInvestment > 0 ? Number(((batterySavings / batteryNetInvestment) * 100).toFixed(1)) : 0;
+
+  const roiChartData = [
+    {
+      name: 'Isolatie',
+      roi: insulationROI,
+      investment: insulationNet,
+      savings: insulationSavings,
+      color: '#10b981', // Emerald
+      details: insulationNet > 0 ? `€ ${insulationNet.toLocaleString('nl-NL')} netto` : 'Geen maatregelen geselecteerd'
+    },
+    {
+      name: 'Zonnepanelen',
+      roi: solarROI,
+      investment: solarNetInvestment,
+      savings: solarSavings,
+      color: '#f59e0b', // Amber
+      details: solarPanelsCount > 0 ? `${solarPanelsCount} panelen (${Math.round(calculation.solar.annualYieldKwh)} kWh/jr)` : 'Geen zonnepanelen ingevoerd'
+    },
+    {
+      name: 'Thuisbatterij',
+      roi: batteryROI,
+      investment: batteryNetInvestment,
+      savings: batterySavings,
+      color: '#3b82f6', // Blue
+      details: batteryOpt ? `${batteryOpt.capacityKwh} kWh (${calculation.tech.typeContract} contract)` : 'Geadviseerd model'
+    }
+  ];
+
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       // Find original long name if truncated
@@ -273,6 +325,51 @@ Energieplanner Peel en Maas
     }
     return null;
   };
+
+  // 🏠 Isolatie values
+  const isoCount = calculation.measures?.length || 0;
+  const isoSavingsM3 = Math.round(calculation.measures?.reduce((sum, m) => sum + m.savingM3, 0) || 0);
+  const isoNetCosts = Math.round(calculation.totals?.net || 0);
+  const isoTvt = calculation.totals?.tvt > 0 ? `${calculation.totals.tvt.toFixed(1)} jaar` : 'N.v.t.';
+
+  // ☀️ Zon values
+  const solarPanels = calculation.tech?.aantalZonnepanelen || 0;
+  const solarKwp = ((solarPanels * (calculation.tech?.vermogenPerPaneel || 400)) / 1000).toFixed(2);
+  const solarYield = Math.round(calculation.solar?.annualYieldKwh || 0);
+
+  // 🔋 Thuisbatterij values
+  const batCapacity = calculation.tech?.capaciteitAccu || 0;
+  const batSavings = batterySavings;
+  const batTvtVal = batteryNetInvestment > 0 && batterySavings > 0 ? (batteryNetInvestment / batterySavings) : 0;
+  const batTvt = batTvtVal > 0 ? `${batTvtVal.toFixed(1)} jaar` : 'N.v.t.';
+
+  // ⚖️ Saldering values
+  const salderingContract = calculation.tech?.typeContract || 'Vast';
+  const salderingLoss = Math.round((calculation.solar?.gridFeedBaseKwh || 0) * ((calculation.house?.elektraPrijs || 0.30) - 0.06));
+
+  // ♨️ Warmtepomp values
+  const selectedType = calculation.tech?.selectedWarmtepompType || 'Hybride';
+  const wpModel = calculation.tech?.selectedWarmtepompModel || 'Standard';
+  const wpType = wpModel === 'LuchtLucht' 
+    ? (selectedType === 'All-Electric' ? 'All-Electric (Multi-split)' : 'Lucht-lucht (Airco)')
+    : selectedType;
+  const wpSize = wpModel === 'Standard' ? '4 - 5 kW' :
+                 wpModel === 'Middelgroot 8kW' ? '6 - 8 kW' :
+                 wpModel === 'Groot 12kW' ? '10 - 12 kW' : 
+                 (selectedType === 'All-Electric' ? 'All-Electric equivalent' : 'Lucht-lucht (Airco)');
+  const optIdx = selectedType === 'All-Electric' ? 1 : 0;
+  const chosenOpt = calculation.heatpump?.options?.[optIdx];
+  const wpAdvice = calculation.heatpump 
+    ? (!calculation.heatpump.isInsulatedSufficiently ? 'Eerst isoleren' : (chosenOpt?.isFeasible ? 'Zinvol / Geadviseerd' : 'Beperkt rendabel')) 
+    : 'Onbekend';
+  const wpTvtVal = chosenOpt ? chosenOpt.tvt : 0;
+  const wpTvt = wpTvtVal > 0 && wpTvtVal < 99 ? `${wpTvtVal.toFixed(1)} jaar` : 'Onbekend';
+
+  // 🚗 Laadpaal values
+  const evVol = Math.round(((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100);
+  const evSavings = evVol * (0.50 - (calculation.house?.elektraPrijs ?? 0.30));
+  const ereRevenue = evVol * 0.12;
+  const totalEvBenefit = Math.round(evSavings + ereRevenue);
 
   return (
     <div className="space-y-6" id="advice-report-section">
@@ -362,99 +459,304 @@ Energieplanner Peel en Maas
       {/* Advies rapportage container */}
       <div className="bg-white rounded-3xl border border-slate-100 shadow-md overflow-hidden print:border-0 print:shadow-none">
         
-        {/* Navigation Tabs Header */}
-        <div className="bg-slate-50 border-b border-slate-100 px-6 py-3 flex flex-wrap justify-between items-center gap-3 print:hidden">
-          <div className="flex flex-wrap bg-slate-200/60 p-1 rounded-2xl gap-1">
-            <button
-              onClick={() => {
-                setLocalActiveTab('graph');
-                setActiveTab('isolatie');
-              }}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition ${
-                activeTab === 'graph' 
-                  ? 'bg-white text-emerald-700 shadow-sm' 
-                  : 'text-slate-600 hover:text-slate-800'
-              }`}
-            >
-              <BarChart3 className="w-3.5 h-3.5 text-emerald-600" />
-              <span>📊 Financiële Planner</span>
-            </button>
-            <button
-              onClick={() => {
-                setLocalActiveTab('solar');
-                setActiveTab('zon');
-              }}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition ${
-                activeTab === 'solar' 
-                  ? 'bg-white text-amber-700 shadow-sm' 
-                  : 'text-slate-600 hover:text-slate-800'
-              }`}
-            >
-              <Sun className="w-3.5 h-3.5 text-amber-500" />
-              <span>☀️ Zonnepanelen &amp; Saldering</span>
-            </button>
-            <button
-              onClick={() => {
-                setLocalActiveTab('battery');
-                setActiveTab('accu');
-              }}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition ${
-                activeTab === 'battery' 
-                  ? 'bg-white text-blue-700 shadow-sm' 
-                  : 'text-slate-600 hover:text-slate-800'
-              }`}
-            >
-              <Battery className="w-3.5 h-3.5 text-blue-500" />
-              <span>🔋 Thuisbatterij</span>
-            </button>
-            <button
-              onClick={() => {
-                setLocalActiveTab('heatpump');
-                setActiveTab('warmtepomp');
-              }}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition ${
-                activeTab === 'heatpump' 
-                  ? 'bg-white text-orange-700 shadow-sm' 
-                  : 'text-slate-600 hover:text-slate-800'
-              }`}
-            >
-              <Flame className="w-3.5 h-3.5 text-orange-500" />
-              <span>🔥 Warmtepomp</span>
-            </button>
-            <button
-              onClick={() => {
-                setLocalActiveTab('laadpaal');
-                setActiveTab('laadpaal');
-              }}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition ${
-                activeTab === 'laadpaal' 
-                  ? 'bg-white text-emerald-800 shadow-sm' 
-                  : 'text-slate-600 hover:text-slate-800'
-              }`}
-            >
-              <Zap className="w-3.5 h-3.5 text-emerald-600" />
-              <span>🚗 Laadpaal</span>
-            </button>
-            <button
-              onClick={() => {
-                setLocalActiveTab('text');
-              }}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition ${
-                activeTab === 'text' 
-                  ? 'bg-white text-slate-700 shadow-sm' 
-                  : 'text-slate-600 hover:text-slate-800'
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5 text-slate-600" />
-              <span>📄 Advies Rapport (AI)</span>
-            </button>
+        {/* Rapporthoofd: Registratiecode, Introductie & Compact Overzichtsraster */}
+        <div className="bg-slate-50 border-b border-slate-100 p-6 space-y-4">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-full uppercase tracking-wider font-mono">
+                  Registratiecode: {calculation.resident.registratiecode || "PM-CONCEPT"}
+                </span>
+                <span className="text-[11px] font-semibold text-slate-500 bg-white border border-slate-200 px-2.5 py-1 rounded-full">
+                  {calculation.resident.datum || new Date().toLocaleDateString('nl-NL')}
+                </span>
+              </div>
+              <h2 className="text-lg font-black text-slate-800 tracking-tight mt-1.5">
+                Energieplanner Peel en Maas Adviesrapport
+              </h2>
+              <p className="text-xs text-slate-600 leading-relaxed max-w-3xl">
+                Beste {calculation.resident.aanhef || ''} {calculation.resident.voorletters || ''} {calculation.resident.achternaam || ''}, bedankt voor het invullen van de Energieplanner Peel en Maas. Hierbij ontvang je jouw persoonlijke, onafhankelijke verduurzamingsadvies. Hieronder zie je de belangrijkste kerncijfers per thema in één compact overzicht:
+              </p>
+            </div>
           </div>
-          
-          <div className="flex gap-2">
+
+          {/* Compact Overzichtsraster per tabblad */}
+          <div className="space-y-2">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 px-1 print:hidden">Klik op een categorie hieronder om de gedetailleerde planner en adviezen te openen:</span>
+            <div className="grid grid-cols-1 gap-2.5">
+              {/* 🏠 Isolatie & Financiën */}
+              <button 
+                type="button"
+                onClick={() => {
+                  setLocalActiveTab('graph');
+                  setActiveTab('isolatie');
+                }}
+                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
+                  activeTab === 'graph'
+                    ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-500/15 shadow-sm shadow-emerald-50/80'
+                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">🏠</span>
+                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Isolatie &amp; Financiën</span>
+                  {activeTab === 'graph' && (
+                    <span className="bg-emerald-600 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Actief
+                    </span>
+                  )}
+                </div>
+                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
+                  <span className="leading-normal">
+                    {isoCount > 0 ? (
+                      <>
+                        <strong className="text-slate-900 font-bold">{isoCount} {isoCount === 1 ? 'maatregel' : 'maatregelen'}</strong>,{' '}
+                        <strong className="text-emerald-700 font-extrabold">{isoSavingsM3} m³/jr</strong> gasbesparing,{' '}
+                        netto eigen bijdrage:{' '}
+                        <strong className="text-slate-900 font-bold">€{isoNetCosts.toLocaleString('nl-NL')}</strong>,{' '}
+                        TVT: <strong className="text-amber-600 font-bold">{isoTvt}</strong>
+                      </>
+                    ) : (
+                      <span className="text-slate-400 italic font-normal">Geen isolatiemaatregelen geselecteerd</span>
+                    )}
+                  </span>
+                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'graph' ? 'rotate-45 text-emerald-600' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
+                </div>
+              </button>
+
+              {/* ☀️ Zonnepanelen */}
+              <button 
+                type="button"
+                onClick={() => {
+                  setLocalActiveTab('solar');
+                  setActiveTab('zon');
+                }}
+                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
+                  activeTab === 'solar' && outerTab === 'zon'
+                    ? 'bg-amber-50/70 border-amber-500 ring-2 ring-amber-500/15 shadow-sm shadow-amber-50/80'
+                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">☀️</span>
+                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Zonnepanelen</span>
+                  {activeTab === 'solar' && outerTab === 'zon' && (
+                    <span className="bg-amber-500 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Actief
+                    </span>
+                  )}
+                </div>
+                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
+                  <span className="leading-normal">
+                    {solarPanels > 0 ? (
+                      <>
+                        <strong className="text-slate-900 font-bold">{solarPanels} panelen</strong> ({solarKwp} kWp),{' '}
+                        opbrengst: <strong className="text-amber-600 font-bold">{solarYield.toLocaleString('nl-NL')} kWh/jr</strong>
+                      </>
+                    ) : (
+                      <span className="text-slate-400 italic font-normal">Geen zonnepanelen ingevoerd</span>
+                    )}
+                  </span>
+                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'solar' && outerTab === 'zon' ? 'rotate-45 text-amber-500' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
+                </div>
+              </button>
+
+              {/* 🔋 Thuisbatterij */}
+              <button 
+                type="button"
+                onClick={() => {
+                  setLocalActiveTab('battery');
+                  setActiveTab('accu');
+                }}
+                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
+                  activeTab === 'battery'
+                    ? 'bg-blue-50/70 border-blue-500 ring-2 ring-blue-500/15 shadow-sm shadow-blue-50/80'
+                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">🔋</span>
+                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Thuisbatterij</span>
+                  {activeTab === 'battery' && (
+                    <span className="bg-blue-600 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Actief
+                    </span>
+                  )}
+                </div>
+                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
+                  <span className="leading-normal">
+                    capaciteit: <strong className="text-slate-900 font-semibold">{batCapacity > 0 ? `${batCapacity} kWh` : (batteryOpt ? `${batteryOpt.capacityKwh} kWh` : '10 kWh')}</strong>,{' '}
+                    jaarbesparing: <strong className="text-emerald-700 font-bold">€{batSavings.toLocaleString('nl-NL')}</strong>,{' '}
+                    TVT: <strong className="text-blue-600 font-bold">{batTvt}</strong>
+                  </span>
+                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'battery' ? 'rotate-45 text-blue-500' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
+                </div>
+              </button>
+
+              {/* ⚖️ Saldering */}
+              <button 
+                type="button"
+                onClick={() => {
+                  setLocalActiveTab('solar');
+                  setActiveTab('saldering');
+                }}
+                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
+                  activeTab === 'solar' && outerTab === 'saldering'
+                    ? 'bg-teal-50/70 border-teal-500 ring-2 ring-teal-500/15 shadow-sm shadow-teal-50/80'
+                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">⚖️</span>
+                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Saldering</span>
+                  {activeTab === 'solar' && outerTab === 'saldering' && (
+                    <span className="bg-teal-600 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Actief
+                    </span>
+                  )}
+                </div>
+                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
+                  <span className="leading-normal">
+                    contractvorm: <strong className="text-slate-900 font-semibold">{salderingContract}</strong>,{' '}
+                    effect afschaffing saldering: <strong className="text-rose-600 font-bold">€{salderingLoss.toLocaleString('nl-NL')} / jr extra kosten</strong>
+                  </span>
+                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'solar' && outerTab === 'saldering' ? 'rotate-45 text-teal-600' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
+                </div>
+              </button>
+
+              {/* ♨️ Warmtepomp */}
+              <button 
+                type="button"
+                onClick={() => {
+                  setLocalActiveTab('heatpump');
+                  setActiveTab('warmtepomp');
+                }}
+                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
+                  activeTab === 'heatpump'
+                    ? 'bg-orange-50/70 border-orange-500 ring-2 ring-orange-500/15 shadow-sm shadow-orange-50/80'
+                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">♨️</span>
+                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Warmtepomp</span>
+                  {activeTab === 'heatpump' && (
+                    <span className="bg-orange-500 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Actief
+                    </span>
+                  )}
+                </div>
+                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
+                  <span className="leading-normal">
+                    type: <strong className="text-slate-900 font-semibold">{wpType} ({wpSize})</strong>,{' '}
+                    advies: <strong className={`${wpAdvice === 'Zinvol / Geadviseerd' ? 'text-emerald-600' : wpAdvice === 'Eerst isoleren' ? 'text-amber-600' : 'text-slate-600'} font-semibold`}>{wpAdvice}</strong>,{' '}
+                    TVT: <strong className="text-orange-600 font-bold">{wpTvt}</strong>
+                  </span>
+                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'heatpump' ? 'rotate-45 text-orange-500' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
+                </div>
+              </button>
+
+              {/* 🚗 Laadpaal */}
+              <button 
+                type="button"
+                onClick={() => {
+                  setLocalActiveTab('laadpaal');
+                  setActiveTab('laadpaal');
+                }}
+                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
+                  activeTab === 'laadpaal'
+                    ? 'bg-emerald-50/70 border-emerald-600 ring-2 ring-emerald-600/15 shadow-sm shadow-emerald-50/80'
+                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">🚗</span>
+                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Eigen Laadpaal</span>
+                  {activeTab === 'laadpaal' && (
+                    <span className="bg-emerald-700 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Actief
+                    </span>
+                  )}
+                </div>
+                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
+                  <span className="leading-normal">
+                    {calculation.tech.evKilometers ? (
+                      <>
+                        jaarlijks voordeel thuisladen: <strong className="text-emerald-600 font-bold">€{totalEvBenefit.toLocaleString('nl-NL')}</strong> <span className="text-[10px] text-slate-400 font-normal">(incl. vergoeding €{(evVol * 0.12).toFixed(0)}/jr)</span>
+                      </>
+                    ) : (
+                      <span className="text-slate-400 italic font-normal">Geen elektrische auto ingevoerd</span>
+                    )}
+                  </span>
+                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'laadpaal' ? 'rotate-45 text-emerald-600' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
+                </div>
+              </button>
+
+              {/* 📄 Advies Rapport (AI) */}
+              <button 
+                type="button"
+                onClick={() => {
+                  setLocalActiveTab('text');
+                }}
+                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
+                  activeTab === 'text'
+                    ? 'bg-indigo-50/70 border-indigo-500 ring-2 ring-indigo-500/15 shadow-sm shadow-indigo-50/80'
+                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">📄</span>
+                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Gepersonaliseerd AI Adviesrapport</span>
+                  {activeTab === 'text' && (
+                    <span className="bg-indigo-600 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Actief
+                    </span>
+                  )}
+                </div>
+                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
+                  <span className="leading-normal">
+                    {adviceMarkdown ? (
+                      <span className="text-emerald-600 font-semibold">✓ Rapport gegenereerd door AI</span>
+                    ) : (
+                      <span className="text-slate-400 italic font-normal">Rapport wordt geladen...</span>
+                    )}
+                  </span>
+                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'text' ? 'rotate-45 text-indigo-500' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Selected Tab Header & Action Bar */}
+        <div className="bg-slate-50/50 border-y border-slate-100 px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 print:hidden">
+          <div className="flex items-center gap-2">
+            <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${
+              activeTab === 'graph' ? 'bg-emerald-500' :
+              activeTab === 'solar' && outerTab === 'zon' ? 'bg-amber-500' :
+              activeTab === 'solar' && outerTab === 'saldering' ? 'bg-teal-500' :
+              activeTab === 'battery' ? 'bg-blue-500' :
+              activeTab === 'heatpump' ? 'bg-orange-500' :
+              activeTab === 'laadpaal' ? 'bg-emerald-600' :
+              'bg-indigo-500'
+            }`}></div>
+            <span className="text-xs font-black text-slate-700 uppercase tracking-wider font-sans">
+              Geselecteerd Detail: {
+                activeTab === 'graph' ? 'Isolatie & Financiële Planner' :
+                activeTab === 'solar' && outerTab === 'zon' ? 'Zonnepanelen' :
+                activeTab === 'solar' && outerTab === 'saldering' ? 'Saldering & Netto-teruglevering' :
+                activeTab === 'battery' ? 'Thuisbatterij & Arbitrage' :
+                activeTab === 'heatpump' ? 'Warmtepomp & Rendement' :
+                activeTab === 'laadpaal' ? 'Eigen Laadpaal & EV' :
+                'AI Adviesrapport'
+              }
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
             {activeTab === 'text' && adviceMarkdown && (
               <button
                 onClick={handleCopy}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 active:bg-slate-100 transition shadow-sm"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 active:bg-slate-100 transition shadow-sm cursor-pointer"
                 id="copy-report-btn"
               >
                 {copied ? (
@@ -472,7 +774,7 @@ Energieplanner Peel en Maas
             )}
             <button
               onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 active:bg-slate-100 transition shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 active:bg-slate-100 transition shadow-sm cursor-pointer"
               id="print-report-btn"
             >
               <Printer className="w-3.5 h-3.5" />
@@ -487,7 +789,7 @@ Energieplanner Peel en Maas
                   setEmailStatus('idle');
                   setEmailStatusMessage('');
                 }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition shadow-sm ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition shadow-sm cursor-pointer ${
                   isEmailModalOpen 
                     ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-bold' 
                     : 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50'
@@ -765,6 +1067,102 @@ Energieplanner Peel en Maas
               </div>
             </div>
 
+            {/* Section 5: ROI Vergelijking */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 pt-4">
+                <TrendingUp className="w-5 h-5 text-emerald-600" />
+                <h4 className="text-sm font-bold text-slate-800">5. Rendement op Investering (ROI) Vergelijking</h4>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Het Rendement op Investering (ROI) geeft aan hoeveel procent van je investering je jaarlijks terugverdient. Hoe hoger het percentage, hoe rendabeler de maatregel. Ter vergelijking: de gemiddelde rente op een spaarrekening ligt momenteel rond de 2% à 3%.
+              </p>
+
+              <div className="grid md:grid-cols-3 gap-6">
+                {/* Chart container */}
+                <div className="md:col-span-2 h-64 md:h-72 bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-col justify-between">
+                  <ResponsiveContainer width="100%" height="90%">
+                    <BarChart
+                      data={roiChartData}
+                      margin={{ top: 15, right: 15, left: 10, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                      <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} fontWeight="bold" />
+                      <YAxis stroke="#94a3b8" fontSize={10} tickFormatter={(v) => `${v}%`} />
+                      <Tooltip 
+                        content={({ active, payload }: any) => {
+                          if (active && payload && payload.length) {
+                            const data = payload[0].payload;
+                            return (
+                              <div className="bg-white p-3 border border-slate-100 shadow-xl rounded-xl text-xs space-y-1.5">
+                                <p className="font-bold text-slate-800">{data.name}</p>
+                                <div className="space-y-1 text-slate-600">
+                                  <div className="flex justify-between gap-6">
+                                    <span>Netto Investering:</span>
+                                    <span className="font-semibold text-slate-800">€ {Math.round(data.investment).toLocaleString('nl-NL')}</span>
+                                  </div>
+                                  <div className="flex justify-between gap-6">
+                                    <span>Jaarlijkse Besparing:</span>
+                                    <span className="font-semibold text-emerald-600">€ {Math.round(data.savings).toLocaleString('nl-NL')} / jr</span>
+                                  </div>
+                                  <div className="flex justify-between gap-6 border-t border-slate-100 pt-1 font-bold text-slate-900">
+                                    <span>Jaarlijks Rendement (ROI):</span>
+                                    <span className="text-emerald-700">{data.roi}%</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }} 
+                      />
+                      <Bar 
+                        dataKey="roi" 
+                        radius={[6, 6, 0, 0]}
+                        barSize={60}
+                      >
+                        {roiChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <p className="text-[10px] text-slate-400 text-center italic">
+                    Beweeg over de balken voor gedetailleerde investering- en besparingscijfers.
+                  </p>
+                </div>
+
+                {/* Legend & explanations */}
+                <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100 space-y-4 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Financieel Overzicht</span>
+                    
+                    {roiChartData.map((item, idx) => {
+                      const Icon = item.name === 'Isolatie' ? Layers : item.name === 'Zonnepanelen' ? Sun : Battery;
+                      return (
+                        <div key={idx} className="flex items-start gap-2.5">
+                          <div className="p-1.5 rounded-lg shrink-0" style={{ backgroundColor: `${item.color}15`, color: item.color }}>
+                            <Icon className="w-4 h-4" />
+                          </div>
+                          <div className="space-y-0.5">
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-xs font-bold text-slate-700">{item.name}</span>
+                              <span className="text-xs font-extrabold" style={{ color: item.color }}>{item.roi}%</span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 block leading-tight">{item.details}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-3 text-[10px] text-emerald-800 leading-relaxed">
+                    <span className="font-bold block mb-0.5">💡 Slimme tip:</span>
+                    Door isolatie en zonnepanelen te combineren met een thuisbatterij maximaliseer je de onafhankelijkheid van het net én profiteer op deze manier optimaal van de dynamische stroomtarieven.
+                  </div>
+                </div>
+              </div>
+            </div>
+
           </div>
         )}
 
@@ -1005,12 +1403,20 @@ Energieplanner Peel en Maas
                         <div className="space-y-0.5">
                           <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Netto Investering</span>
                           <span className="text-xl font-black text-slate-800">€ {Math.round(opt.netInvestment).toLocaleString('nl-NL')}</span>
-                          <span className="text-[9px] text-slate-400 block">Btw teruggevraagd</span>
+                          <span className="text-[9px] text-slate-400 block">
+                            Btw teruggevraagd
+                          </span>
                         </div>
-                        <div className="space-y-0.5 text-right">
+                        <div className="space-y-0.5 text-right font-sans">
                           <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Bruto Kosten</span>
-                          <span className="text-base font-bold text-slate-600">€ {Math.round(opt.brutoInvestment).toLocaleString('nl-NL')}</span>
-                          <span className="text-[9px] text-emerald-600 font-semibold block">Btw terug: €{Math.round(opt.btwRefund).toLocaleString('nl-NL')}</span>
+                          <span className="text-base font-bold text-slate-600 flex items-center justify-end gap-1">
+                            € {Math.round(opt.brutoInvestment).toLocaleString('nl-NL')}
+                          </span>
+                          {calculation.tech.capaciteitAccu === opt.capacityKwh && calculation.tech.customAccuPrijs !== undefined && calculation.tech.customAccuPrijs > 0 ? (
+                            <span className="text-[9px] text-indigo-600 font-extrabold block">✓ Eigen prijsopgave</span>
+                          ) : (
+                            <span className="text-[9px] text-emerald-600 font-semibold block">Btw terug: €{Math.round(opt.btwRefund).toLocaleString('nl-NL')}</span>
+                          )}
                         </div>
                       </div>
 
@@ -1115,7 +1521,12 @@ Energieplanner Peel en Maas
                       <td className="px-5 py-3 text-right text-emerald-600">€ {Math.round(calculation.battery.options[2].annualSavingsVastPost2027).toLocaleString('nl-NL')} / jr</td>
                     </tr>
                     <tr className="bg-emerald-50/10 font-bold">
-                      <td className="px-5 py-3 text-slate-600 font-medium">Jaarbesparing Dynamisch contract (Met smart-trading)</td>
+                      <td className="px-5 py-3 text-slate-600 font-medium">
+                        <div>Jaarbesparing Dynamisch contract (Met smart-trading)</div>
+                        <div className="text-[10px] text-slate-400 font-normal mt-0.5">
+                          Gebaseerd op het reële Zonneplan H1 gemiddeld teruglevertarief van <strong>€ 0,1049 / kWh</strong> en actieve arbitrage.
+                        </div>
+                      </td>
                       <td className="px-5 py-3 text-right text-emerald-600">€ {Math.round(calculation.battery.options[0].annualSavingsDynamisch).toLocaleString('nl-NL')} / jr</td>
                       <td className="px-5 py-3 text-right text-emerald-600">€ {Math.round(calculation.battery.options[1].annualSavingsDynamisch).toLocaleString('nl-NL')} / jr</td>
                       <td className="px-5 py-3 text-right text-emerald-600">€ {Math.round(calculation.battery.options[2].annualSavingsDynamisch).toLocaleString('nl-NL')} / jr</td>
@@ -1137,24 +1548,246 @@ Energieplanner Peel en Maas
               </div>
             </div>
 
-            {/* Advice Box */}
-            <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-5 md:p-6 space-y-3">
-              <h4 className="text-sm font-bold text-blue-800 flex items-center gap-1.5">
-                <Info className="w-4 h-4 text-blue-600" />
-                Slimme Sturing &amp; Arbitrage Toelichting
-              </h4>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Een thuisaccu is in Nederland financieel pas écht interessant als deze slim wordt aangestuurd. In Peel en Maas zien we dat veel bewoners kiezen voor een <strong>dynamisch energiecontract</strong> in combinatie met slimme software (zoals Bliq, Home Assistant, of de app van de accufabrikant zelf). 
-              </p>
-              <div className="text-[11px] text-slate-500 pt-1.5 leading-relaxed border-t border-blue-100/60">
-                <p className="font-semibold text-slate-700">Hoe werkt dit in de praktijk?</p>
-                <ul className="list-disc pl-4 mt-1 space-y-1">
-                  <li><strong>Zomer/Lente:</strong> De accu laadt overdag op met overtollige, gratis zonnestroom en levert deze stroom 's avonds terug wanneer de stroomprijzen op het net het hoogst zijn.</li>
-                  <li><strong>Winter/Herfst:</strong> Zelfs als er weinig zon is, kan de accu 's nachts stroom inkopen wanneer de tarieven (vaak extreem) laag of negatief zijn door windenergie, en deze overdag inzetten tijdens de dure piekuren (arbitrage). Hiermee verdubbel je de bruikbaarheid van je batterij over het hele jaar!</li>
-                  <li><strong>Btw-teruggave:</strong> Bij actieve sturing op dynamische tarieven ziet de Belastingdienst je als energie-ondernemer. Hierdoor kun je de volledige 21% btw op aanschaf en installatie terugvragen, wat de terugverdientijd direct met ruim 2 jaar verkort!</li>
-                </ul>
+            {/* Advice & Recommendation Box */}
+            <div className="bg-gradient-to-br from-slate-50 to-blue-50/20 border border-slate-100 rounded-2xl p-6 space-y-6">
+              <div className="flex items-center gap-2 pb-3 border-b border-slate-200/60">
+                <Sparkles className="w-5 h-5 text-amber-500 animate-pulse" />
+                <h4 className="text-base font-bold text-slate-800">
+                  Geadviseerde Thuisbatterij &amp; Contract Analyse
+                </h4>
+              </div>
+
+              {/* Grid with suitable battery and contract dependency */}
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* 1. Suitable Battery Size */}
+                <div className="bg-white border border-slate-100 rounded-2xl p-5 space-y-3 shadow-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Jouw Meest Geschikte Accu</span>
+                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded font-mono">Aanbevolen</span>
+                  </div>
+
+                  <div className="flex items-baseline gap-2">
+                    <Battery className="w-5 h-5 text-blue-500 self-center" />
+                    <span className="text-xl font-extrabold text-slate-800">
+                      {calculation.solar.annualYieldKwh === 0 
+                        ? 'Geen thuisaccu' 
+                        : calculation.solar.annualYieldKwh < 3500 
+                          ? '5 kWh (Klein)' 
+                          : calculation.solar.annualYieldKwh < 7500 
+                            ? '10 kWh (Middelgroot)' 
+                            : '15 kWh (Groot)'}
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    {calculation.solar.annualYieldKwh === 0 ? (
+                      "Een thuisbatterij heeft momenteel zonnepanelen nodig om rendabel te laden met eigen gratis stroom. We adviseren eerst zonnepanelen te installeren."
+                    ) : calculation.solar.annualYieldKwh < 3500 ? (
+                      `Met een jaaropbrengst van ${Math.round(calculation.solar.annualYieldKwh)} kWh zonnestroom is een 5 kWh thuisaccu ruim voldoende om je avond- en nachtverbruik af te dekken zonder overcapaciteit.`
+                    ) : calculation.solar.annualYieldKwh < 7500 ? (
+                      `Met een zonneopbrengst van ${Math.round(calculation.solar.annualYieldKwh)} kWh is een 10 kWh accu de gulden middenweg. Dit biedt voldoende opslag om de dagpieken op te vangen en 's avonds volledig zelfvoorzienend te zijn.`
+                    ) : (
+                      `Met een uitstekende jaaropbrengst van ${Math.round(calculation.solar.annualYieldKwh)} kWh zonnestroom is een 15 kWh accu uitermate geschikt om grote hoeveelheden stroom op te slaan, ideaal bij een warmtepomp of EV.`
+                    )}
+                  </p>
+
+                  {setTech && calculation.solar.annualYieldKwh > 0 && calculation.tech.capaciteitAccu !== (calculation.solar.annualYieldKwh < 3500 ? 5 : calculation.solar.annualYieldKwh < 7500 ? 10 : 15) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const recSize = calculation.solar.annualYieldKwh < 3500 ? 5 : calculation.solar.annualYieldKwh < 7500 ? 10 : 15;
+                        setTech(prev => ({ ...prev, capaciteitAccu: recSize }));
+                      }}
+                      className="w-full mt-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold py-2 px-3 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      Stel mijn actieve accu in op {calculation.solar.annualYieldKwh < 3500 ? '5' : calculation.solar.annualYieldKwh < 7500 ? '10' : '15'} kWh
+                    </button>
+                  )}
+                </div>
+
+                {/* 2. Contract Dependency */}
+                <div className="bg-white border border-slate-100 rounded-2xl p-5 space-y-3 shadow-sm flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Contract Invloed</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                        calculation.tech.typeContract === 'Dynamisch' 
+                          ? 'bg-blue-50 text-blue-700' 
+                          : 'bg-rose-50 text-rose-700'
+                      }`}>
+                        Actief: {calculation.tech.typeContract} contract
+                      </span>
+                    </div>
+
+                    {calculation.tech.typeContract === 'Vast' ? (
+                      <div className="space-y-2">
+                        <span className="text-xs font-extrabold text-rose-700 flex items-center gap-1">
+                          <ShieldAlert className="w-4 h-4 shrink-0" />
+                          Minder rendabel onder Vast contract
+                        </span>
+                        <p className="text-xs text-slate-600 leading-relaxed">
+                          Met een vast of variabel contract mag je in Nederland salderen (tot 2027). Hierdoor fungeert het elektriciteitsnet gratis als 'virtuele accu'. Een fysieke accu voegt dan financieel weinig toe behalve een lichte verhoging van direct eigen verbruik.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <span className="text-xs font-extrabold text-emerald-700 flex items-center gap-1">
+                          <Check className="w-4 h-4 shrink-0 text-emerald-500" />
+                          Maximaal rendement met Dynamisch!
+                        </span>
+                        <p className="text-xs text-slate-600 leading-relaxed">
+                          Met een dynamisch contract profiteer je direct van <strong>arbitrage-trading</strong>. Je accu laadt automatisch op als stroom gratis of negatief geprijsd is (bijv. bij veel wind/zon) en ontlaadt tijdens de dure piekuren. Dit verkort de terugverdientijd direct met wel 5 tot 7 jaar!
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {setTech && (
+                    <button
+                      type="button"
+                      onClick={() => setTech(prev => ({ 
+                        ...prev, 
+                        typeContract: calculation.tech.typeContract === 'Vast' ? 'Dynamisch' : 'Vast' 
+                      }))}
+                      className="w-full mt-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition flex items-center justify-center gap-1.5"
+                    >
+                      <ArrowRightLeft className="w-3.5 h-3.5" />
+                      Wissel naar {calculation.tech.typeContract === 'Vast' ? 'Dynamisch' : 'Vast / Variabel'} contract
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 3. Interactive Provider Chooser & Details */}
+              <div className="space-y-4 pt-4 border-t border-slate-200/60">
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                  <span className="text-xs font-extrabold text-slate-700 uppercase tracking-wide block">
+                    Aanbevolen Dynamische Energieaanbieders voor Thuisaccu's:
+                  </span>
+                  {calculation.tech.typeContract === 'Vast' && (
+                    <span className="text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded self-start sm:self-auto">
+                      ⚠️ Alleen van toepassing bij Dynamisch contract
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { id: 'Zonneplan' as const, name: 'Zonneplan', tag: 'Powerplay', desc: 'Onbalansmarkt' },
+                    { id: 'Tibber' as const, name: 'Tibber', tag: 'Pulse & API', desc: 'Domotica ready' },
+                    { id: 'Frank' as const, name: 'Frank Energie', tag: 'Slim Handelen', desc: 'EPEX arbitrage' },
+                    { id: 'Anwb' as const, name: 'ANWB Energie', tag: 'Slim Laden', desc: 'EV Combinatie' }
+                  ].map((p) => {
+                    const isSelected = calculation.tech.dynamicProvider === p.id || (!calculation.tech.dynamicProvider && p.id === 'Zonneplan');
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        disabled={!setTech}
+                        onClick={() => {
+                          if (setTech) {
+                            setTech(prev => ({ ...prev, dynamicProvider: p.id, typeContract: 'Dynamisch' }));
+                          }
+                        }}
+                        className={`p-3.5 rounded-2xl border text-left transition flex flex-col justify-between ${
+                          isSelected
+                            ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white border-blue-500 shadow-md shadow-indigo-100 ring-2 ring-offset-2 ring-indigo-500'
+                            : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        <div>
+                          <span className="font-extrabold text-xs block">{p.name}</span>
+                          <span className={`text-[9px] font-semibold mt-0.5 block ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>{p.tag}</span>
+                        </div>
+                        <span className={`text-[10px] mt-2 font-mono ${isSelected ? 'text-white font-bold' : 'text-slate-500'}`}>
+                          {p.desc}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Selected Provider Details Display */}
+                <div className="bg-white border border-slate-100 p-5 rounded-2xl space-y-3 shadow-sm">
+                  {((!calculation.tech.dynamicProvider || calculation.tech.dynamicProvider === 'Zonneplan')) && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5 text-blue-900 font-bold text-sm">
+                        <Zap className="w-4 h-4 text-amber-500" />
+                        <span>Waarom Zonneplan Powerplay perfect is voor jouw thuisaccu:</span>
+                      </div>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        Zonneplan Powerplay stuurt je thuisbatterij volledig automatisch aan op de <strong>onbalansmarkt</strong> van TenneT. In plaats van stroom simpelweg op te slaan voor de avond, helpt jouw batterij actief mee om het Nederlandse stroomnet te stabiliseren. Hiervoor ontvang je zeer hoge vergoedingen.
+                      </p>
+                      <ul className="list-disc pl-4 text-[11px] text-slate-500 space-y-1">
+                        <li><strong>Volledig ontzorgd:</strong> De slimme software handelt autonoom; je hoeft zelf niets in te stellen.</li>
+                        <li><strong>Maximale opbrengsten:</strong> Onbalansprijzen schieten vaak veel harder omhoog of omlaag dan reguliere uurprijzen (soms wel tot €1,00/kWh vergoeding).</li>
+                        <li><strong>Btw-teruggave:</strong> De Belastingdienst ziet je door dit actieve handelen als ondernemer, waardoor je de 21% btw op de accu volledig kunt terugvragen!</li>
+                      </ul>
+                    </div>
+                  )}
+
+                  {calculation.tech.dynamicProvider === 'Tibber' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5 text-blue-900 font-bold text-sm">
+                        <Zap className="w-4 h-4 text-sky-400" />
+                        <span>Waarom Tibber uitstekend is voor slimme tech-integraties:</span>
+                      </div>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        Tibber is marktleider in slimme dynamic-sturing. Dankzij hun open en gedocumenteerde API-koppelingen communiceert Tibber perfect met Home Assistant, Bliq, en omvormers van bekende merken (zoals SolarEdge, Growatt of Victron).
+                      </p>
+                      <ul className="list-disc pl-4 text-[11px] text-slate-500 space-y-1">
+                        <li><strong>Tibber Pulse:</strong> Real-time inzicht in je stroommeter (P1-poort) om de accu exact aan te sturen op je actuele nul-verbruik.</li>
+                        <li><strong>Open Eco-systeem:</strong> Je zit niet vast aan één accumerk. Je kunt de sturing zelf programmeren of koppelen met externe domotica.</li>
+                        <li><strong>Lage inkoopopslag:</strong> Tibber rekent een zeer scherpe inkoopopslag per kWh, wat de marge voor batterij-arbitrage vergroot.</li>
+                      </ul>
+                    </div>
+                  )}
+
+                  {calculation.tech.dynamicProvider === 'Frank' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5 text-blue-900 font-bold text-sm">
+                        <Zap className="w-4 h-4 text-emerald-500" />
+                        <span>Waarom Frank Energie "Slim Handelen" de ideale partner is:</span>
+                      </div>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        Frank Energie biedt de slimme sturingsdienst genaamd "Slim Handelen". Hun algoritme berekent elk uur de optimale laad- en ontlaadcycli op de EPEX spotmarkt.
+                      </p>
+                      <ul className="list-disc pl-4 text-[11px] text-slate-500 space-y-1">
+                        <li><strong>Wind- &amp; Zonne-Arbitrage:</strong> De accu laadt op de goedkoopste uren van de dag (bijvoorbeeld 's nachts bij harde wind of 's middags bij felle zon) en levert terug tijdens de dure piekuren.</li>
+                        <li><strong>Gebruiksvriendelijke app:</strong> Je ziet in de Frank Energie app live hoeveel winst je accu vandaag heeft gemaakt met slim handelen.</li>
+                        <li><strong>Geen ingewikkelde hardware:</strong> Directe softwarematige koppeling met de omvormer/accu van je thuisbatterij.</li>
+                      </ul>
+                    </div>
+                  )}
+
+                  {calculation.tech.dynamicProvider === 'Anwb' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5 text-blue-900 font-bold text-sm">
+                        <Zap className="w-4 h-4 text-amber-500" />
+                        <span>Waarom ANWB Energie de beste keuze is in combinatie met een EV:</span>
+                      </div>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        ANWB Energie blinkt uit in de combinatie van een thuisaccu en een elektrische auto (EV). Hun slimme laad-software synchroniseert het opladen van je auto en je thuisaccu voor maximaal financieel voordeel.
+                      </p>
+                      <ul className="list-disc pl-4 text-[11px] text-slate-500 space-y-1">
+                        <li><strong>Geïntegreerde laadsturing:</strong> Voorkom dat de thuisaccu leegloopt in de auto op momenten dat dat financieel niet gunstig is.</li>
+                        <li><strong>Betrouwbare merknaam:</strong> Groene, transparante dynamic-stroom zonder winstoogmerk op je verbruik.</li>
+                        <li><strong>ANWB Slim Laden:</strong> Bekroonde app voor het inplannen van slimme laadbeurten op basis van de goedkoopste uren van de dag.</li>
+                      </ul>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
+
+            {/* Comprehensive Battery Market Overview & Decision Advice */}
+            <BatteryMarketOverview 
+              dynamicProvider={calculation.tech.dynamicProvider}
+              typeContract={calculation.tech.typeContract}
+              capaciteitAccu={calculation.tech.capaciteitAccu}
+              solarYield={calculation.solar.annualYieldKwh}
+            />
           </div>
         )}
 
@@ -1217,18 +1850,28 @@ Energieplanner Peel en Maas
             <div className="grid md:grid-cols-2 gap-8">
               {calculation.heatpump.options?.map((opt) => {
                 const isAE = opt.type === 'All-Electric';
+                const isChosen = isAE 
+                  ? calculation.tech?.selectedWarmtepompType === 'All-Electric'
+                  : (calculation.tech?.selectedWarmtepompType === 'Hybride' || !calculation.tech?.selectedWarmtepompType);
                 return (
                   <div 
                     key={opt.type} 
                     className={`relative border rounded-3xl p-6 shadow-sm transition-all duration-300 flex flex-col justify-between ${
-                      isAE 
-                        ? opt.isFeasible 
-                          ? 'bg-gradient-to-br from-indigo-50/20 via-white to-emerald-50/10 border-indigo-150 shadow-indigo-50/20'
+                      isChosen
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/15 bg-gradient-to-br from-emerald-50/15 via-white to-emerald-50/5 shadow-md shadow-emerald-100/40'
+                        : isAE 
+                          ? opt.isFeasible 
+                            ? 'bg-gradient-to-br from-indigo-50/20 via-white to-emerald-50/10 border-indigo-150 shadow-indigo-50/20'
+                            : 'bg-white border-slate-200'
                           : 'bg-white border-slate-200'
-                        : 'bg-white border-slate-200'
                     }`}
                   >
                     {/* Badge */}
+                    {isChosen && (
+                      <div className="absolute -top-3 left-6 bg-emerald-600 text-white text-[10px] font-extrabold px-3 py-1 rounded-full shadow-sm flex items-center gap-1">
+                        🎯 Jouw Keuze
+                      </div>
+                    )}
                     {isAE && opt.isFeasible && (
                       <div className="absolute -top-3 right-6 bg-gradient-to-r from-indigo-600 to-emerald-600 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-sm">
                         🌿 Volledig Gasloos &amp; Duurzaam
@@ -1246,11 +1889,20 @@ Energieplanner Peel en Maas
                         <h4 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
                           {isAE ? <Award className="w-5 h-5 text-indigo-500" /> : <Zap className="w-5 h-5 text-blue-500" />}
                           {opt.type} Warmtepomp
+                          {calculation.tech.selectedWarmtepompModel && (
+                            <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">
+                              {calculation.tech.selectedWarmtepompModel === 'Standard' ? '4 - 5 kW' :
+                               calculation.tech.selectedWarmtepompModel === 'Middelgroot 8kW' ? '6 - 8 kW' :
+                               calculation.tech.selectedWarmtepompModel === 'Groot 12kW' ? '10 - 12 kW' : 'Lucht-lucht (Airco)'}
+                            </span>
+                          )}
                         </h4>
                         <p className="text-xs text-slate-500 mt-1">
                           {isAE 
                             ? 'Volledige vervanging van de CV-ketel voor verwarming en warm tapwater.'
-                            : 'Samenwerking met je bestaande CV-ketel. De ketel helpt alleen bij strenge vorst en tapwater.'}
+                            : (opt.type === 'Lucht-lucht (Airco)'
+                                ? 'Directe ruimteverwarming via lucht-blaasunits. Ideaal voor snelle, gerichte verwarming per zone.'
+                                : 'Samenwerking met je bestaande CV-ketel. De ketel helpt alleen bij strenge vorst en tapwater.')}
                         </p>
                       </div>
 
@@ -1413,6 +2065,43 @@ Energieplanner Peel en Maas
                 </ul>
               </div>
             </div>
+
+            {/* TACTVOL COMFORT PERSPECTIEF (De Auto-analogie) */}
+            <div className="bg-gradient-to-br from-indigo-50/70 via-white to-amber-50/40 border border-indigo-100/80 rounded-2xl p-5 md:p-6 shadow-sm space-y-4">
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl shrink-0">🚗</span>
+                <div>
+                  <h4 className="text-sm font-extrabold text-indigo-900 tracking-tight">
+                    Investeren in Comfort &amp; Woongenot versus 'Terugverdientijd'
+                  </h4>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                    Een verfrissend perspectief van de Energieplanner
+                  </p>
+                </div>
+              </div>
+              <div className="text-xs text-slate-600 space-y-3 leading-relaxed">
+                <p>
+                  Wanneer we praten over verduurzaming van onze woning, staren we ons vaak blind op de <strong>terugverdientijd (TVT)</strong>. Maar wist je dat we dat bij andere grote levensinvesteringen eigenlijk nooit doen?
+                </p>
+                <div className="grid md:grid-cols-1 sm:grid-cols-2 gap-4 my-2.5">
+                  <div className="bg-white/60 border border-slate-100 p-3 rounded-xl">
+                    <span className="font-bold text-slate-800 text-xs block mb-1">De vergelijking met een auto of keuken:</span>
+                    <p className="text-[11px] text-slate-500 leading-normal">
+                      Niemand vraagt bij de aanschaf van een nieuwe auto, een moderne designkeuken of een luxe badkamer naar de terugverdientijd. We kopen deze voor de betrouwbaarheid, het dagelijkse comfort, de esthetiek en de directe stijging in levenskwaliteit.
+                    </p>
+                  </div>
+                  <div className="bg-emerald-50/50 border border-emerald-100/60 p-3 rounded-xl">
+                    <span className="font-bold text-emerald-900 text-xs block mb-1">De warmtepomp als woning-upgrade:</span>
+                    <p className="text-[11px] text-emerald-800/90 leading-normal">
+                      Een warmtepomp is precies hetzelfde: een modernisering van de technische installatie van je woning. Het brengt een heerlijk constante binnentemperatuur zonder koude zones of tocht. Het zorgt voor een gezonder binnenklimaat én verhoogt de waarde en het energielabel van je huis direct.
+                    </p>
+                  </div>
+                </div>
+                <p className="font-medium text-slate-700">
+                  Het grote verschil? Een nieuwe auto of designkeuken schrijft direct af vanaf dag één. Een warmtepomp is een comfort-upgrade die je – in tegenstelling tot een auto of keuken – <strong>elke maand direct geld oplevert</strong> in plaats van afschrijft!
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1473,10 +2162,10 @@ Energieplanner Peel en Maas
                 </div>
                 <div className="bg-emerald-50 text-emerald-800 font-extrabold text-xs px-3 py-1.5 rounded-lg border border-emerald-100 font-mono">
                   Terugverdientijd: ~{(
-                    1200 / 
+                    ((calculation.tech?.customLaadpaalPrijs !== undefined && calculation.tech?.customLaadpaalPrijs > 0) ? calculation.tech?.customLaadpaalPrijs : 1200) / 
                     ((((((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * (0.50 - (calculation.house?.elektraPrijs ?? 0.30))) + 
                     ((((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * 0.12)) || 1)
-                  ).toFixed(1)} jaar
+                  ).toFixed(1)} jaar {(calculation.tech?.customLaadpaalPrijs !== undefined && calculation.tech?.customLaadpaalPrijs > 0) ? '(op basis van eigen prijsopgave)' : '(standaard raming)'}
                 </div>
               </div>
 

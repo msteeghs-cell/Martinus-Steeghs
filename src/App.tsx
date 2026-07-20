@@ -3,9 +3,11 @@ import { calculateAll } from './utils/calculator';
 import { ResidentData, HouseData, InsulationData, TechData } from './types';
 import InputForm from './components/InputForm';
 import AdviceReport from './components/AdviceReport';
+import { safeStorage } from './utils/storage';
 import { 
   Leaf, Info, HelpCircle, FileSpreadsheet, Sparkles, 
-  Phone, Mail, MapPin, Download, Trash2, MailIcon, Printer
+  Phone, Mail, MapPin, Download, Trash2, MailIcon, Printer,
+  Share2, Check
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -72,26 +74,47 @@ const defaultInsulation: InsulationData = {
 
 const defaultTech: TechData = {
   aantalZonnepanelen: 4,
+  vermogenPerPaneel: 400,
   dakOrientatie: 45,
   dakHellingshoek: 35,
   huidigDirectVerbruik: 30,
   capaciteitAccu: 0,
   omzettingsverliezen: 10,
   typeContract: 'Vast',
+  dynamicProvider: 'Zonneplan',
   evKilometers: 15000,
   evVerbruik: 18,
   evThuisLaden: 70,
   laadvermogen: 11,
   opslagLeverancier: 0.02,
+  selectedWarmtepompModel: 'Standard',
+  selectedWarmtepompType: 'Hybride',
+  customAccuPrijs: undefined,
+  customZonnepanelenPrijs: undefined,
+  customWarmtepompPrijs: undefined,
+  customLaadpaalPrijs: undefined,
 };
 
 export default function App() {
   // Synchronized active tab across inputs & results
   const [activeTab, setActiveTab] = useState<'isolatie' | 'zon' | 'accu' | 'saldering' | 'warmtepomp' | 'laadpaal'>('isolatie');
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const deelLink = () => {
+    // Copy current page URL to clipboard
+    navigator.clipboard.writeText(window.location.href)
+      .then(() => {
+        setLinkCopied(true);
+        setTimeout(() => setLinkCopied(false), 3000);
+      })
+      .catch((err) => {
+        console.error('Failed to copy: ', err);
+      });
+  };
 
   // Load from localStorage or defaults
   const [resident, setResident] = useState<ResidentData>(() => {
-    const cached = localStorage.getItem('pem_resident');
+    const cached = safeStorage.getItem('pem_resident');
     try {
       return cached ? { ...defaultResident, ...JSON.parse(cached) } : defaultResident;
     } catch (e) {
@@ -100,7 +123,7 @@ export default function App() {
   });
 
   const [house, setHouse] = useState<HouseData>(() => {
-    const cached = localStorage.getItem('pem_house');
+    const cached = safeStorage.getItem('pem_house');
     try {
       return cached ? { ...defaultHouse, ...JSON.parse(cached) } : defaultHouse;
     } catch (e) {
@@ -109,7 +132,7 @@ export default function App() {
   });
 
   const [insulation, setInsulation] = useState<InsulationData>(() => {
-    const cached = localStorage.getItem('pem_insulation');
+    const cached = safeStorage.getItem('pem_insulation');
     try {
       return cached ? { ...defaultInsulation, ...JSON.parse(cached) } : defaultInsulation;
     } catch (e) {
@@ -118,7 +141,7 @@ export default function App() {
   });
 
   const [tech, setTech] = useState<TechData>(() => {
-    const cached = localStorage.getItem('pem_tech');
+    const cached = safeStorage.getItem('pem_tech');
     try {
       return cached ? { ...defaultTech, ...JSON.parse(cached) } : defaultTech;
     } catch (e) {
@@ -128,10 +151,10 @@ export default function App() {
 
   // Opmerkingen & notities state
   const [opmerkingenOffertes, setOpmerkingenOffertes] = useState(() => {
-    return localStorage.getItem('pem_opmerkingen_offertes') || '';
+    return safeStorage.getItem('pem_opmerkingen_offertes') || '';
   });
   const [opmerkingenAlgemeen, setOpmerkingenAlgemeen] = useState(() => {
-    return localStorage.getItem('pem_opmerkingen') || '';
+    return safeStorage.getItem('pem_opmerkingen') || '';
   });
 
   // Calculation results
@@ -150,17 +173,17 @@ export default function App() {
     setCalculation(result);
 
     // Save to cache
-    localStorage.setItem('pem_resident', JSON.stringify(resident));
-    localStorage.setItem('pem_house', JSON.stringify(house));
-    localStorage.setItem('pem_insulation', JSON.stringify(insulation));
-    localStorage.setItem('pem_tech', JSON.stringify(tech));
-    localStorage.setItem('pem_opmerkingen_offertes', opmerkingenOffertes);
-    localStorage.setItem('pem_opmerkingen', opmerkingenAlgemeen);
+    safeStorage.setItem('pem_resident', JSON.stringify(resident));
+    safeStorage.setItem('pem_house', JSON.stringify(house));
+    safeStorage.setItem('pem_insulation', JSON.stringify(insulation));
+    safeStorage.setItem('pem_tech', JSON.stringify(tech));
+    safeStorage.setItem('pem_opmerkingen_offertes', opmerkingenOffertes);
+    safeStorage.setItem('pem_opmerkingen', opmerkingenAlgemeen);
   }, [resident, house, insulation, tech, opmerkingenOffertes, opmerkingenAlgemeen]);
 
   // AI Advice state
   const [adviceMarkdown, setAdviceMarkdown] = useState<string | null>(() => {
-    return localStorage.getItem('pem_advice_markdown') || null;
+    return safeStorage.getItem('pem_advice_markdown') || null;
   });
   const [loadingAdvice, setLoadingAdvice] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -182,8 +205,8 @@ export default function App() {
 
     // Checking cache for identical calculation parameters
     const currentCalculationStr = JSON.stringify(calculation);
-    const cachedInputsStr = localStorage.getItem('pem_advice_inputs');
-    const cachedAdviceStr = localStorage.getItem('pem_advice_markdown');
+    const cachedInputsStr = safeStorage.getItem('pem_advice_inputs');
+    const cachedAdviceStr = safeStorage.getItem('pem_advice_markdown');
 
     if (cachedInputsStr === currentCalculationStr && cachedAdviceStr) {
       console.log("[Cache] Reusing identical cached advice report instantly.");
@@ -207,8 +230,8 @@ export default function App() {
 
       const data = await response.json();
       setAdviceMarkdown(data.advice);
-      localStorage.setItem('pem_advice_markdown', data.advice);
-      localStorage.setItem('pem_advice_inputs', currentCalculationStr);
+      safeStorage.setItem('pem_advice_markdown', data.advice);
+      safeStorage.setItem('pem_advice_inputs', currentCalculationStr);
       // Automatically navigate to the results/advice tab (laadpaal displays the text advice)
       setActiveTab('laadpaal');
     } catch (err: any) {
@@ -222,7 +245,7 @@ export default function App() {
   // Clear data function
   const wisFormulier = () => {
     if (confirm("Weet je zeker dat je alle gegevens wilt wissen om met een nieuwe bewoner te starten?")) {
-      localStorage.clear();
+      safeStorage.clear();
       window.location.reload();
     }
   };
@@ -240,50 +263,286 @@ export default function App() {
 
   // Excel download
   const downloadExcel = () => {
-    const excelData: any[] = [];
-    
-    // Add resident details
-    excelData.push({ Onderdeel: "Registratiecode", Ingevulde_Waarde: resident.registratiecode });
-    excelData.push({ Onderdeel: "Datum", Ingevulde_Waarde: resident.datum });
-    excelData.push({ Onderdeel: "Berekeningswijze", Ingevulde_Waarde: resident.coach });
-    excelData.push({ Onderdeel: "Naam bewoner", Ingevulde_Waarde: resident.naam });
-    excelData.push({ Onderdeel: "Adres", Ingevulde_Waarde: `${resident.straat} ${resident.huisnummer} ${resident.toevoeging || ''}, ${resident.postcode} ${resident.plaats}` });
-    excelData.push({ Onderdeel: "Telefoon", Ingevulde_Waarde: resident.telefoon });
-    excelData.push({ Onderdeel: "E-mail", Ingevulde_Waarde: resident.email });
-    excelData.push({ Onderdeel: "Aantal bewoners", Ingevulde_Waarde: resident.aantalPersonen });
-    
-    // House details
-    excelData.push({ Onderdeel: "Woningtype", Ingevulde_Waarde: house.soortWoning });
-    excelData.push({ Onderdeel: "Bouwjaar", Ingevulde_Waarde: house.bouwjaar });
-    excelData.push({ Onderdeel: "Woonoppervlakte (m²)", Ingevulde_Waarde: house.woonoppervlakte });
-    excelData.push({ Onderdeel: "WOZ-waarde", Ingevulde_Waarde: house.wozWaarde });
-    excelData.push({ Onderdeel: "Energielabel", Ingevulde_Waarde: house.energielabel });
-    
-    // Technical installs
-    excelData.push({ Onderdeel: "Verwarming", Ingevulde_Waarde: house.verwarming });
-    excelData.push({ Onderdeel: "Afgiftesysteem", Ingevulde_Waarde: house.afgiftesysteem });
-    excelData.push({ Onderdeel: "Tapwater", Ingevulde_Waarde: house.tapwater });
-    excelData.push({ Onderdeel: "Koken", Ingevulde_Waarde: house.koken });
-    excelData.push({ Onderdeel: "Ventilatie", Ingevulde_Waarde: house.ventilatie });
-    
-    // Gas/Elektra
-    excelData.push({ Onderdeel: "Elektra verbruik (kWh)", Ingevulde_Waarde: house.verbruikKwh });
-    excelData.push({ Onderdeel: "Elektra teruglevering (kWh)", Ingevulde_Waarde: house.elektraTeruglevering });
-    excelData.push({ Onderdeel: "Gas verbruik (m³)", Ingevulde_Waarde: house.verbruikM3 });
-    excelData.push({ Onderdeel: "Berekend Stookgedrag", Ingevulde_Waarde: house.stookgedragBerekend });
-    excelData.push({ Onderdeel: "Stookgedrag Factor", Ingevulde_Waarde: house.stookgedragFactor });
+    // 1. General & House Data
+    const generalData = [
+      { Categorie: "KLANTGEGEVENS", Onderdeel: "Registratiecode", Waarde: resident.registratiecode },
+      { Categorie: "KLANTGEGEVENS", Onderdeel: "Datum", Waarde: resident.datum },
+      { Categorie: "KLANTGEGEVENS", Onderdeel: "Energiecoach", Waarde: resident.coach },
+      { Categorie: "KLANTGEGEVENS", Onderdeel: "Naam bewoner", Waarde: `${resident.aanhef || ''} ${resident.naam || ''} ${resident.achternaam || ''}`.trim() },
+      { Categorie: "KLANTGEGEVENS", Onderdeel: "Adres", Waarde: `${resident.straat || ''} ${resident.huisnummer || ''} ${resident.toevoeging || ''}, ${resident.postcode || ''} ${resident.plaats || ''}`.trim() },
+      { Categorie: "KLANTGEGEVENS", Onderdeel: "Telefoonnummer", Waarde: resident.telefoon },
+      { Categorie: "KLANTGEGEVENS", Onderdeel: "E-mailadres", Waarde: resident.email },
+      { Categorie: "KLANTGEGEVENS", Onderdeel: "Aantal bewoners", Waarde: resident.aantalPersonen },
+      
+      { Categorie: "WONINGKENMERKEN", Onderdeel: "Woningtype", Waarde: house.soortWoning },
+      { Categorie: "WONINGKENMERKEN", Onderdeel: "Bouwjaar", Waarde: house.bouwjaar },
+      { Categorie: "WONINGKENMERKEN", Onderdeel: "Woonoppervlakte (m²)", Waarde: house.woonoppervlakte },
+      { Categorie: "WONINGKENMERKEN", Onderdeel: "WOZ-waarde", Waarde: house.wozWaarde },
+      { Categorie: "WONINGKENMERKEN", Onderdeel: "Energielabel", Waarde: house.energielabel },
+      
+      { Categorie: "INSTALLATIES", Onderdeel: "Hoofdverwarming", Waarde: house.verwarming },
+      { Categorie: "INSTALLATIES", Onderdeel: "Afgiftesysteem", Waarde: house.afgiftesysteem },
+      { Categorie: "INSTALLATIES", Onderdeel: "Warm tapwater", Waarde: house.tapwater },
+      { Categorie: "INSTALLATIES", Onderdeel: "Kooktoestel", Waarde: house.koken },
+      { Categorie: "INSTALLATIES", Onderdeel: "Ventilatiesysteem", Waarde: house.ventilatie },
+      
+      { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Elektriciteitsverbruik (kWh)", Waarde: house.verbruikKwh },
+      { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Teruglevering (kWh)", Waarde: house.elektraTeruglevering },
+      { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Gasverbruik (m³)", Waarde: house.verbruikM3 },
+      { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Berekend stookgedrag", Waarde: house.stookgedragBerekend },
+      { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Stookgedrag factor", Waarde: house.stookgedragFactor },
+      { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Gasprijs (€/m³)", Waarde: house.gasPrijs },
+      { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Elektraprijs (€/kWh)", Waarde: house.elektraPrijs },
+    ];
 
-    // Financial totals
-    excelData.push({ Onderdeel: "Totaal Bruto Kosten", Ingevulde_Waarde: calculation.totals.bruto });
-    excelData.push({ Onderdeel: "Totaal ISDE Subsidie", Ingevulde_Waarde: calculation.totals.isde });
-    excelData.push({ Onderdeel: "Totaal NIP Subsidie", Ingevulde_Waarde: calculation.totals.nip });
-    excelData.push({ Onderdeel: "Totaal Netto Kosten", Ingevulde_Waarde: calculation.totals.net });
-    excelData.push({ Onderdeel: "Jaarlijkse besparing (€)", Ingevulde_Waarde: calculation.totals.savingsEuro });
+    // 2. Insulation Measures Data
+    const insulationData: any[] = [];
+    insulationData.push({
+      Maatregel: "Maatregel Naam",
+      Oppervlakte: "Ingevulde Oppervlakte (m²)",
+      "Bruto Kosten (€)": "Bruto Kosten (€)",
+      "ISDE Subsidie (€)": "ISDE Subsidie (€)",
+      "NIP Subsidie (€)": "NIP Subsidie (€)",
+      "Netto Kosten (€)": "Netto Kosten (€)",
+      "Besparing (m³ gas)": "Besparing (m³ gas)",
+      "Besparing (€)": "Besparing (€)",
+      "Terugverdientijd (jr)": "Terugverdientijd (jr)"
+    });
 
-    const ws = XLSX.utils.json_to_sheet(excelData);
+    calculation.measures.forEach(m => {
+      insulationData.push({
+        Maatregel: m.name,
+        Oppervlakte: m.area,
+        "Bruto Kosten (€)": m.brutoCosts,
+        "ISDE Subsidie (€)": Math.round(m.isdeSubsidy),
+        "NIP Subsidie (€)": Math.round(m.nipSubsidy),
+        "Netto Kosten (€)": Math.round(m.netCosts),
+        "Besparing (m³ gas)": Math.round(m.savingM3),
+        "Besparing (€)": Math.round(m.savingEuro),
+        "Terugverdientijd (jr)": m.tvt > 0 ? Number(m.tvt.toFixed(1)) : 0
+      });
+    });
+
+    insulationData.push({}); // Empty separator row
+    insulationData.push({
+      Maatregel: "TOTAAL (BASIS SCENARIO)",
+      Oppervlakte: "",
+      "Bruto Kosten (€)": calculation.totals.bruto,
+      "ISDE Subsidie (€)": Math.round(calculation.totals.isde),
+      "NIP Subsidie (€)": Math.round(calculation.totals.nip),
+      "Netto Kosten (€)": Math.round(calculation.totals.net),
+      "Besparing (m³ gas)": Math.round(calculation.measures.reduce((sum, m) => sum + m.savingM3, 0)),
+      "Besparing (€)": Math.round(calculation.totals.savingsEuro),
+      "Terugverdientijd (jr)": calculation.totals.tvt > 0 ? Number(calculation.totals.tvt.toFixed(1)) : 0
+    });
+
+    if (calculation.addedMeasureForOptimization) {
+      insulationData.push({});
+      insulationData.push({
+        Maatregel: `OPTIMALISATIE: ${calculation.addedMeasureForOptimization}`,
+        Oppervlakte: "",
+        "Bruto Kosten (€)": "",
+        "ISDE Subsidie (€)": "",
+        "NIP Subsidie (€)": "",
+        "Netto Kosten (€)": "",
+        "Besparing (m³ gas)": "",
+        "Besparing (€)": "",
+        "Terugverdientijd (jr)": ""
+      });
+      calculation.optimalMeasures.forEach(m => {
+        insulationData.push({
+          Maatregel: m.name,
+          Oppervlakte: m.area,
+          "Bruto Kosten (€)": m.brutoCosts,
+          "ISDE Subsidie (€)": Math.round(m.isdeSubsidy),
+          "NIP Subsidie (€)": Math.round(m.nipSubsidy),
+          "Netto Kosten (€)": Math.round(m.netCosts),
+          "Besparing (m³ gas)": Math.round(m.savingM3),
+          "Besparing (€)": Math.round(m.savingEuro),
+          "Terugverdientijd (jr)": m.tvt > 0 ? Number(m.tvt.toFixed(1)) : 0
+        });
+      });
+      insulationData.push({
+        Maatregel: "TOTAAL (GEOPTIMALISEERD SCENARIO)",
+        Oppervlakte: "",
+        "Bruto Kosten (€)": calculation.totalsOptimal.bruto,
+        "ISDE Subsidie (€)": Math.round(calculation.totalsOptimal.isde),
+        "NIP Subsidie (€)": Math.round(calculation.totalsOptimal.nip),
+        "Netto Kosten (€)": Math.round(calculation.totalsOptimal.net),
+        "Besparing (m³ gas)": Math.round(calculation.optimalMeasures.reduce((sum, m) => sum + m.savingM3, 0)),
+        "Besparing (€)": Math.round(calculation.totalsOptimal.savingsEuro),
+        "Terugverdientijd (jr)": calculation.totalsOptimal.tvt > 0 ? Number(calculation.totalsOptimal.tvt.toFixed(1)) : 0
+      });
+    }
+
+    insulationData.push({});
+    insulationData.push({ Maatregel: "Opmerkingen voor offertes", Oppervlakte: opmerkingenOffertes });
+    insulationData.push({ Maatregel: "Bijzonderheden verwerkers", Oppervlakte: opmerkingenAlgemeen });
+
+    // 3. Solar Prognosis Data
+    const solarData = [
+      { Parameter: "Aantal zonnepanelen", Waarde: tech.aantalZonnepanelen, Eenheid: "stuks" },
+      { Parameter: "Vermogen per paneel", Waarde: tech.vermogenPerPaneel || 400, Eenheid: "Wp" },
+      { Parameter: "Totaal geïnstalleerd vermogen", Waarde: (tech.aantalZonnepanelen * (tech.vermogenPerPaneel || 400)), Eenheid: "Wp" },
+      { Parameter: "Dakoriëntatie", Waarde: tech.dakOrientatie, Eenheid: "graden t.o.v. Zuid" },
+      { Parameter: "Oriëntatiefactor", Waarde: Number(calculation.solar.orientationFactor.toFixed(3)), Eenheid: "-" },
+      { Parameter: "Dakhellingshoek", Waarde: tech.dakHellingshoek !== undefined ? tech.dakHellingshoek : 35, Eenheid: "graden" },
+      { Parameter: "Jaarlijkse zonne-opbrengst", Waarde: Math.round(calculation.solar.annualYieldKwh), Eenheid: "kWh/jaar" },
+      { Parameter: "Huidig direct eigen verbruik (basis)", Waarde: calculation.solar.selfConsumptionBase, Eenheid: "%" },
+      { Parameter: "Huidig direct eigen verbruik (kWh)", Waarde: Math.round(calculation.solar.absoluteSelfConsumptionBaseKwh), Eenheid: "kWh/jaar" },
+      { Parameter: "Netteruglevering aan het net (basis)", Waarde: Math.round(calculation.solar.gridFeedBaseKwh), Eenheid: "kWh/jaar" }
+    ];
+
+    // 4. Battery & Smart Trading Data
+    const batteryData: any[] = [];
+    batteryData.push({
+      Onderdeel: "Geselecteerde Thuisbatterij Capaciteit",
+      Waarde: tech.capaciteitAccu > 0 ? `${tech.capaciteitAccu} kWh` : "Geen geselecteerd",
+      Details: ""
+    });
+    batteryData.push({
+      Onderdeel: "Eigen Prijsopgave (Optioneel)",
+      Waarde: tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0 ? `€ ${tech.customAccuPrijs}` : "Standaard schatting",
+      Details: ""
+    });
+    batteryData.push({
+      Onderdeel: "Energiecontract Type",
+      Waarde: tech.typeContract,
+      Details: ""
+    });
+    if (tech.typeContract === 'Dynamisch') {
+      batteryData.push({
+        Onderdeel: "Energieleverancier",
+        Waarde: tech.dynamicProvider || 'Zonneplan',
+        Details: ""
+      });
+    }
+    batteryData.push({
+      Onderdeel: "Nieuw direct eigen verbruik met batterij",
+      Waarde: `${Math.round(calculation.solar.selfConsumptionWithBattery)}%`,
+      Details: `(+${Math.round(calculation.battery.efficiencyIncrease)}% toename)`
+    });
+    batteryData.push({
+      Onderdeel: "Nieuw direct eigen verbruik (kWh)",
+      Waarde: `${Math.round(calculation.solar.absoluteSelfConsumptionWithBatteryKwh)} kWh/jr`,
+      Details: ""
+    });
+    batteryData.push({
+      Onderdeel: "Nieuwe teruglevering aan net",
+      Waarde: `${Math.round(calculation.solar.gridFeedWithBatteryKwh)} kWh/jr`,
+      Details: ""
+    });
+    batteryData.push({
+      Onderdeel: "Jaarlijkse besparing pre-2027 (onder saldering)",
+      Waarde: `€ ${Math.round(calculation.battery.costSavingsPre2027)}`,
+      Details: ""
+    });
+    batteryData.push({
+      Onderdeel: "Jaarlijkse besparing post-2027 (zonder saldering)",
+      Waarde: `€ ${Math.round(calculation.battery.costSavingsPost2027)}`,
+      Details: ""
+    });
+
+    batteryData.push({}); // Space
+    batteryData.push({
+      Onderdeel: "STANDAARD CAPACITEITEN VERGELIJKING",
+      Waarde: "",
+      Details: ""
+    });
+    
+    batteryData.push({
+      Onderdeel: "Batterij Capaciteit",
+      Waarde: "Netto Investeringskosten (na btw-teruggave)",
+      Details: "Jaarlijkse Opbrengst (Dynamisch handelen/Arbitrage)",
+      "Terugverdientijd (Dynamisch jr)": "Terugverdientijd (Vast Contract Post-2027 jr)",
+      Advies: "Advies"
+    });
+
+    calculation.battery.options.forEach(opt => {
+      batteryData.push({
+        Onderdeel: `${opt.capacityKwh} kWh (${opt.label})`,
+        Waarde: `€ ${Math.round(opt.netInvestment)}`,
+        Details: `€ ${Math.round(opt.annualSavingsDynamisch)} / jr`,
+        "Terugverdientijd (Dynamisch jr)": opt.tvtDynamisch < 90 ? `${opt.tvtDynamisch.toFixed(1)} jaar` : "N.v.t.",
+        "Terugverdientijd (Vast Contract Post-2027 jr)": opt.tvtPost2027 < 90 ? `${opt.tvtPost2027.toFixed(1)} jaar` : "N.v.t.",
+        Advies: opt.bestSuited ? "BEST PASSEND (Geadviseerd)" : opt.recommendation
+      });
+    });
+
+    // 5. Heatpump & EV Charging Data
+    const hpLpData: any[] = [];
+    hpLpData.push({ Onderdeel: "WARMTEPOMP CHECK", Waarde: "", Details: "" });
+    hpLpData.push({ Onderdeel: "Isolatie voldoende voor WP?", Waarde: calculation.heatpump.isInsulatedSufficiently ? "Ja" : "Nee", Details: "" });
+    hpLpData.push({ Onderdeel: "Resterend gasverbruik na isolatie", Waarde: `${Math.round(calculation.heatpump.remainingGasM3)} m³/jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Warmtepomp aanbevolen?", Waarde: calculation.heatpump.isRecommended ? "Ja" : "Nee", Details: "" });
+    hpLpData.push({ Onderdeel: "Geselecteerd warmtepomp model", Waarde: tech.selectedWarmtepompModel || 'Standard', Details: "" });
+    
+    hpLpData.push({});
+    hpLpData.push({
+      Onderdeel: "Systeemtype",
+      Waarde: "Netto Investering (€)",
+      Details: "Gasbesparing (m³)",
+      "Elektra Toename (kWh)": "Jaarlijkse Netto Besparing (€)",
+      "Terugverdientijd (jr)": "Haalbaarheid / Advies"
+    });
+
+    calculation.heatpump.options.forEach(opt => {
+      hpLpData.push({
+        Onderdeel: opt.type,
+        Waarde: `€ ${Math.round(opt.netInvestment)}`,
+        Details: `${Math.round(opt.gasSavingsM3)} m³`,
+        "Elektra Toename (kWh)": `${Math.round(opt.elecIncreaseKwh)} kWh`,
+        "Jaarlijkse Netto Besparing (€)": `€ ${Math.round(opt.netSavingsEuro)}`,
+        "Terugverdientijd (jr)": opt.tvt < 90 ? `${opt.tvt.toFixed(1)} jaar` : "N.v.t.",
+        "Haalbaarheid / Advies": opt.isFeasible ? "Haalbaar / Geschikt" : opt.feasibilityReason
+      });
+    });
+
+    hpLpData.push({});
+    hpLpData.push({ Onderdeel: "ELEKTRISCH RIJDEN & LAADPAAL ANALYSE", Waarde: "", Details: "" });
+    
+    const evKm = tech.evKilometers ?? 15000;
+    const evCons = tech.evVerbruik ?? 18;
+    const evHome = tech.evThuisLaden ?? 70;
+    const volKwh = Math.round((evKm / 100) * evCons * (evHome / 100));
+    const lpSavings = Math.round(volKwh * (0.50 - house.elektraPrijs));
+    const ereClaim = Math.round(volKwh * 0.12);
+    const combinedSavings = lpSavings + ereClaim;
+    const lpTvt = combinedSavings > 0 ? (1200 / combinedSavings) : 99;
+
+    hpLpData.push({ Onderdeel: "Jaarkilometrage EV", Waarde: `${evKm} km/jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "EV Normverbruik", Waarde: `${evCons} kWh/100km`, Details: "" });
+    hpLpData.push({ Onderdeel: "Thuislaad-aandeel", Waarde: `${evHome}%`, Details: "" });
+    hpLpData.push({ Onderdeel: "Laadvermogen laadpaal", Waarde: `${tech.laadvermogen ?? 11} kW`, Details: "" });
+    hpLpData.push({ Onderdeel: "Thuisgeladen volume", Waarde: `${volKwh} kWh/jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Laadpaal besparing (vs openbaar laden)", Waarde: `€ ${lpSavings} / jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Wettelijke ERE-vergoeding (€0,12/kWh)", Waarde: `€ ${ereClaim} / jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Gecombineerd jaarlijks voordeel laadpaal", Waarde: `€ ${combinedSavings} / jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Geschatte terugverdientijd laadpaal", Waarde: lpTvt < 90 ? `${lpTvt.toFixed(1)} jaar` : "N.v.t.", Details: "Op basis van €1.200 installatiekosten" });
+
+    // Build the workbook
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Inventarisatie");
-    ws['!cols'] = [{ wch: 35 }, { wch: 50 }];
+
+    const ws1 = XLSX.utils.json_to_sheet(generalData);
+    XLSX.utils.book_append_sheet(wb, ws1, "1. Klant & Woning");
+    ws1['!cols'] = [{ wch: 25 }, { wch: 35 }, { wch: 45 }];
+
+    const ws2 = XLSX.utils.json_to_sheet(insulationData);
+    XLSX.utils.book_append_sheet(wb, ws2, "2. Isolatie");
+    ws2['!cols'] = [{ wch: 35 }, { wch: 28 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 16 }, { wch: 20 }];
+
+    const ws3 = XLSX.utils.json_to_sheet(solarData);
+    XLSX.utils.book_append_sheet(wb, ws3, "3. Zonnepanelen");
+    ws3['!cols'] = [{ wch: 35 }, { wch: 20 }, { wch: 25 }];
+
+    const ws4 = XLSX.utils.json_to_sheet(batteryData);
+    XLSX.utils.book_append_sheet(wb, ws4, "4. Thuisbatterij");
+    ws4['!cols'] = [{ wch: 40 }, { wch: 45 }, { wch: 50 }, { wch: 35 }, { wch: 35 }, { wch: 35 }];
+
+    const ws5 = XLSX.utils.json_to_sheet(hpLpData);
+    XLSX.utils.book_append_sheet(wb, ws5, "5. Warmtepomp & Laadpaal");
+    ws5['!cols'] = [{ wch: 40 }, { wch: 30 }, { wch: 35 }, { wch: 25 }, { wch: 30 }, { wch: 45 }];
+
     XLSX.writeFile(wb, `Inventarisatie_${resident.registratiecode || 'PM-CONCEPT'}.xlsx`);
   };
 
@@ -324,10 +583,27 @@ export default function App() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-4 text-xs text-emerald-100 bg-emerald-950/40 px-4 py-2.5 rounded-2xl border border-emerald-800/30">
-            <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-emerald-400" /> EAC Panningen</span>
-            <span className="h-4 w-px bg-emerald-800"></span>
-            <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5 text-emerald-400" /> Gemeente: 14 077</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={deelLink}
+              className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-2xl transition shadow-sm border border-emerald-500/30 ${
+                linkCopied
+                  ? 'bg-emerald-500 text-white border-emerald-400'
+                  : 'bg-emerald-950/40 text-emerald-100 hover:bg-emerald-900/50'
+              }`}
+            >
+              {linkCopied ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-white animate-bounce" />
+                  <span>Link Gekopieerd!</span>
+                </>
+              ) : (
+                <>
+                  <Share2 className="w-3.5 h-3.5 text-emerald-300" />
+                  <span>Deel link</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </header>
@@ -340,7 +616,7 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left Column: Form & Inputs */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-5 space-y-6 relative z-20">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
               <span className="bg-emerald-600 text-white text-xs w-5 h-5 rounded-full inline-flex items-center justify-center font-bold">1</span>
@@ -364,11 +640,14 @@ export default function App() {
             loading={loadingAdvice}
             activeTab={activeTab}
             setActiveTab={setActiveTab}
+            onWis={wisFormulier}
+            onDownloadExcel={downloadExcel}
+            onDownloadJSON={downloadJSON}
           />
         </div>
 
         {/* Right Column: Live Table & Dynamic Advice */}
-        <div className="lg:col-span-7 space-y-6">
+        <div className="lg:col-span-7 space-y-6 relative z-10">
           {activeTab === 'isolatie' && (
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -462,72 +741,16 @@ export default function App() {
               <div className="bg-slate-50 rounded-xl p-3 flex gap-2 items-start text-[10px] text-slate-500">
                 <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
                 <p>
-                  Bovenstaande is een directe, real-time rekenberekening gebaseerd op de Panningen EAC leidende kengetallen. 
-                  De NIP subsidie (€2.900) wordt toegekend bij minimaal twee isolatiemaatregelen mits wordt voldaan aan de WOZ- en inkomenseisen.
+                  Bovenstaande is een directe, real-time rekenberekening gebaseerd op de lokale Peel en Maas richtlijnen. 
+                  De NIP subsidie (€2.900) wordt toegekend bij minimaal twee isolatiemaatregelen mits wordt voldaan aan de WOZ-waarde (maximaal €477.000 met peildatum 2024) en inkomenseisen.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Opmerkingen Textareas */}
-          {activeTab === 'isolatie' && (
-            <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-md space-y-4">
-              <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4 text-slate-400" />
-                Opmerkingen &amp; Bijzonderheden
-              </h3>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Opmerkingen voor offertes (isolatiebedrijven)</label>
-                  <textarea
-                    value={opmerkingenOffertes}
-                    onChange={(e) => setOpmerkingenOffertes(e.target.value)}
-                    placeholder="Bijv. Kruipruimte is circa 60cm hoog, goed toegankelijk via luik bij de voordeur..."
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-emerald-500 h-16 resize-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Bijzonderheden / leidraad verwerkers</label>
-                  <textarea
-                    value={opmerkingenAlgemeen}
-                    onChange={(e) => setOpmerkingenAlgemeen(e.target.value)}
-                    placeholder="Bijv. Bewoner wil graag eerst vloerisolatie aanpakken, daarna spouw..."
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-emerald-500 h-16 resize-none"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
 
-          {/* EAC Actieknoppen Opslaan en Verzenden */}
-          {activeTab === 'isolatie' && (
-            <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-md flex justify-between items-center gap-3">
-              <button
-                onClick={wisFormulier}
-                className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl hover:bg-red-100 transition shadow-sm"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Nieuw formulier (Wis)</span>
-              </button>
-              
-              <div className="flex gap-2">
-                <button
-                  onClick={downloadExcel}
-                  className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition shadow-sm"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Opslaan (Excel)</span>
-                </button>
-                <button
-                  onClick={downloadJSON}
-                  className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-xl hover:bg-slate-200 transition shadow-sm"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Opslaan (JSON)</span>
-                </button>
-              </div>
-            </div>
-          )}
+
+
 
           {/* Error banner */}
           {error && (
@@ -543,6 +766,7 @@ export default function App() {
             loading={loadingAdvice}
             activeTab={activeTab}
             setActiveTab={setActiveTab}
+            setTech={setTech}
           />
         </div>
       </main>

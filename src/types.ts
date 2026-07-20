@@ -61,17 +61,25 @@ export interface InsulationData {
 
 export interface TechData {
   aantalZonnepanelen: number;
+  vermogenPerPaneel?: number; // peak power per panel in Wp (e.g. 400 or 430)
   dakOrientatie: number; // degrees relative to South (0 is South, -90 East, 90 West, 180 North)
   dakHellingshoek?: number; // degrees (0 flat, 90 vertical, default 35)
   huidigDirectVerbruik: number; // % (0-100)
   capaciteitAccu: number; // kWh
   omzettingsverliezen: number; // % (0-100)
   typeContract: 'Vast' | 'Dynamisch';
+  dynamicProvider?: 'Zonneplan' | 'Tibber' | 'Frank' | 'Anwb';
   evKilometers?: number;
   evVerbruik?: number;
   evThuisLaden?: number;
   laadvermogen?: number;
   opslagLeverancier?: number; // €/kWh dynamic contract surcharge
+  selectedWarmtepompModel?: 'Standard' | 'Middelgroot 8kW' | 'Groot 12kW' | 'LuchtLucht';
+  selectedWarmtepompType?: 'Hybride' | 'All-Electric';
+  customAccuPrijs?: number; // Custom installation/purchase cost for the battery
+  customZonnepanelenPrijs?: number; // Custom installation/purchase cost for solar panels
+  customWarmtepompPrijs?: number; // Custom installation/purchase cost for heat pump
+  customLaadpaalPrijs?: number; // Custom installation/purchase cost for EV charger
 }
 
 export interface CalculatedMeasure {
@@ -128,7 +136,7 @@ export interface BatteryImpact {
 }
 
 export interface HeatpumpOption {
-  type: 'Hybride' | 'All-Electric';
+  type: 'Hybride' | 'All-Electric' | 'Lucht-lucht (Airco)';
   brutoInvestment: number;
   subsidy: number;
   netInvestment: number;

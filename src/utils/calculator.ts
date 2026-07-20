@@ -155,11 +155,11 @@ export function calculateAll(
 
   // Determine NIP eligibility
   // NIP (Gemeentelijke Subsidie €2.900) criteria:
-  // - WOZ-waarde < €429.000 (peildatum 2022) per updated guidelines in HTML
+  // - WOZ-waarde <= €477.000 (peildatum 2024) per updated guidelines in HTML
   // - Energielabel D, E, F, G or Geen
   // - Income < €60.000 or customer checked the declaration box
   // - At least 2 active categories (based on active categories)
-  const satisfiesWoz = house.wozWaarde > 0 && house.wozWaarde < 429000;
+  const satisfiesWoz = house.wozWaarde > 0 && house.wozWaarde <= 477000;
   const satisfiesLabel = ['D', 'E', 'F', 'G', 'Geen'].includes(house.energielabel);
   const satisfiesIncome = (resident.brutoGezinsinkomen < 60000) || house.inkomenCheck;
   const satisfiesNipMeasuresCount = isdeCategoryCount >= 2;
@@ -168,7 +168,7 @@ export function calculateAll(
 
   let nipExplanation = '';
   if (house.wozWaarde === 0) nipExplanation += 'WOZ-waarde is nog niet ingevuld. ';
-  else if (!satisfiesWoz) nipExplanation += 'WOZ-waarde is gelijk of hoger dan €429.000. ';
+  else if (!satisfiesWoz) nipExplanation += 'WOZ-waarde is hoger dan €477.000 (peildatum 2024). ';
   if (!satisfiesLabel) nipExplanation += 'Energielabel is A, B of C (enkel D t/m G of geen label komen in aanmerking). ';
   if (!satisfiesIncome) nipExplanation += 'Bruto gezinsjaarinkomen is €60.000 of hoger en de inkomensverklaring is niet gecontroleerd. ';
   if (!satisfiesNipMeasuresCount) nipExplanation += 'Er zijn minder dan 2 actieve isolatiecategorieën ingevuld. ';
@@ -341,7 +341,8 @@ export function calculateAll(
   const tilt = tech.dakHellingshoek !== undefined ? tech.dakHellingshoek : 35;
   const tiltFactor = Math.max(0.5, 1 - 0.0001 * Math.pow(tilt - 35, 2));
 
-  const totalWp = tech.aantalZonnepanelen * 400;
+  const paneelVermogen = tech.vermogenPerPaneel || 400;
+  const totalWp = tech.aantalZonnepanelen * paneelVermogen;
   const annualYieldKwh = (totalWp / 1000) * 900 * orientationFactor * tiltFactor;
   const selfConsumptionBase = tech.huidigDirectVerbruik;
 
@@ -366,7 +367,8 @@ export function calculateAll(
   const savingsVastBase = absoluteSelfConsumptionBaseKwh * updatedHouse.elektraPrijs;
   const savingsVastWithBattery = absoluteSelfConsumptionWithBatteryKwh * updatedHouse.elektraPrijs;
 
-  const returnRateDynamisch = 0.05;
+  // Dynamisch teruglevertarief gebaseerd op het eerste halfjaar (Zonneplan gemiddelde ~ € 0,1049 per kWh)
+  const returnRateDynamisch = 0.1049;
   const savingsDynamischBase = (absoluteSelfConsumptionBaseKwh * updatedHouse.elektraPrijs) + (gridFeedBaseKwh * returnRateDynamisch);
   const savingsDynamischWithBattery = (absoluteSelfConsumptionWithBatteryKwh * updatedHouse.elektraPrijs) + (gridFeedWithBatteryKwh * returnRateDynamisch);
 
@@ -384,7 +386,10 @@ export function calculateAll(
         (cap === 15 && annualYieldKwh >= 7500)
       : cap === 10;
 
-    const bruto = cap === 5 ? 4200 : cap === 10 ? 7500 : 10500;
+    let bruto = cap === 5 ? 4200 : cap === 10 ? 7500 : 10500;
+    if (tech.capaciteitAccu === cap && tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0) {
+      bruto = tech.customAccuPrijs;
+    }
     // In the Netherlands, 21% VAT can often be reclaimed (Btw-teruggave voor thuisaccu's bij dynamisch contract/handelen)
     const btwRefund = bruto * (21 / 121);
     const net = bruto - btwRefund;
@@ -408,8 +413,19 @@ export function calculateAll(
     const optContractSavingsVast = Math.max(0, optSavingsVastWithBattery - savingsVastBase);
 
     // Dynamisch contract (arbitrage trading on imbalances & peak shaving)
-    // Arbitrage adds around €55 per kWh capacity per year with smart management (e.g. Bliq, Home Assistant)
-    const arbitrageYield = cap * 55;
+    // Arbitrageopbrengsten zijn afhankelijk van de gekozen aanbieder. Zonneplan Powerplay handelt op de actieve onbalansmarkt (TenneT) en levert gemiddeld €80 - €100 (hier begroot op €85) per kWh per jaar op.
+    let arbitragePerKwh = 55;
+    const provider = tech.dynamicProvider || 'Zonneplan';
+    if (provider === 'Zonneplan') {
+      arbitragePerKwh = 85; // Powerplay onbalansopbrengst per kWh accu
+    } else if (provider === 'Frank') {
+      arbitragePerKwh = 70; // Slim Handelen EPEX-arbitrage
+    } else if (provider === 'Tibber') {
+      arbitragePerKwh = 65; // Smart API arbitrage/Bliq/Home Assistant
+    } else if (provider === 'Anwb') {
+      arbitragePerKwh = 60; // EV Slim laden & basis arbitrage
+    }
+    const arbitrageYield = cap * arbitragePerKwh;
     const optSavingsDynamischWithBattery = (optAbsSelfConsumptionKwh * updatedHouse.elektraPrijs) + (optGridFeedKwh * returnRateDynamisch);
     const optContractSavingsDynamisch = Math.max(0, optSavingsDynamischWithBattery - savingsDynamischBase);
     const optDynamischTotalSavings = optContractSavingsDynamisch + arbitrageYield;
@@ -512,13 +528,58 @@ export function calculateAll(
   let explanation = '';
 
   // Detailed Heat Pump Options
-  // 1. Hybride option
-  const hybridBruto = 7200;
-  const hybridSubsidy = 2400;
+  // Dynamische warmtepomp model parameters op basis van selectie
+  let hybridBruto = 7200;
+  let hybridSubsidy = 2400;
+  let hybridCOPFactor = 2.2; // kWh per m3 gas saved
+
+  let aeBruto = 10800;
+  let aeSubsidy = 2700;
+  let aeCOPFactor = 2.2; // kWh per m3 gas saved
+
+  const selectedModel = tech.selectedWarmtepompModel || 'Standard';
+
+  if (selectedModel === 'Middelgroot 8kW') {
+    hybridBruto = 7900;
+    hybridSubsidy = 2700;
+    hybridCOPFactor = 2.0; // very efficient propane monobloc
+
+    aeBruto = 12800;
+    aeSubsidy = 3075;
+    aeCOPFactor = 2.15;
+  } else if (selectedModel === 'Groot 12kW') {
+    hybridBruto = 9500;
+    hybridSubsidy = 3075;
+    hybridCOPFactor = 2.4; // high temp radiators
+
+    aeBruto = 16200;
+    aeSubsidy = 3750;
+    aeCOPFactor = 2.60;
+  } else if (selectedModel === 'LuchtLucht') {
+    hybridBruto = 3800;
+    hybridSubsidy = 0; // Geen ISDE subsidie voor lucht-lucht warmtepomp / airco
+    hybridCOPFactor = 1.9; // Zeer efficiënt gerichte verwarming (SCOP ~4.3)
+
+    aeBruto = 13500;
+    aeSubsidy = 3300;
+    aeCOPFactor = 2.4;
+  }
+
+  // Override bruto prices with custom price from quote if supplied
+  const selectedType = tech.selectedWarmtepompType || 'Hybride';
+  if (tech.customWarmtepompPrijs !== undefined && tech.customWarmtepompPrijs > 0) {
+    if (selectedType === 'All-Electric') {
+      aeBruto = tech.customWarmtepompPrijs;
+    } else {
+      hybridBruto = tech.customWarmtepompPrijs;
+    }
+  }
+
+  // 1. Hybride option (or Lucht-lucht Airco)
   const hybridNet = hybridBruto - hybridSubsidy;
-  const hybridGasSaved = remainingGasM3 * 0.75;
+  const hybridGasSaved = remainingGasM3 * (selectedModel === 'LuchtLucht' ? 0.55 : 0.75);
   const hybridGasSavingEuro = hybridGasSaved * gasPrijs;
-  const hybridElecUsed = hybridGasSaved * 2.2;
+  const hybridElecUsed = hybridGasSaved * hybridCOPFactor;
   
   // If they have excess solar generation (gridFeedBaseKwh), they can offset some or all of the heat pump electricity!
   // The cost of that offset solar electricity is the missed feed-in return tariff (opportunity cost), 
@@ -530,18 +591,18 @@ export function calculateAll(
 
   const hybridNetSavings = Math.max(0, hybridGasSavingEuro - hybridElecCostEuro);
   const hybridTvt = hybridNetSavings > 0 ? hybridNet / hybridNetSavings : 99;
-  const hybridFeasible = isInsulatedSufficiently;
-  const hybridFeasibilityReason = isInsulatedSufficiently 
-    ? `Je woning is voldoende geïsoleerd voor een hybride warmtepomp. Je resterende gasverbruik (${Math.round(remainingGasM3)} m³) ligt onder de streefwaarde van ${targetGas} m³ voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m².`
-    : `Niet aanbevolen: De isolatie is nog onvoldoende. Voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m² is de streefwaarde maximaal ${targetGas} m³ gas per jaar (momenteel ${Math.round(remainingGasM3)} m³). Verbeter eerst de thermische schil door te isoleren.`;
+  const hybridFeasible = selectedModel === 'LuchtLucht' ? true : isInsulatedSufficiently;
+  const hybridFeasibilityReason = selectedModel === 'LuchtLucht'
+    ? `Uitstekend geschikt! Een lucht-lucht warmtepomp (airco) verwarmt direct via lucht-blaasunits. Hierdoor is dit systeem ook bij een matig of slecht geïsoleerde woning direct uiterst effectief en rendabel, zonder dat er vloerverwarming of nieuwe radiatoren nodig zijn.`
+    : (isInsulatedSufficiently 
+        ? `Je woning is voldoende geïsoleerd voor een hybride warmtepomp. Je resterende gasverbruik (${Math.round(remainingGasM3)} m³) ligt onder de streefwaarde van ${targetGas} m³ voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m².`
+        : `Niet aanbevolen: De isolatie is nog onvoldoende. Voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m² is de streefwaarde maximaal ${targetGas} m³ gas per jaar (momenteel ${Math.round(remainingGasM3)} m³). Verbeter eerst de thermische schil door te isoleren.`);
 
   // 2. All-Electric option
-  const aeBruto = 13500;
-  const aeSubsidy = 3300;
   const aeNet = aeBruto - aeSubsidy;
   const aeGasSaved = remainingGasM3;
   const aeGasSavingEuro = aeGasSaved * gasPrijs;
-  const aeElecUsed = aeGasSaved * 2.4;
+  const aeElecUsed = aeGasSaved * aeCOPFactor;
   
   const aeSolarCoverage = Math.min(aeElecUsed, gridFeedBaseKwh);
   const aeGridImport = Math.max(0, aeElecUsed - aeSolarCoverage);
@@ -559,7 +620,7 @@ export function calculateAll(
 
   const options: HeatpumpOption[] = [
     {
-      type: 'Hybride',
+      type: selectedModel === 'LuchtLucht' ? 'Lucht-lucht (Airco)' : 'Hybride',
       brutoInvestment: hybridBruto,
       subsidy: hybridSubsidy,
       netInvestment: hybridNet,
@@ -594,21 +655,37 @@ export function calculateAll(
     }
   ];
 
+  const wpChosenNet = selectedType === 'All-Electric' ? aeNet : hybridNet;
+  const wpChosenSavings = selectedType === 'All-Electric' ? aeNetSavings : hybridNetSavings;
+
   if (!isInsulatedSufficiently) {
-    explanation = `Isolatie nog onvoldoende: Een warmtepomp is momenteel niet direct rendabel of technisch aanbevolen. Het gemiddelde gasverbruik voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m² is circa ${benchmarkGas} m³ per jaar. Om klaar te zijn voor een warmtepomp adviseren we om het resterende gasverbruik door isolatie te verlagen tot onder de streefwaarde van ${targetGas} m³ (resterend gasverbruik is momenteel ${Math.round(remainingGasM3)} m³). We raden dringend aan eerst de aanbevolen isolatiemaatregelen (zoals spouw- of vloerisolatie en HR++ glas) uit te voeren.`;
+    if (selectedModel === 'LuchtLucht') {
+      isRecommended = true;
+      estimatedInvestment = wpChosenNet;
+      estimatedSavingsEuro = wpChosenSavings;
+      explanation = `Positief advies: Een lucht-lucht warmtepomp (airco) is uitstekend geschikt voor jouw woning! Omdat deze verwarmt via lucht-blaasunits, is een hoge mate van isolatie of vloerverwarming niet dwingend vereist om direct fors op gas te besparen. Met deze optie kun je de belangrijkste leefruimtes snel en efficiënt verwarmen. De bestaande CV-ketel blijft behouden voor warm tapwater en eventuele bijverwarming.`;
+    } else {
+      explanation = `Isolatie nog onvoldoende: Een warmtepomp is momenteel niet direct rendabel of technisch aanbevolen. Het gemiddelde gasverbruik voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m² is circa ${benchmarkGas} m³ per jaar. Om klaar te zijn voor een warmtepomp adviseren we om het resterende gasverbruik door isolatie te verlagen tot onder de streefwaarde van ${targetGas} m³ (resterend gasverbruik is momenteel ${Math.round(remainingGasM3)} m³). We raden dringend aan eerst de aanbevolen isolatiemaatregelen (zoals spouw- of vloerisolatie en HR++ glas) uit te voeren.`;
+    }
   } else {
     isRecommended = remainingGasM3 > 500;
-    estimatedInvestment = hybridNet;
-    estimatedSavingsEuro = hybridNetSavings;
+    estimatedInvestment = wpChosenNet;
+    estimatedSavingsEuro = wpChosenSavings;
     
     if (isRecommended) {
-      if (aeFeasible && aeTvt < hybridTvt + 3) {
+      if (selectedModel === 'LuchtLucht') {
+        explanation = `Positief advies: Een lucht-lucht warmtepomp (airco) is een slimme en snelle manier om op gas te besparen. Je woning is goed geïsoleerd, wat het rendement nog verder verhoogt. Je kunt hiermee heel gericht de woonkamer en/of andere verblijfsruimten verwarmen, terwijl de CV-ketel alleen nog voor tapwater en koude badkamers zorgt.`;
+      } else if (aeFeasible && aeTvt < hybridTvt + 3) {
         explanation = `Positief advies: Je woning is uitstekend geïsoleerd met een laag resterend gasverbruik van ${Math.round(remainingGasM3)} m³ (ruim onder de streefwaarde van ${targetGas} m³ voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m²). Een volledig elektrische warmtepomp (All-Electric) is hier zeer interessant! Hiermee ga je volledig gasloos en bespaar je tevens de vaste gaskosten. Een hybride warmtepomp is ook een veilige en rendabele optie.`;
       } else {
         explanation = `Positief advies: Je woning is goed geïsoleerd. Je resterende gasverbruik van ${Math.round(remainingGasM3)} m³ ligt netjes onder de streefwaarde van ${targetGas} m³ voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m². Een hybride warmtepomp is hier de meest financieel rendabele optie en zal je gasverbruik met circa 75% verminderen!`;
       }
     } else {
-      explanation = `Technisch mogelijk, maar beperkt rendabel: Je resterende gasverbruik is door isolatie al extreem laag (${Math.round(remainingGasM3)} m³). Een warmtepomp heeft hierdoor een langere terugverdientijd. Volledig elektrisch gaan is wellicht een betere stap om de gaskraan definitief te sluiten.`;
+      if (selectedModel === 'LuchtLucht') {
+        explanation = `Technisch mogelijk, maar beperkt rendabel: Je resterende gasverbruik is door isolatie al extreem laag (${Math.round(remainingGasM3)} m³). Een lucht-lucht warmtepomp (airco) kan handig zijn voor extra comfort of gerichte koeling in de zomer, maar de extra gasbesparing zal klein zijn.`;
+      } else {
+        explanation = `Technisch mogelijk, maar beperkt rendabel: Je resterende gasverbruik is door isolatie al extreem laag (${Math.round(remainingGasM3)} m³). Een warmtepomp heeft hierdoor een langere terugverdientijd. Volledig elektrisch gaan is wellicht een betere stap om de gaskraan definitief te sluiten.`;
+      }
     }
   }
 

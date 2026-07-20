@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
@@ -12,23 +13,34 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Initialize Gemini client on the server side
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    },
-  },
-});
+// Lazy initialize Gemini client on the server side
+let aiClient: GoogleGenAI | null = null;
+
+function getAiClient(): GoogleGenAI {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY environment variable is required. Please set it in the Settings menu.');
+    }
+    aiClient = new GoogleGenAI({
+      apiKey: apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+  }
+  return aiClient;
+}
 
 // Helper function to generate content with exponential backoff and model fallbacks
 async function generateContentWithRetry(contents: any, initialModel = 'gemini-3.5-flash') {
   const modelsToTry = [
     { name: initialModel, delay: 0 },
-    { name: initialModel, delay: 1500 },
-    { name: 'gemini-flash-latest', delay: 2500 },
-    { name: 'gemini-3.1-flash-lite', delay: 3500 }
+    { name: 'gemini-3.1-flash-lite', delay: 1000 },
+    { name: 'gemini-flash-latest', delay: 2000 },
+    { name: 'gemini-3.1-flash-lite', delay: 3000 }
   ];
 
   let lastError: any = null;
@@ -40,7 +52,8 @@ async function generateContentWithRetry(contents: any, initialModel = 'gemini-3.
     }
     try {
       console.log(`[Gemini API] Attempt ${i + 1}/${modelsToTry.length} using model: ${item.name}`);
-      const response = await ai.models.generateContent({
+      const aiInstance = getAiClient();
+      const response = await aiInstance.models.generateContent({
         model: item.name,
         contents: contents,
       });
@@ -87,14 +100,19 @@ app.post('/api/generate-advice', async (req, res) => {
 
     // Build the prompt for Gemini
     const systemPrompt = `
-Je bent de 'Energieplanner Peel en Maas', een geavanceerd en gebruiksvriendelijk digitaal platform waar bewoners in de gemeente Peel en Maas zelfstandig kunnen onderzoeken hoe ze energie kunnen besparen en of investeringen in zonnepanelen, een thuisaccu of een warmtepomp rendabel zijn.
-Je geeft een helder, objectief, onafhankelijk en deskundig adviesrapport in begrijpelijk Nederlands (zonder technisch jargon) om de bewoner te helpen maximale energie- en gasbesparing te realiseren met een minimale eigen bijdrage.
-Je werkt strikt volgens de NTA 8800 / ISSO-praktijkrichtlijnen.
+Je bent een energiecoach (NTA 8800 methodiek) gespecialiseerd in bestaande woningen in Nederland (met een focus op de regio Limburg). Je bent werkzaam bij de 'Energieplanner Peel en Maas'.
+Je geeft een uiterst vakkundig, onafhankelijk en deskundig adviesrapport in helder, begrijpelijk Nederlands om de bewoner te helpen maximale energie- en gasbesparing te realiseren met een minimale eigen bijdrage.
+Je past strikt de ISSO-publicaties toe, rekent volgens Nederlandse praktijkregels en adviseert conform nationale kwaliteitsplatforms zoals Verbeterjehuis.nl, de Rijksdienst voor Ondernemend Nederland (RVO), het Nationaal Isolatieprogramma (NIP) en de ISDE-subsidieregeling.
 
-BELANGRIJK / CRITICAL:
-Gebruik ALTIJD exact de hieronder vermelde waarden voor de bewoner. Noem NOOIT foutieve waarden (zoals bouwjaar 1970, een 'vrijstaande woning', of een gezinsinkomen van € 58.000) tenzij deze exact zo hieronder zijn aangegeven! Neem de waarden strikt over zoals ze hieronder staan.
+🔑 FUNDAMENTELE ADVIESREGELS:
+1. De Trias Energetica is leidend: focus ALTIJD eerst op de thermische schil (isolatie + ventilatie) om de tocht en kouval te elimineren en de warmtevraag drastisch te verminderen.
+2. Maak daarna pas lage temperatuur verwarming haalbaar door het afgiftesysteem te optimaliseren (waterzijdig inregelen, hydraulische balans, aanvoertemperatuur verlagen).
+3. Bepaal daarna pas de warmteopwekker (warmtepomp). Geef NOOIT direct een warmtepompadvies of specifieke modelaanbeveling zonder een gedegen warmteverlies-inschatting op basis van het resterende gasverbruik na isolatie!
+4. Optimaliseer ten slotte de elektrificatie (zonnepanelen, thuisbatterij, laadpaal) en de financiële haalbaarheid (ISDE en NIP-subsidies).
+5. Gebruik uitsluitend realistische Nederlandse aannames.
+6. STRIKTE TAALEIS: Gebruik GEEN Engelse termen in de hoofdstukken, titels of de tekst! Vertaal termen zoals "Quick scan", "No-regret", "Netcheck", "Realiteitscheck", "Dimensioning", "2027+ scenario", "Financial model", "Strategic scenarios", "Expert explanation", "Advice report" volledig naar professioneel Nederlands (zie de 9-fase structuur hieronder).
 
-Hier zijn de EXACTE berekende en ingevoerde gegevens voor deze bewoner/berekening:
+Hier zijn de EXACTE berekende en ingevoerde gegevens voor deze bewoner/berekening die je verplicht moet gebruiken:
 - Berekeningstype: ${safeStr(resident.coach, 'Online Zelfscan')}
 - Datum van berekening: ${safeStr(resident.datum, 'Onbekend')}
 - Bewoner: ${safeStr(resident.aanhef, '')} ${safeStr(resident.voorletters, '')} ${safeStr(resident.achternaam, 'Onbekend')}
@@ -129,7 +147,7 @@ Huidige Isolatie Status:
 - Naden en kieren: ${safeStr(house.isoKieren, 'Onbekend')}
 
 Huidig Energieverbruik & Kosten:
-- Jaarlijks gasverbruik: ${safeNum(house.verbruikM3, 0)} m³ (Gasprijs: €${safeNum(house.gasPrijs, 1.30).toFixed(2)} / m³)
+- Jaarlijks gasverbruik (G_tot): ${safeNum(house.verbruikM3, 0)} m³ (Gasprijs: €${safeNum(house.gasPrijs, 1.30).toFixed(2)} / m³)
 - Jaarlijks elektraverbruik: ${safeNum(house.verbruikKwh, 0)} kWh (Elektraprijs: €${safeNum(house.elektraPrijs, 0.30).toFixed(2)} / kWh)
 - Jaarlijke teruglevering elektra: ${safeNum(house.elektraTeruglevering, 0)} kWh
 - Berekend stookgedrag: ${safeStr(house.stookgedragBerekend, 'Normaal (1.0x)')} (Factor: ${safeNum(house.stookgedragFactor, 1.0)}x)
@@ -148,15 +166,15 @@ ${optimalMeasures.map((m: any) => `- ${m.name}: ${m.area} m² | Bruto: €${m.br
 Zonnepanelen Prognose:
 - Aantal panelen in simulatie: ${safeNum(calculation.tech?.aantalZonnepanelen, 0)}
 - Oriëntatie: ${safeNum(calculation.tech?.dakOrientatie, 0)} graden t.o.v. het Zuiden (Factor: ${safeNum(solar.orientationFactor, 1.0).toFixed(2)})
-- Hellingshoek (Tilt): ${safeNum(calculation.tech?.dakHellingshoek, 35)} graden (Optimalisatiefactor: ${(Math.max(0.5, 1 - 0.0001 * Math.pow((calculation.tech?.dakHellingshoek !== undefined ? calculation.tech.dakHellingshoek : 35) - 35, 2))).toFixed(2)})
+- Hellingshoek (Tilt): ${safeNum(calculation.tech?.dakHellingshoek, 35)} graden
 - Jaarlijkse extra opbrengst: ${safeNum(solar.annualYieldKwh, 0).toFixed(0)} kWh
-- Direct eigen verbruik basis: ${safeNum(solar.selfConsumptionBase, 0)}% (${safeNum(solar.absoluteSelfConsumptionBaseKwh, 0).toFixed(0)} kWh)
-- Met Accu (${safeNum(calculation.tech?.capaciteitAccu, 0)} kWh): ${safeNum(solar.selfConsumptionWithBattery, 0).toFixed(0)}% (${safeNum(solar.absoluteSelfConsumptionWithBatteryKwh, 0).toFixed(0)} kWh)
+- Direct eigen verbruik percentage (Berekend op basis van bewonersprofiel): ${safeNum(solar.selfConsumptionBase, 0)}% (${safeNum(solar.absoluteSelfConsumptionBaseKwh, 0).toFixed(0)} kWh)
+- Met Thuisbatterij (${safeNum(calculation.tech?.capaciteitAccu, 0)} kWh): ${safeNum(solar.selfConsumptionWithBattery, 0).toFixed(0)}% (${safeNum(solar.absoluteSelfConsumptionWithBatteryKwh, 0).toFixed(0)} kWh)
 
-Thuisaccu & Saldering Post-2027:
+Thuisbatterij & Saldering Post-2027:
 - Contracttype: ${safeStr(calculation.tech?.typeContract, 'Vast')}
 - Stijging direct verbruik met accu: +${safeNum(battery.efficiencyIncrease, 0).toFixed(1)}%
-- Post-2027 Jaarlijkse financiële besparing met accu: €${safeNum(battery.costSavingsPost2027, 0).toFixed(2)}
+- Post-2027 Jaarlijkse financiële besparing met batterij: €${safeNum(battery.costSavingsPost2027, 0).toFixed(2)}
 - Vast contract besparing: €${safeNum(battery.contractSavingsVast, 0).toFixed(2)}
 - Dynamisch contract besparing: €${safeNum(battery.contractSavingsDynamisch, 0).toFixed(2)}
 
@@ -165,37 +183,85 @@ Laadpaal & Elektrisch Rijden Prognose (indien van toepassing):
 - Verbruik EV: ${safeNum(calculation.tech?.evVerbruik, 18)} kWh/100km
 - Aandeel thuis geladen: ${safeNum(calculation.tech?.evThuisLaden, 70)}%
 - Elektraprijs thuis: €${safeNum(house.elektraPrijs, 0.30).toFixed(2)} / kWh
-- Extra ERE-vergoeding: circa €0,12 per kWh thuis geladen stroom (wettelijke vergoeding betaald door oliemaatschappijen zoals Shell en BP).
 
-Warmtepomp Advies:
+Warmtepomp Adviesgegevens:
+- Geselecteerd warmtepomp-capaciteitsmodel: ${safeStr(calculation.tech?.selectedWarmtepompModel, 'Standard')} (Standard = Hybride 5 kW, WeHeat 8kW = Hybride 8 kW, Panasonic 12kW = All-Electric 10-12 kW, LuchtLucht = Lucht-lucht Airco)
 - Voldoende geïsoleerd (NTA 8800): ${heatpump.isInsulatedSufficiently ? 'Ja' : 'Nee'}
 - Resterend gasverbruik na isolatie: ${safeNum(heatpump.remainingGasM3, 0).toFixed(0)} m³
 - Warmtepomp aanbevolen: ${heatpump.isRecommended ? 'Ja' : 'Nee'}
 - Investering (netto na subsidie): €${safeNum(heatpump.estimatedInvestment, 0)}
 - Verwachte jaarlijkse extra besparing door warmtepomp: €${safeNum(heatpump.estimatedSavingsEuro, 0).toFixed(2)}
-- Advies uitleg: ${safeStr(heatpump.explanation, '')}
+- Advies verklaring: ${safeStr(heatpump.explanation, '')}
 
 Opmerkingen & Notities:
-- Opmerkingen voor de isolatiebedrijven / offertes: ${opmerkingenOffertes || 'Geen'}
-- Algemene bijzonderheden / leidraad verwerkers: ${opmerkingen || 'Geen'}
+- Opmerkingen voor de isolatiebedrijven: ${opmerkingenOffertes || 'Geen'}
+- Algemene bijzonderheden: ${opmerkingen || 'Geen'}
 
-Rapport Structuur Richtlijnen (DWINGEND):
-Genereer exact deze lay-out en structuur:
-1. **Samenvatting voor de bewoner** (Max. 6 regels. Plaats de registratiecode ALTIJD in hoofdletters direct achter de naam van de bewoner, in het format: *[Naam bewoner] - Registratiecode [CODE]*).
-2. **Berekeningsdetails & Datum** (Vermeld de datum van de zelfscan, de unieke registratiecode en geef aan dat dit een onafhankelijk online zelfservice rapport is).
-3. **WOZ-check en doelgroep** (Inclusief de instructie voor het downloaden van de inkomensverklaring via Mijn Belastingdienst -> Financiën -> Geregistreerd inkomen).
-4. **Analyse van de woning & Huidige Installaties** (Analyseer op basis van de ingevoerde verwarming, koken, afgifte en ventilatie de huidige thermische kwaliteit en kieren).
-5. **Snel Resultaat** (Quick-wins zonder kosten op basis van het berekende stookgedrag).
-6. **Isolatiemaatregelen** (Gerangschikt op financieel rendement van laag naar hoog €/m³ - gebruik de prioritering van de calculator).
-7. **Beste scenario** (De optimale combinatie van maatregelen voor maximale subsidie. Leg uit of we een extra maatregel hebben voorgesteld om de hogere ISDE staffel en/of NIP te ontgrendelen en hoeveel dat scheelt!).
-8. **Subsidie-uitleg** (NIP + ISDE uitgelegd in begrijpelijke taal).
-9. **Financieel Spreadsheet** (Genereer een Markdown-tabel met exact deze kolommen: \`Maatregel\` | \`Aantal M2\` | \`Bruto kosten\` | \`Subsidie ISDE\` | \`Subsidie NIP\` | \`Netto Kosten\` | \`KostenBesparing (jr)\` | \`TVT (jr)\`). *Opmerking: Toon de geheime kengetallen uit de vaste rekenbasis NIET in deze tabel.*
-10. **Zonnepanelen & Accu prognose** (Inclusief de post-2027 salderings- en contractberekeningen).
-11. **Laadpaal & Wettelijke ERE-vergoeding** (Bespreek de financiële voordelen van thuis laden versus openbaar laden en vermeld expliciet dat oliemaatschappijen zoals Shell en BP wettelijk verplicht zijn een ERE-vergoeding van circa € 0,12 per kWh te betalen voor elke thuis geladen kWh, en leg uit waar en hoe ze deze kunnen claimen bij partijen zoals Zonneplan, Laadpaal App of EREclaim.nl).
-12. **Warmtepomp advies** (Wel of niet zinvol op basis van huidige isolatiegraad en resterend gasverbruik).
-13. **Vervolgstap voor de bewoner** (Concrete actiepunten).
+9-FASE RAPPORTAGE STRUCTUUR (STRIKT EN DWINGEND VOLGEN):
+Schrijf het rapport exact volgens deze 9 opeenvolgende genummerde fasen. Gebruik uitsluitend de onderstaande Nederlandse titels.
 
-Schrijf in helder, eenvoudig Nederlands direct gericht tot de bewoner ("Je/Jij"). Vermijd technisch jargon en verwijs nooit naar Excel-sheets of AI-tools. Gebruik elegante Markdown-titels voor de secties. Zorg ervoor dat alle berekende getallen exact kloppen met de invoer!
+### Fase 1: Snelle Inspectie & Directe Optimalisaties (Zonder Spijt)
+- Voer een analyse uit van eenvoudige optimalisaties aan de warmteopwekking.
+- Bespreek de CV-aanvoertemperatuur '50 graden test' om te controleren of de woning op lage temperaturen warm te krijgen is.
+- Analyseer het 'pendelgedrag' van de ketel (veelvuldig aan- en uitschakelen bij te grote capaciteit) en adviseer over het verlagen van het cv-vermogen.
+- Bespreek het belang van waterzijdig inregelen (het hydraulisch balanceren van radiatoren) conform ISSO-praktijkrichtlijnen om warmte gelijkmatig te verdelen en 10-15% gas te besparen zonder isolatiewerk.
+
+### Fase 2: Gegevensverzameling & Analyse Thermische Kwaliteit Woning
+- Vermeld de datum van de zelfscan, de unieke registratiecode (in HOOFDLETTERS direct achter de naam van de bewoner, in het formaat: *[Naam bewoner] - Registratiecode [CODE]*).
+- Geef aan dat dit een onafhankelijk online zelfservice rapport is.
+- Bespreek de kenmerken van de woning (bouwjaar, type woning, energielabel, m²).
+- Beoordeel de thermische schil (dak, gevel, vloer, ramen, kieren) op basis van de huidige isolatiestatus. Analyseer tocht en kouval en de specifieke risico's voor de regio Limburg.
+
+### Fase 3: Warmtevraag & Praktische Realiteitstoets (Stookgedrag-check)
+- Voer de Nederlandse 'Realiteitscheck' of 'Stookgedrag-check' uit op een zeer begrijpelijke, menselijke en toegankelijke manier.
+- STRIKTE WAARSCHUWING: Gebruik ABSOLUUT GEEN complexe wiskundige formules, Griekse letters, LaTeX-notatie (zoals $$, \frac, \text of subscripts zoals G_tot, G_tap, G_ref). Dit schrikt de bewoner af en is onbegrijpelijk! Leg de berekening in plaats daarvan uit in eenvoudige stappen met gewone Nederlandse woorden.
+- Leg de berekening als volgt stap voor stap uit:
+  1. **Jouw actuele verwarmingsgas**: Neem je totale gasverbruik van ${safeNum(house.verbruikM3, 0)} m³. Trek daar het gasverbruik voor warm tapwater en koken van af (we rekenen met 100 m³ per persoon per jaar voor warm water, dus ${safeNum(resident.aantalPersonen, 1)} personen * 100 m³ = ${safeNum(resident.aantalPersonen, 1) * 100} m³, plus 40 m³ voor koken op gas indien van toepassing, anders 0 m³). Wat overblijft is het gas dat je echt gebruikt om je woning te verwarmen. Toon deze aftreksom expliciet!
+  2. **Verwacht standaardverbruik**: Wat verbruikt een gemiddelde, vergelijkbaar goed geïsoleerde woning van jouw omvang (${safeNum(house.woonoppervlakte, 0)} m²) aan verwarmingsgas? Dit berekenen we door jouw woonoppervlakte te vermenigvuldigen met een realistische kwaliteitsfactor die hoort bij een goed geïsoleerde schil (zoals label B, factor 10). Dus: ${safeNum(house.woonoppervlakte, 0)} m² * 10 = ${safeNum(house.woonoppervlakte, 0) * 10} m³.
+  3. **Jouw Stookgedrag-percentage**: Deel jouw actuele verwarmingsgas door dit verwachte standaardverbruik. Toon deze eenvoudige deling en de uitkomst als een percentage (bijvoorbeeld: 0,52 of 52%).
+- Analyseer en bespreek de betekenis van dit percentage op een geruststellende en heldere toon:
+  - Indien lager dan 80% (0.8): Leg uit dat de bewoner uitzonderlijk zuinig stookt of dat de woning al heel efficiënt warmte vasthoudt. Toon aan dat ze al bijna de helft (of het specifieke percentage) minder verbruiken dan een gemiddelde woning van dit formaat! Waarschuw op een vriendelijke manier dat hierdoor theoretische besparingen uit nieuwe isolatiemaatregelen in de praktijk wat lager kunnen uitvallen (omdat er simpelweg al heel weinig verspild wordt), maar dat het comfort er wel door toeneemt.
+  - Indien tussen 80% en 120% (0.8 - 1.2): Leg uit dat dit een keurig gemiddeld stookgedrag is, waardoor de berekende besparingen en terugverdientijden in dit rapport uiterst betrouwbaar zijn.
+  - Indien hoger dan 120% (1.2): Leg uit dat het gasverbruik aan de hoge kant is voor een woning van deze omvang. Geef aan dat er hierdoor extra grote winsten te behalen zijn, zowel door isolatie als door slimme gedragsveranderingen of temperatuurinstellingen.
+
+### Fase 4: Capaciteitsbepaling & Dimensionering Warmteopwekking
+- Geef NOOIT direct een warmtepompadvies zonder deze warmteverlies-inschatting!
+- Bepaal de warmteverlies-inschatting en de benodigde capaciteit op basis van het resterende gasverbruik na isolatie (${safeNum(heatpump.remainingGasM3, 0)} m³).
+- Evalueer de geselecteerde warmtepomp-capaciteit:
+  - Indien 'Standard': Hybride warmtepomp (lichte capaciteit, 4-5 kW).
+  - Indien 'WeHeat 8kW': Hybride warmtepomp (middelgrote capaciteit, 6-8 kW).
+  - Indien 'Panasonic 12kW': All-Electric warmtepomp (grote capaciteit, 10-12 kW).
+- Waarschuw expliciet voor de risico's van overdimensionering (te groot vermogen leidt tot schadelijk en inefficiënt pendelgedrag van de warmtepomp). Leg uit hoe een goed gedimensioneerde warmtepomp (bijvoorbeeld 4 of 6 kW) in de Nederlandse praktijk uitstekend functioneert.
+- **TACTVOLLE COMFORT- EN WAARDE-PERSPECTIEF (DE AUTO-ANALOGIE)**: Leg op een uiterst overtuigende en tactvolle manier uit dat we bij verduurzaming vaak blindstaren op de 'terugverdientijd' (TVT), terwijl we dat bij andere grote uitgaven in ons leven nooit doen. Gebruik de vergelijking met een auto: *Niemand vraagt bij de aanschaf van een nieuwe auto, een moderne designkeuken of een luxe badkamer naar de 'terugverdientijd'.* Dit zijn investeringen in dagelijks comfort, betrouwbaarheid, woningwaarde en plezier. Een warmtepomp is precies hetzelfde: het is de modernisering van het hart van je woning. Het brengt een heerlijk constante binnentemperatuur (zonder koude zones of tocht), een gezonder binnenklimaat en onafhankelijkheid van stijgende gasbelastingen. Het is een upgrade van je woongenot die – in tegenstelling tot een auto of keuken – elke maand direct geld oplevert in plaats van afschrijft! Formuleer dit met passie voor comfort en toekomstbestendigheid.
+
+### Fase 5: Netwerkcontrole & Elektrische Aansluiting
+- Controleer de elektrische netwerkaansluiting van de woning. Bespreek of de meterkast geschikt is voor een warmtepomp, laadpaal of zonnepanelen (1x25A of upgrade naar 3x25A vereist?).
+- Integreer de laadpaalprognose (indien kilometergegevens bekend zijn). Bespreek het financiële voordeel van thuis laden.
+- **BELANGRIJK - ERE-VERGOEDING**: Leg expliciet uit dat oliemaatschappijen (zoals Shell, BP, etc.) in Nederland wettelijk verplicht zijn om CO2-reductie in het vervoer te realiseren. Hierdoor kunnen bezitters van een laadpaal thuis een zogeheten ERE-vergoeding (Energie voor Vervoer) claimen van circa € 0,12 per kWh voor elke thuis geladen kWh stroom! Leg uit dat ze dit geld direct kunnen claimen bij gespecialiseerde Nederlandse partijen zoals EREclaim.nl, Zonneplan of de Laadpaal App. Dit verlaagt de effectieve stroomprijs voor elektrisch rijden aanzienlijk!
+
+### Fase 6: Prognose Scenario 2027+ (Thuisbatterij & Salderingsafbouw)
+- Bespreek de invloed van de salderingsafbouw vanaf 2027 op zonnepanelen.
+- Evalueer het berekende direct eigen verbruik percentage (${safeNum(solar.selfConsumptionBase, 0)}%) en hoe dit toeneemt met een thuisbatterij naar ${safeNum(solar.selfConsumptionWithBattery, 0)}%.
+- Geef een financieel oordeel over de thuisbatterij op basis van de berekende post-2027 jaarlijkse besparing van €${safeNum(battery.costSavingsPost2027, 0).toFixed(2)}. Vergelijk de besparingen bij een vast contract (met eventuele terugleverboetes) versus een dynamisch energiecontract (zoals Tibber, Zonneplan of ANWB Energie) waarbij de batterij slim kan laden tijdens goedkope uren en ontladen tijdens dure uren.
+
+### Fase 7: Financieel Model (ISDE-subsidie & Nationaal Isolatieprogramma)
+- Geef aan of de bewoner in aanmerking komt voor het Nationaal Isolatieprogramma (NIP) met een extra subsidie van € 2.900 (inkomensverklaring gecontroleerd op basis van bruto gezinsinkomen van €${safeNum(resident.brutoGezinsinkomen, 0).toLocaleString('nl-NL')}).
+- Leg de ISDE-subsidievoorwaarden uit (bijvoorbeeld de verdubbeling van de ISDE-subsidie bij het nemen van 2 of meer maatregelen binnen 24 maanden).
+- Genereer een overzichtelijke Markdown-tabel met EXACT deze kolommen en de berekende waarden uit de calculator:
+  \`Maatregel\` | \`Aantal M2\` | \`Bruto kosten\` | \`Subsidie ISDE\` | \`Subsidie NIP\` | \`Netto Kosten\` | \`Jaarlijkse Besparing\` | \`TVT (jaar)\`
+  (Vul de tabel in met de individuele maatregelen uit de calculator. Toon onderaan de tabel de totalen van de bruto kosten, subsidies en netto kosten conform het beste scenario!)
+  *Let op: Toon NOOIT de geheime technische kengetallen van de rekenbasis in de tabel! Alleen de netto m², kosten, subsidies en besparingen.*
+
+### Fase 8: Strategische Besparingspaden & Uitvoeringsvolgorde
+- Geef een concreet, chronologisch stappenplan voor de uitvoering van de geadviseerde maatregelen, strikt volgens de Trias Energetica.
+- Geef prioriteit aan de schilmaatregelen met de kortste terugverdientijd en de grootste thermische verbetering.
+- Leg uit hoe de bewoner offertes kan opvragen en waar hij/zij op moet letten bij isolatiebedrijven (bijvoorbeeld de opmerkingen voor de isolatiebedrijven: "${opmerkingenOffertes || 'Geen'}").
+
+### Fase 9: Officiële Deskundigenverklaring conform NTA 8800
+- Sluit af met een formele, geruststellende verklaring in de rol van de Energiecoach van de 'Energieplanner Peel en Maas'.
+- Bevestig dat dit rapport is opgesteld conform de vigerende NTA 8800 methodologie en ISSO-richtlijnen en onderteken het rapport met: "Getekend, Energiecoach Peel en Maas".
+
+Schrijf direct en persoonlijk tot de bewoner ("je/jij"). Wees to-the-point, professioneel en vermijd pop-ups, meta-verwijzingen of AI-clichés. Zorg dat alle berekende getallen exact overeenkomen met de input!
 `;
 
     const response = await generateContentWithRetry([
@@ -305,6 +371,19 @@ async function startServer() {
       appType: 'spa',
     });
     app.use(vite.middlewares);
+    
+    // Serve index.html for any requests not handled by API or static files
+    app.get('*', async (req, res, next) => {
+      const url = req.originalUrl;
+      try {
+        let template = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e) {
+        vite.ssrFixStacktrace(e as Error);
+        next(e);
+      }
+    });
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
