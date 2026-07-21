@@ -13,8 +13,11 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip as RechartsTooltip,
-  Legend as RechartsLegend
+  Legend as RechartsLegend,
+  ComposedChart,
+  Line
 } from 'recharts';
+import { calculateAll } from '../utils/calculator';
 
 interface InputFormProps {
   resident: ResidentData;
@@ -2169,37 +2172,6 @@ export default function InputForm({
                       </strong>
                     </div>
                   </div>
-
-                  {/* Beautiful Monthly Solar Distribution Chart requested by user */}
-                  {aantalZonnepanelen > 0 && (
-                    <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
-                      <div className="flex items-center gap-1.5">
-                        <Sun className="w-4 h-4 text-amber-500 shrink-0" />
-                        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide">
-                          Maandelijkse Zonne-opbrengst (Zonprofiel)
-                        </h4>
-                      </div>
-                      <p className="text-[11px] text-slate-500 leading-relaxed">
-                        Verwachte kWh per maand op basis van het gemiddeld zonprofiel voor Nederland. De seizoensverdeling toont het typische patroon: weinig in de winter, met een duidelijke piek in de maanden mei t/m juli.
-                      </p>
-
-                      <div className="h-44 bg-slate-50 border border-slate-100 rounded-xl p-3">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={monthlySolarData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                            <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                            <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                            <RechartsTooltip
-                              contentStyle={{ background: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff' }}
-                              labelStyle={{ fontWeight: 'bold', fontSize: '11px', color: '#fff' }}
-                              itemStyle={{ fontSize: '11px', color: '#34d399' }}
-                            />
-                            <Bar dataKey="Zonnestroom (kWh)" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             );

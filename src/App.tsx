@@ -3,6 +3,7 @@ import { calculateAll } from './utils/calculator';
 import { ResidentData, HouseData, InsulationData, TechData } from './types';
 import InputForm from './components/InputForm';
 import AdviceReport from './components/AdviceReport';
+import HeatpumpSolarChart from './components/HeatpumpSolarChart';
 import { safeStorage } from './utils/storage';
 import { 
   Leaf, Info, HelpCircle, FileSpreadsheet, Sparkles, 
@@ -769,6 +770,19 @@ export default function App() {
             setTech={setTech}
           />
         </div>
+
+        {/* Full-width/Page-wide sections */}
+        {activeTab === 'warmtepomp' && (
+          <div className="lg:col-span-12 mt-4 animate-fadeIn">
+            <HeatpumpSolarChart
+              resident={resident}
+              house={house}
+              insulation={insulation}
+              tech={tech}
+              setTech={setTech}
+            />
+          </div>
+        )}
       </main>
 
       {/* Footer */}

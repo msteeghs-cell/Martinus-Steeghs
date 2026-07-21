@@ -80,6 +80,8 @@ export interface TechData {
   customZonnepanelenPrijs?: number; // Custom installation/purchase cost for solar panels
   customWarmtepompPrijs?: number; // Custom installation/purchase cost for heat pump
   customLaadpaalPrijs?: number; // Custom installation/purchase cost for EV charger
+  userAnnualSolar?: number; // Custom user override for annual solar yield
+  userAnnualWp?: number; // Custom user override for annual heat pump consumption
 }
 
 export interface CalculatedMeasure {

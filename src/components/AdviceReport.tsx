@@ -2,6 +2,7 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CalculationResult, TechData } from '../types';
+import { getBatterySimulationData } from '../utils/calculator';
 import BatteryMarketOverview from './BatteryMarketOverview';
 import { 
   FileText, Copy, Printer, Check, TrendingDown, ShieldAlert, Award, Zap, HelpCircle, 
@@ -24,7 +25,8 @@ import {
   Area,
   PieChart,
   Pie,
-  Cell
+  Cell,
+  ComposedChart
 } from 'recharts';
 
 interface AdviceReportProps {
@@ -84,6 +86,38 @@ export default function AdviceReport({
   }, [adviceMarkdown]);
 
   const activeTab = localActiveTab;
+
+  // Selected capacity for the interactive battery chart
+  const [chartBatteryCapacity, setChartBatteryCapacity] = React.useState<number>(10);
+
+  // Synchronize chart capacity from active config
+  React.useEffect(() => {
+    if (calculation.tech.capaciteitAccu > 0) {
+      setChartBatteryCapacity(calculation.tech.capaciteitAccu);
+    } else {
+      const rec = calculation.solar.annualYieldKwh < 3500 ? 5 : calculation.solar.annualYieldKwh < 7500 ? 10 : 15;
+      setChartBatteryCapacity(rec);
+    }
+  }, [calculation.tech.capaciteitAccu, calculation.solar.annualYieldKwh]);
+
+  // Compute monthly battery simulation data points
+  const batteryChartData = React.useMemo(() => {
+    return getBatterySimulationData(
+      calculation.solar.annualYieldKwh || 0,
+      calculation.house.verbruikKwh || 3500,
+      chartBatteryCapacity || 10,
+      calculation.tech.omzettingsverliezen || 10,
+      calculation.solar.selfConsumptionBase || 30,
+      calculation.solar.absoluteSelfConsumptionBaseKwh || 0
+    );
+  }, [
+    calculation.solar.annualYieldKwh, 
+    calculation.house.verbruikKwh, 
+    chartBatteryCapacity, 
+    calculation.tech.omzettingsverliezen, 
+    calculation.solar.selfConsumptionBase, 
+    calculation.solar.absoluteSelfConsumptionBaseKwh
+  ]);
 
   const handleCopy = () => {
     if (adviceMarkdown) {
@@ -284,19 +318,44 @@ Energieplanner Peel en Maas
       const matched = chartData.find(d => d.name === label);
       const displayName = matched ? matched.fullName : label;
       return (
-        <div className="bg-white p-3 border border-slate-100 shadow-xl rounded-xl text-xs space-y-1.5">
-          <p className="font-bold text-slate-800 mb-1">{displayName}</p>
-          {payload.map((p: any, idx: number) => (
-            <div key={idx} className="flex justify-between gap-4">
-              <span className="text-slate-500 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }}></span>
-                {p.name}:
-              </span>
-              <span className="font-semibold text-slate-800">
-                {p.name.includes('Terugverdientijd') ? `${p.value} jaar` : `€ ${p.value.toLocaleString('nl-NL')}`}
-              </span>
-            </div>
-          ))}
+        <div className="bg-slate-900/95 backdrop-blur-md text-white p-4 shadow-2xl rounded-2xl text-xs space-y-3 min-w-[300px] border border-slate-800 font-sans">
+          <div className="border-b border-slate-800 pb-2">
+            <span className="text-sm font-bold block text-white">📋 {displayName}</span>
+            <span className="text-[10px] text-slate-400">Financiële specificatie per maatregel</span>
+          </div>
+          <div className="space-y-2.5">
+            {payload.map((p: any, idx: number) => {
+              const isTvt = p.name.includes('Terugverdientijd');
+              const isSavings = p.name.includes('Jaarbesparing') || p.name.includes('besparing');
+              const isSubsidie = p.name.includes('subsidie') || p.name.includes('Subsidie');
+              
+              let desc = "Financieel detail van de maatregel.";
+              if (p.name.includes('ISDE')) desc = "Subsidieregeling vanuit de landelijke overheid (RVO).";
+              else if (p.name.includes('NIP')) desc = "Lokale gemeentelijke subsidie van Peel en Maas.";
+              else if (p.name.includes('Netto')) desc = "De netto eigen bijdrage die u zelf investeert.";
+              else if (isTvt) desc = "De berekende periode tot de investering is terugverdiend.";
+              else if (isSavings) desc = "Structurele jaarlijkse verlaging van uw gasrekening.";
+
+              return (
+                <div key={idx} className="space-y-0.5 border-b border-slate-850 pb-1.5 last:border-0 last:pb-0">
+                  <div className="flex justify-between items-center gap-4">
+                    <span className="text-slate-300 flex items-center gap-2 font-medium">
+                      <span className="w-2.5 h-2.5 rounded-full inline-block shrink-0" style={{ backgroundColor: p.color }}></span>
+                      {p.name}:
+                    </span>
+                    <span className={`font-mono font-bold text-right ${
+                      isSavings ? 'text-emerald-400 text-sm' : 
+                      isTvt ? 'text-amber-400 text-sm' : 
+                      isSubsidie ? 'text-blue-400' : 'text-orange-400'
+                    }`}>
+                      {isTvt ? `${p.value} jaar` : `€ ${p.value.toLocaleString('nl-NL')}`}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 pl-4">{desc}</p>
+                </div>
+              );
+            })}
+          </div>
         </div>
       );
     }
@@ -306,19 +365,187 @@ Energieplanner Peel en Maas
   const BreakEvenTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const balance = payload[0].value;
+      const totalSavings = payload[1]?.value || 0;
       const isPositive = balance >= 0;
       return (
-        <div className="bg-white p-3 border border-slate-100 shadow-xl rounded-xl text-xs space-y-1">
-          <p className="font-bold text-slate-800 mb-1">Na {label}aar:</p>
-          <div className="flex justify-between gap-4">
-            <span className="text-slate-500">Netto Resultaat:</span>
-            <span className={`font-bold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {isPositive ? '+' : ''}€ {balance.toLocaleString('nl-NL')}
+        <div className="bg-slate-900/95 backdrop-blur-md text-white p-4 shadow-2xl rounded-2xl text-xs space-y-3.5 min-w-[310px] border border-slate-800 font-sans">
+          <div className="border-b border-slate-800 pb-2 flex justify-between items-center">
+            <div>
+              <span className="text-sm font-bold block text-white">📅 Na {label} Jaar</span>
+              <span className="text-[10px] text-slate-400">Cumulative balansontwikkeling</span>
+            </div>
+            <span className={`text-[9px] font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider ${
+              isPositive ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+            }`}>
+              {isPositive ? 'Rendabel 🎉' : 'Investering ⏳'}
             </span>
           </div>
-          <div className="flex justify-between gap-4 text-[10px] text-slate-400">
-            <span>Totale besparing:</span>
-            <span>€ {payload[1]?.value.toLocaleString('nl-NL')}</span>
+
+          <div className="space-y-3">
+            {/* Net Result card */}
+            <div className={`p-2.5 rounded-xl space-y-0.5 border ${
+              isPositive ? 'bg-emerald-950/20 border-emerald-500/20' : 'bg-rose-950/20 border-rose-500/20'
+            }`}>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-300 font-semibold flex items-center gap-1.5">
+                  💼 Netto Financieel Resultaat:
+                </span>
+                <span className={`font-mono font-black text-sm ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {isPositive ? '+' : ''}€ {balance.toLocaleString('nl-NL')}
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400">
+                {isPositive 
+                  ? "U heeft al uw isolatiekosten volledig terugverdiend en maakt pure winst!" 
+                  : `U bent nog in de terugverdienfase. Nog € ${Math.abs(balance).toLocaleString('nl-NL')} te gaan tot break-even.`
+                }
+              </p>
+            </div>
+
+            {/* Cumulative savings */}
+            <div className="flex justify-between items-center bg-slate-800/40 p-2.5 rounded-xl border border-slate-700/20">
+              <span className="text-slate-300 flex items-center gap-2 font-medium">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shrink-0" />
+                Totale gasbesparing:
+              </span>
+              <span className="font-bold text-emerald-400 font-mono">
+                € {totalSavings.toLocaleString('nl-NL')}
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const BatteryTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      const originalData = payload[0].payload;
+      const arbitrageVal = originalData ? originalData['Arbitrage stroomverschuiving (kWh)'] : 0;
+      
+      // Extract metrics safely for computed display
+      const directBase = originalData ? Number(originalData['Direct verbruik (zonder accu) (kWh)']) : 0;
+      const extraBattery = originalData ? Number(originalData['Extra verbruik via accu (kWh)']) : 0;
+      const totalSolarUsed = directBase + extraBattery;
+      const demand = originalData ? Number(originalData['Stroomverbruik (kWh)']) : 1;
+      const solarYield = originalData ? Number(originalData['Zonnestroom opwek (kWh)']) : 0;
+      
+      const selfSufficiency = Math.min(100, Math.round((totalSolarUsed / (demand || 1)) * 100));
+      const isSummer = ['Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep'].includes(label);
+
+      return (
+        <div className="bg-slate-900/95 backdrop-blur-md text-white p-5 shadow-2xl rounded-2xl text-xs space-y-4 min-w-[320px] border border-slate-750 font-sans">
+          <div className="border-b border-slate-800 pb-2.5 flex justify-between items-center">
+            <div>
+              <span className="text-sm font-bold block text-white">Maand: {label}</span>
+              <span className="text-[10px] text-slate-400">Gedetailleerde stroom- & accubalans</span>
+            </div>
+            <span className={`text-[9px] font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider ${
+              isSummer 
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+            }`}>
+              {isSummer ? '☀️ Zomermodus (Eigen stroom)' : '❄️ Wintermodus (Slimme Arbitrage)'}
+            </span>
+          </div>
+
+          <div className="space-y-2.5">
+            {/* Opwek & Verbruik summary */}
+            <div className="grid grid-cols-2 gap-2 text-center pb-2 border-b border-slate-800/50">
+              <div className="bg-slate-800/40 p-1.5 rounded-lg border border-slate-700/30">
+                <span className="block text-[10px] text-amber-400 font-medium">☀️ Zonne-opwek</span>
+                <span className="font-bold text-sm text-amber-300 font-mono">{Math.round(solarYield)} kWh</span>
+              </div>
+              <div className="bg-slate-800/40 p-1.5 rounded-lg border border-slate-700/30">
+                <span className="block text-[10px] text-rose-400 font-medium">📈 Huisverbruik</span>
+                <span className="font-bold text-sm text-rose-300 font-mono">{Math.round(demand)} kWh</span>
+              </div>
+            </div>
+
+            {/* Custom high-contrast line-by-line item with clear explanation */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-300 flex items-center gap-2 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shrink-0" />
+                  Direct zonne-verbruik:
+                </span>
+                <span className="font-bold text-emerald-400 font-mono">
+                  {Math.round(directBase)} kWh
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 pl-4 mb-2">Zonnestroom die direct in huis wordt verbruikt.</p>
+
+              <div className="flex justify-between items-center">
+                <span className="text-slate-300 flex items-center gap-2 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block shrink-0" />
+                  Verbruikt via de accu:
+                </span>
+                <span className="font-bold text-blue-400 font-mono">
+                  +{Math.round(extraBattery)} kWh
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 pl-4 mb-2">Overdag in de batterij opgeslagen zonnestroom die u 's avonds en 's nachts opmaakt.</p>
+
+              <div className="flex justify-between items-center">
+                <span className="text-slate-300 flex items-center gap-2 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block shrink-0" />
+                  Restant teruglevering net:
+                </span>
+                <span className="font-bold text-slate-300 font-mono">
+                  {Math.round(Math.max(0, solarYield - totalSolarUsed))} kWh
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 pl-4 mb-2">Overtollige stroom die overblijft en aan het net wordt teruggeleverd.</p>
+            </div>
+
+            {/* Self-sufficiency index */}
+            <div className="pt-2 border-t border-slate-800/60 space-y-1">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-300 font-bold">Zelfvoorzienendheid:</span>
+                <span className={`font-black font-mono px-2 py-0.5 rounded text-xs ${
+                  selfSufficiency >= 90 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20' :
+                  selfSufficiency >= 60 ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20' :
+                  'bg-orange-500/20 text-orange-400 border border-orange-500/20'
+                }`}>
+                  {selfSufficiency}% {selfSufficiency >= 95 ? 'Nul op de meter! 🎉' : ''}
+                </span>
+              </div>
+              <div className="w-full bg-slate-800 rounded-full h-1.5 mt-1 overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    selfSufficiency >= 90 ? 'bg-emerald-500' :
+                    selfSufficiency >= 60 ? 'bg-blue-500' :
+                    'bg-orange-500'
+                  }`} 
+                  style={{ width: `${selfSufficiency}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">
+                {isSummer 
+                  ? "☀️ Dankzij uw 30 kWh accu draait u deze maand volledig autonoom op eigen zonnestroom (100% zelfvoorzienend)." 
+                  : "❄️ In de wintermaanden schiet de zon tekort, maar minimaliseert uw EMS de kosten via net-arbitrage."
+                }
+              </p>
+            </div>
+
+            {/* Arbitrage and Smart EMS info */}
+            {arbitrageVal > 0 && (
+              <div className="pt-2.5 border-t border-slate-800 space-y-1 bg-purple-950/20 p-2.5 rounded-xl border border-purple-500/10">
+                <div className="flex justify-between items-center">
+                  <span className="text-purple-300 flex items-center gap-2 font-bold">
+                    <span className="w-2 h-2 rounded-full bg-purple-400 inline-block shrink-0 animate-pulse" />
+                    ⚡ Arbitrage-sturing:
+                  </span>
+                  <span className="font-extrabold text-purple-300 font-mono">
+                    ~{Math.round(arbitrageVal)} kWh
+                  </span>
+                </div>
+                <p className="text-[9.5px] text-purple-200/85 leading-relaxed">
+                  Uw Smart Home-systeem laadt de accu op met goedkope windstroom van het net tijdens daluren/negatieve uren en ontlaadt tijdens dure piekuren om stroomkosten te vermijden.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       );
@@ -1369,6 +1596,198 @@ Energieplanner Peel en Maas
                 </div>
               </div>
             )}
+
+            {/* NEW: Seasonal Battery Simulation Chart */}
+            <div className="bg-white border border-slate-100 rounded-3xl p-6 md:p-8 space-y-6 shadow-sm" id="battery-monthly-simulation-chart">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full uppercase tracking-wider inline-block">
+                    Seizoenssimulatie
+                  </span>
+                  <h4 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5 text-blue-500" />
+                    Maandelijkse Energiestromen met Thuisaccu
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Bekijk hoe de zonnestroom over het jaar heen verdeeld wordt bij een gekozen accucapaciteit van <strong>{chartBatteryCapacity} kWh</strong>.
+                  </p>
+                </div>
+                
+                {/* Interactive Capacity Selector for the Chart */}
+                <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-xl self-start md:self-auto">
+                  {[5, 10, 15, 30].map(cap => {
+                    const isSelected = chartBatteryCapacity === cap;
+                    const isConfigured = calculation.tech.capaciteitAccu === cap;
+                    return (
+                      <button
+                        key={cap}
+                        type="button"
+                        onClick={() => setChartBatteryCapacity(cap)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                          isSelected 
+                            ? 'bg-blue-600 text-white shadow-sm' 
+                            : 'text-slate-600 hover:text-slate-800 hover:bg-slate-200'
+                        }`}
+                      >
+                        {cap} kWh
+                        {isConfigured && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
+                        {cap === 30 && (
+                          <span className="text-[9px] bg-amber-550 text-white px-1.5 py-0.2 rounded-md font-black tracking-wide shrink-0">
+                            Praktijk
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                  {calculation.tech.capaciteitAccu > 0 && ![5, 10, 15, 30].includes(calculation.tech.capaciteitAccu) && (
+                    <button
+                      type="button"
+                      onClick={() => setChartBatteryCapacity(calculation.tech.capaciteitAccu)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                        chartBatteryCapacity === calculation.tech.capaciteitAccu 
+                          ? 'bg-blue-600 text-white shadow-sm' 
+                          : 'text-slate-600 hover:text-slate-800 hover:bg-slate-200'
+                      }`}
+                    >
+                      {calculation.tech.capaciteitAccu} kWh (Actief)
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {chartBatteryCapacity === 30 && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex gap-3 items-start text-xs text-emerald-950 shadow-xs">
+                  <span className="flex h-2.5 w-2.5 relative shrink-0 mt-1">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                  </span>
+                  <div>
+                    <span className="font-extrabold text-emerald-800 block text-xs">📊 Universele Smart-EMS & Arbitrage Simulatie</span>
+                    <p className="text-[11px] text-emerald-700/95 mt-0.5 leading-relaxed font-semibold">
+                      Voor deze <strong>30 kWh</strong> opstelling simuleren we een intelligent home-automatisatiesysteem (EMS) met <strong>actieve energie-arbitrage & dynamic load shifting</strong> (nul-op-de-meter).
+                    </p>
+                    <p className="text-[10px] text-emerald-800/80 mt-1.5 leading-relaxed font-medium">
+                      Dit algoritme is perfect gekalibreerd met de reële praktijkmetingen van april, mei en juni (gemiddeld ~90% zelfvoorzienendheid in de zomer). Het past deze prestaties universeel en procentueel toe op basis van uw eigen zonnepanelen en verbruik. In de wintermaanden simuleert het model actieve net-arbitrage (laden tijdens dal- of negatieve tarieven, ontladen tijdens pieken), wat zorgt voor extra netontlasting en kostenbesparing!
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Chart container */}
+              <div className="h-80 md:h-96 w-full pt-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart
+                    data={batteryChartData}
+                    margin={{ top: 20, right: 5, left: -20, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis 
+                      dataKey="name" 
+                      tickLine={false}
+                      axisLine={false}
+                      tick={{ fill: '#64748b', fontSize: 11, fontWeight: 500 }}
+                    />
+                    <YAxis 
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(val) => `${val}`}
+                      tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }}
+                    />
+                    <Tooltip content={<BatteryTooltip />} />
+                    <Legend 
+                      verticalAlign="top" 
+                      height={40}
+                      iconType="circle"
+                      iconSize={8}
+                      wrapperStyle={{ fontSize: 11, fontWeight: 600, color: '#475569' }}
+                    />
+                    
+                    {/* Stacked Bars representing Destination of Solar Production */}
+                    <Bar 
+                      dataKey="Direct verbruik (zonder accu) (kWh)" 
+                      name="🏠 Direct verbruikte zonnestroom (kWh)" 
+                      stackId="solar" 
+                      fill="#10b981" 
+                    />
+                    <Bar 
+                      dataKey="Extra verbruik via accu (kWh)" 
+                      name="🔋 Opgeslagen &amp; verbruikt via accu (kWh)" 
+                      stackId="solar" 
+                      fill="#3b82f6" 
+                    />
+                    <Bar 
+                      dataKey="Teruglevering naar net (met accu) (kWh)" 
+                      name="🌐 Resterende teruglevering (kWh)" 
+                      stackId="solar" 
+                      fill="#94a3b8" 
+                      radius={[4, 4, 0, 0]} 
+                    />
+
+                    {/* Lines for context */}
+                    <Line 
+                      type="monotone" 
+                      dataKey="Stroomverbruik (kWh)" 
+                      name="📈 Totaal stroomverbruik (kWh)" 
+                      stroke="#f43f5e" 
+                      strokeWidth={3}
+                      strokeDasharray="4 4"
+                      dot={{ r: 3, strokeWidth: 1, stroke: '#f43f5e', fill: '#fff' }} 
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="Arbitrage stroomverschuiving (kWh)" 
+                      name="⚡ Arbitrage stroomverschuiving (kWh)" 
+                      stroke="#a855f7" 
+                      strokeWidth={2.5}
+                      dot={{ r: 3.5, strokeWidth: 1.5, stroke: '#a855f7', fill: '#fff' }} 
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Explanatory legend and key metrics of the active simulation */}
+              <div className="grid md:grid-cols-3 gap-4 pt-4 border-t border-slate-100">
+                <div className="space-y-1 bg-emerald-50/40 rounded-2xl p-4 border border-emerald-100/30">
+                  <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Eigen Verbruik Verhoging</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-black text-emerald-700">
+                      +{Math.round(batteryChartData.reduce((acc, d) => acc + d['Extra verbruik via accu (kWh)'], 0) / (calculation.solar.annualYieldKwh || 1) * 100)}%
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium">op jaarbasis</span>
+                  </div>
+                  <p className="text-[10px] text-slate-600 leading-relaxed">
+                    Dankzij de {chartBatteryCapacity} kWh accu verbruik je deze stroom direct zelf, in plaats van het goedkoop terug te leveren.
+                  </p>
+                </div>
+
+                <div className="space-y-1 bg-blue-50/30 rounded-2xl p-4 border border-blue-100/30">
+                  <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block font-sans">Totaal Opgeslagen Stroom</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-black text-blue-700">
+                      {Math.round(batteryChartData.reduce((acc, d) => acc + d['Extra verbruik via accu (kWh)'], 0)).toLocaleString('nl-NL')} kWh
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium">per jaar</span>
+                  </div>
+                  <p className="text-[10px] text-slate-600 leading-relaxed">
+                    Dit is de hoeveelheid gratis stroom die jaarlijks door de batterij is opgeslagen en op een later moment (bijv. 's avonds) is verbruikt.
+                  </p>
+                </div>
+
+                <div className="space-y-1 bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Autonomie (Zonne-dekking)</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-black text-slate-700">
+                      {Math.min(100, Math.round((batteryChartData.reduce((acc, d) => acc + d['Totaal direct verbruik (met accu) (kWh)'], 0) / (calculation.house.verbruikKwh || 1)) * 100))}%
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium">zelfvoorzienend</span>
+                  </div>
+                  <p className="text-[10px] text-slate-600 leading-relaxed">
+                    Het percentage van je totale stroomvraag dat nu rechtstreeks door je eigen zonnepanelen én accu samen wordt gedekt.
+                  </p>
+                </div>
+              </div>
+            </div>
 
             {/* Three Option Cards */}
             <div className="grid md:grid-cols-3 gap-6">
