@@ -1,13 +1,16 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CalculationResult, TechData } from '../types';
-import { getBatterySimulationData } from '../utils/calculator';
+import { getBatterySimulationData, COEFFS, getSolarInvestmentEstimate, getSolarInvestmentRange } from '../utils/calculator';
 import BatteryMarketOverview from './BatteryMarketOverview';
+import BatterySolarChart from './BatterySolarChart';
 import { 
   FileText, Copy, Printer, Check, TrendingDown, ShieldAlert, Award, Zap, HelpCircle, 
   BarChart3, LineChart as LineIcon, Landmark, Sparkles, ArrowRightLeft, Clock, PiggyBank,
-  Sun, Battery, Flame, ArrowUpRight, TrendingUp, Info, Mail, Send, Loader2, Layers
+  Sun, Battery, Flame, ArrowUpRight, TrendingUp, Info, Mail, Send, Loader2, Layers,
+  ChevronDown, ChevronUp
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -48,6 +51,7 @@ export default function AdviceReport({
 }: AdviceReportProps) {
   const [copied, setCopied] = React.useState(false);
   const [isEmailModalOpen, setIsEmailModalOpen] = React.useState(false);
+  const [showGasModal, setShowGasModal] = React.useState(false);
   const [targetEmail, setTargetEmail] = React.useState(calculation.resident.email || '');
   const [sendingEmail, setSendingEmail] = React.useState(false);
   const [emailStatus, setEmailStatus] = React.useState<'idle' | 'success' | 'error'>('idle');
@@ -87,6 +91,8 @@ export default function AdviceReport({
 
   const activeTab = localActiveTab;
 
+  const [showSalderingDetail, setShowSalderingDetail] = React.useState(false);
+
   // Selected capacity for the interactive battery chart
   const [chartBatteryCapacity, setChartBatteryCapacity] = React.useState<number>(10);
 
@@ -118,6 +124,53 @@ export default function AdviceReport({
     calculation.solar.selfConsumptionBase, 
     calculation.solar.absoluteSelfConsumptionBaseKwh
   ]);
+
+  // Compute monthly laadpaal simulation data points
+  const laadpaalChartData = React.useMemo(() => {
+    const months = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
+    // Solar distribution percentages
+    const solarDistribution = [1.2, 4.6, 8.0, 12.0, 14.5, 16.0, 15.5, 12.5, 9.0, 4.5, 1.1, 1.1];
+    
+    const evAnnualDemand = calculation.laadpaal?.evAnnualDemandKwh || 0;
+    const evSolarCoverage = calculation.laadpaal?.evSolarCoverageKwh || 0;
+
+    // Calculate raw max solar charging per month based on remaining grid feed (available excess solar)
+    const rawMaxSolarByMonth = batteryChartData.map((d, idx) => {
+      const evDemandM = evAnnualDemand / 12;
+      const remainingGridFeed = d['Teruglevering naar net (met accu) (kWh)'] || 0;
+      return Math.min(evDemandM, remainingGridFeed);
+    });
+
+    const totalRawMaxSolar = rawMaxSolarByMonth.reduce((acc, v) => acc + v, 0);
+    const scaleFactor = totalRawMaxSolar > 0 ? evSolarCoverage / totalRawMaxSolar : 0;
+
+    return batteryChartData.map((d, idx) => {
+      const evDemandM = Math.round(evAnnualDemand / 12);
+      
+      // Distribute solar coverage proportionally and cap it
+      let evSolarM = totalRawMaxSolar > 0 
+        ? Math.round(rawMaxSolarByMonth[idx] * scaleFactor) 
+        : 0;
+        
+      const remainingGridFeed = d['Teruglevering naar net (met accu) (kWh)'] || 0;
+      evSolarM = Math.min(evSolarM, evDemandM, remainingGridFeed);
+      
+      const evGridM = Math.max(0, evDemandM - evSolarM);
+      const remainingGridFeedAfterEV = Math.max(0, remainingGridFeed - evSolarM);
+
+      return {
+        name: d.name,
+        'Zonnestroom opwek (kWh)': d['Zonnestroom opwek (kWh)'],
+        'Stroomverbruik (kWh)': d['Stroomverbruik (kWh)'],
+        'Laadvraag EV (kWh)': evDemandM,
+        'Geclaimed door de laadpaal (Zonnestroom) (kWh)': evSolarM,
+        'Netstroom laadsessies (kWh)': evGridM,
+        'Direct verbruik huis (zonder accu) (kWh)': d['Direct verbruik (zonder accu) (kWh)'],
+        'Extra verbruik via accu (kWh)': d['Extra verbruik via accu (kWh)'],
+        'Resterende teruglevering naar net (kWh)': remainingGridFeedAfterEV
+      };
+    });
+  }, [batteryChartData, calculation.laadpaal]);
 
   const handleCopy = () => {
     if (adviceMarkdown) {
@@ -226,7 +279,7 @@ Energieplanner Peel en Maas
         </div>
         <h3 className="text-lg font-semibold text-slate-800">Energieplanner Rapportage Wordt Opgesteld</h3>
         <p className="text-sm text-slate-500 max-w-md mx-auto">
-          Met de Energieplanner Peel en Maas analyseren we nu jouw verbruik en isolatiegegevens onder de NTA 8800 richtlijnen. We berekenen de subsidies (ISDE en NIP) en stellen een optimaal stappenplan op...
+          Met de Energieplanner Peel en Maas analyseren we nu jouw verbruik en isolatiegegevens. We berekenen de subsidies (ISDE en NIP) en stellen een optimaal stappenplan op...
         </p>
         <div className="flex justify-center gap-1.5 pt-2">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
@@ -271,9 +324,10 @@ Energieplanner Peel en Maas
   const solarPanelsCount = calculation.tech.aantalZonnepanelen || 0;
   const solarNetInvestment = (calculation.tech.customZonnepanelenPrijs !== undefined && calculation.tech.customZonnepanelenPrijs > 0)
     ? calculation.tech.customZonnepanelenPrijs
-    : solarPanelsCount * 500; // Realistic standard net cost of €500 per panel
+    : getSolarInvestmentEstimate(solarPanelsCount);
   const solarSavings = Math.round(calculation.solar.annualYieldKwh * (calculation.house.elektraPrijs - 0.05));
   const solarROI = solarNetInvestment > 0 ? Number(((solarSavings / solarNetInvestment) * 100).toFixed(1)) : 0;
+  const solarTvt = solarSavings > 0 ? Number((solarNetInvestment / solarSavings).toFixed(1)) : 0;
 
   const selectedCap = calculation.tech.capaciteitAccu || 0;
   const batteryOpt = calculation.battery.options.find(opt => opt.capacityKwh === selectedCap) ||
@@ -291,6 +345,7 @@ Energieplanner Peel en Maas
       roi: insulationROI,
       investment: insulationNet,
       savings: insulationSavings,
+      tvt: calculation.totals.tvt,
       color: '#10b981', // Emerald
       details: insulationNet > 0 ? `€ ${insulationNet.toLocaleString('nl-NL')} netto` : 'Geen maatregelen geselecteerd'
     },
@@ -299,6 +354,7 @@ Energieplanner Peel en Maas
       roi: solarROI,
       investment: solarNetInvestment,
       savings: solarSavings,
+      tvt: solarTvt,
       color: '#f59e0b', // Amber
       details: solarPanelsCount > 0 ? `${solarPanelsCount} panelen (${Math.round(calculation.solar.annualYieldKwh)} kWh/jr)` : 'Geen zonnepanelen ingevoerd'
     },
@@ -307,6 +363,7 @@ Energieplanner Peel en Maas
       roi: batteryROI,
       investment: batteryNetInvestment,
       savings: batterySavings,
+      tvt: batterySavings > 0 ? Number((batteryNetInvestment / batterySavings).toFixed(1)) : 0,
       color: '#3b82f6', // Blue
       details: batteryOpt ? `${batteryOpt.capacityKwh} kWh (${calculation.tech.typeContract} contract)` : 'Geadviseerd model'
     }
@@ -435,7 +492,7 @@ Energieplanner Peel en Maas
       const isSummer = ['Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep'].includes(label);
 
       return (
-        <div className="bg-slate-900/95 backdrop-blur-md text-white p-5 shadow-2xl rounded-2xl text-xs space-y-4 min-w-[320px] border border-slate-750 font-sans">
+        <div className="bg-slate-900/95 backdrop-blur-md text-white p-4 sm:p-5 shadow-2xl rounded-2xl text-xs space-y-3.5 w-[290px] sm:w-[330px] max-w-[calc(100vw-32px)] border border-slate-750 font-sans pointer-events-none">
           <div className="border-b border-slate-800 pb-2.5 flex justify-between items-center">
             <div>
               <span className="text-sm font-bold block text-white">Maand: {label}</span>
@@ -553,6 +610,118 @@ Energieplanner Peel en Maas
     return null;
   };
 
+  const LaadpaalTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      const originalData = payload[0].payload;
+      
+      const solarYield = originalData ? Number(originalData['Zonnestroom opwek (kWh)']) : 0;
+      const evDemand = originalData ? Number(originalData['Laadvraag EV (kWh)']) : 0;
+      const evSolar = originalData ? Number(originalData['Geclaimed door de laadpaal (Zonnestroom) (kWh)']) : 0;
+      const evGrid = originalData ? Number(originalData['Netstroom laadsessies (kWh)']) : 0;
+      
+      const directBase = originalData ? Number(originalData['Direct verbruik huis (zonder accu) (kWh)']) : 0;
+      const extraBattery = originalData ? Number(originalData['Extra verbruik via accu (kWh)']) : 0;
+      const remainingGridFeed = originalData ? Number(originalData['Resterende teruglevering naar net (kWh)']) : 0;
+      
+      const solarCoveragePercent = evDemand > 0 ? Math.min(100, Math.round((evSolar / evDemand) * 100)) : 0;
+      const isSummer = ['Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep'].includes(label);
+
+      return (
+        <div className="bg-slate-900/95 backdrop-blur-md text-white p-4 sm:p-5 shadow-2xl rounded-2xl text-xs space-y-3.5 w-[290px] sm:w-[330px] max-w-[calc(100vw-32px)] border border-slate-750 font-sans pointer-events-none">
+          <div className="border-b border-slate-800 pb-2.5 flex justify-between items-center">
+            <div>
+              <span className="text-sm font-bold block text-white">Maand: {label}</span>
+              <span className="text-[10px] text-slate-400">Gedetailleerde stroom- &amp; laadpaalbalans</span>
+            </div>
+            <span className={`text-[9px] font-extrabold px-2.5 py-1 rounded-full uppercase tracking-wider ${
+              isSummer 
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+            }`}>
+              {isSummer ? '☀️ Veel zonnestroom' : '❄️ Minder zonnestroom'}
+            </span>
+          </div>
+
+          <div className="space-y-2.5">
+            <div className="grid grid-cols-2 gap-2 text-center pb-2 border-b border-slate-800/50">
+              <div className="bg-slate-800/40 p-1.5 rounded-lg border border-slate-700/30">
+                <span className="block text-[10px] text-amber-400 font-medium">☀️ Zonne-opwek</span>
+                <span className="font-bold text-sm text-amber-300 font-mono">{Math.round(solarYield)} kWh</span>
+              </div>
+              <div className="bg-slate-800/40 p-1.5 rounded-lg border border-slate-700/30">
+                <span className="block text-[10px] text-emerald-400 font-medium">🚗 EV Laadvraag</span>
+                <span className="font-bold text-sm text-emerald-300 font-mono">{Math.round(evDemand)} kWh</span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-300 flex items-center gap-2 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full bg-violet-500 inline-block shrink-0" />
+                  Zonnestroom in EV:
+                </span>
+                <span className="font-bold text-violet-400 font-mono">
+                  {Math.round(evSolar)} kWh
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 pl-4 mb-2 font-medium">Directe zonnestroom die in de auto wordt geladen.</p>
+
+              <div className="flex justify-between items-center">
+                <span className="text-slate-300 flex items-center gap-2 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full bg-slate-500 inline-block shrink-0" />
+                  Netstroom in EV:
+                </span>
+                <span className="font-bold text-slate-300 font-mono">
+                  {Math.round(evGrid)} kWh
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 pl-4 mb-2 font-medium">Stroom van het net om de auto op te laden (bijv. 's nachts).</p>
+              
+              <div className="border-t border-slate-800/40 my-2 pt-2">
+                <span className="text-[10px] font-bold text-slate-400 block mb-1">Verdeling totale zonnestroom in deze maand:</span>
+                
+                <div className="flex justify-between items-center text-[11px] text-slate-300">
+                  <span>Huis direct verbruik:</span>
+                  <span className="font-mono">{Math.round(directBase)} kWh</span>
+                </div>
+                {extraBattery > 0 && (
+                  <div className="flex justify-between items-center text-[11px] text-slate-300">
+                    <span>Opgeslagen via accu:</span>
+                    <span className="font-mono">{Math.round(extraBattery)} kWh</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-[11px] text-violet-400 font-semibold">
+                  <span>Geclaimed door laadpaal:</span>
+                  <span className="font-mono">{Math.round(evSolar)} kWh</span>
+                </div>
+                <div className="flex justify-between items-center text-[11px] text-slate-300">
+                  <span>Teruggeleverd aan net:</span>
+                  <span className="font-mono">{Math.round(remainingGridFeed)} kWh</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800/60 space-y-1">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-300 font-bold">Zonnedekking laadsessie:</span>
+                <span className="font-black font-mono px-2 py-0.5 rounded text-xs bg-violet-500/20 text-violet-400 border border-violet-500/20">
+                  {solarCoveragePercent}%
+                </span>
+              </div>
+              <div className="w-full bg-slate-800 rounded-full h-1.5 mt-1 overflow-hidden">
+                <div 
+                  className="h-full rounded-full bg-violet-500 transition-all duration-300"
+                  style={{ width: `${solarCoveragePercent}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
   // 🏠 Isolatie values
   const isoCount = calculation.measures?.length || 0;
   const isoSavingsM3 = Math.round(calculation.measures?.reduce((sum, m) => sum + m.savingM3, 0) || 0);
@@ -593,26 +762,82 @@ Energieplanner Peel en Maas
   const wpTvt = wpTvtVal > 0 && wpTvtVal < 99 ? `${wpTvtVal.toFixed(1)} jaar` : 'Onbekend';
 
   // 🚗 Laadpaal values
-  const evVol = Math.round(((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100);
+  const evVol = Math.round(((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 75) / 100);
   const evSavings = evVol * (0.50 - (calculation.house?.elektraPrijs ?? 0.30));
   const ereRevenue = evVol * 0.12;
   const totalEvBenefit = Math.round(evSavings + ereRevenue);
+
+  // 🌟 Totaalvoorstel Alle Maatregelen Samen
+  const hasIso = isoCount > 0;
+  const hasSolar = solarPanels > 0;
+  const hasBat = batCapacity > 0;
+  const hasWp = Boolean(calculation.tech?.selectedWarmtepompModel) && Boolean(chosenOpt);
+  const hasEv = Boolean((calculation.tech?.evKilometers || 0) > 0);
+
+  const totalCombinedNetInvestment = 
+    (hasIso ? isoNetCosts : 0) + 
+    (hasSolar ? solarNetInvestment : 0) + 
+    (hasBat ? batteryNetInvestment : 0) + 
+    (hasWp ? Math.round(chosenOpt?.netInvestment || 0) : 0) + 
+    (hasEv ? (calculation.laadpaal?.netInvestmentEuro ?? 1200) : 0);
+
+  const totalCombinedSavingsPerYear = 
+    (hasIso ? Math.round(calculation.totals.savingsEuro) : 0) + 
+    (hasSolar ? solarSavings : 0) + 
+    (hasBat ? batSavings : 0) + 
+    (hasWp ? Math.round(chosenOpt?.netSavingsEuro || 0) : 0) + 
+    (hasEv ? totalEvBenefit : 0);
+
+  const totalCombinedSubsidies = 
+    (hasIso ? Math.round(calculation.totals.isde + calculation.totals.nip) : 0) + 
+    (hasWp ? Math.round(chosenOpt?.subsidy || 0) : 0);
+
+  const totalCombinedTvtNum = totalCombinedSavingsPerYear > 0 ? (totalCombinedNetInvestment / totalCombinedSavingsPerYear) : 0;
+  const totalCombinedTvt = totalCombinedTvtNum > 0 && totalCombinedTvtNum < 99 ? `${totalCombinedTvtNum.toFixed(1)} jaar` : 'N.v.t.';
 
   return (
     <div className="space-y-6" id="advice-report-section">
       {/* Interactieve KPI Kaarten */}
       {outerTab === 'isolatie' && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
-            <div className="p-2 bg-emerald-50 rounded-xl text-emerald-600">
+          <button
+            type="button"
+            onClick={() => setShowGasModal(true)}
+            className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3 hover:border-emerald-300 hover:shadow-md transition-all text-left cursor-pointer group relative overflow-hidden"
+            title="Klik voor gedetailleerde berekening en opbouw van de gasbesparing"
+          >
+            <div className="p-2 bg-emerald-50 rounded-xl text-emerald-600 group-hover:bg-emerald-100 transition-colors">
               <TrendingDown className="w-5 h-5" />
             </div>
-            <div>
-              <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Gasbesparing</span>
-              <span className="text-lg font-bold text-slate-800">
-                {Math.round(calculation.measures.reduce((sum, m) => sum + m.savingM3, 0))} m³
+            <div className="flex-1">
+              <div className="flex items-center justify-between gap-1">
+                <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Besparing</span>
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 group-hover:bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1 transition-colors">
+                  <Info className="w-3 h-3 text-emerald-600" /> Opbouw
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1 mt-0.5">
+                <span className="text-lg font-bold text-slate-800">
+                  €{Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}
+                </span>
+                <span className="text-xs text-emerald-600 font-semibold">/ jaar</span>
+              </div>
+              <span className="block text-[11px] text-slate-500 font-medium">
+                ({Math.round(calculation.measures.reduce((sum, m) => sum + m.savingM3, 0))} m³ gas)
               </span>
-              <span className="block text-[10px] text-emerald-600">/ jaar</span>
+            </div>
+          </button>
+
+          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
+            <div className="p-2 bg-orange-50 rounded-xl text-orange-600">
+              <Zap className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Eigen Bijdrage</span>
+              <span className="text-lg font-bold text-slate-800">
+                €{Math.round(calculation.totals.net).toLocaleString('nl-NL')}
+              </span>
+              <span className="block text-[10px] text-orange-600">Netto kosten</span>
             </div>
           </div>
 
@@ -630,19 +855,6 @@ Energieplanner Peel en Maas
           </div>
 
           <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
-            <div className="p-2 bg-orange-50 rounded-xl text-orange-600">
-              <Zap className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Eigen Bijdrage</span>
-              <span className="text-lg font-bold text-slate-800">
-                €{Math.round(calculation.totals.net).toLocaleString('nl-NL')}
-              </span>
-              <span className="block text-[10px] text-orange-600">Netto kosten</span>
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
             <div className="p-2 bg-amber-50 rounded-xl text-amber-600">
               <Zap className="w-5 h-5" />
             </div>
@@ -651,7 +863,11 @@ Energieplanner Peel en Maas
               <span className="text-lg font-bold text-slate-800">
                 {Math.round(calculation.solar.annualYieldKwh)} kWh
               </span>
-              <span className="block text-[10px] text-amber-600">Prognose / jr</span>
+              <span className="block text-[10px] text-amber-700 font-medium">
+                {solarPanelsCount > 0
+                  ? `Inv: €${Math.round(solarNetInvestment).toLocaleString('nl-NL')} • TVT: ${solarTvt > 0 ? `${solarTvt} jr` : 'N.v.t.'}`
+                  : 'Geen zonnepanelen'}
+              </span>
             </div>
           </div>
         </div>
@@ -708,9 +924,9 @@ Energieplanner Peel en Maas
           </div>
 
           {/* Compact Overzichtsraster per tabblad */}
-          <div className="space-y-2">
-            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 px-1 print:hidden">Klik op een categorie hieronder om de gedetailleerde planner en adviezen te openen:</span>
-            <div className="grid grid-cols-1 gap-2.5">
+          <div className="space-y-2.5">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 px-1 print:hidden">Klik op een categorie hieronder om de gedetailleerde planner en adviezen per thema te openen:</span>
+            <div className="grid grid-cols-1 gap-2">
               {/* 🏠 Isolatie & Financiën */}
               <button 
                 type="button"
@@ -738,7 +954,7 @@ Energieplanner Peel en Maas
                     {isoCount > 0 ? (
                       <>
                         <strong className="text-slate-900 font-bold">{isoCount} {isoCount === 1 ? 'maatregel' : 'maatregelen'}</strong>,{' '}
-                        <strong className="text-emerald-700 font-extrabold">{isoSavingsM3} m³/jr</strong> gasbesparing,{' '}
+                        <strong className="text-emerald-700 font-extrabold">€{Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}/jr</strong> ({isoSavingsM3} m³ gas),{' '}
                         netto eigen bijdrage:{' '}
                         <strong className="text-slate-900 font-bold">€{isoNetCosts.toLocaleString('nl-NL')}</strong>,{' '}
                         TVT: <strong className="text-amber-600 font-bold">{isoTvt}</strong>
@@ -778,7 +994,9 @@ Energieplanner Peel en Maas
                     {solarPanels > 0 ? (
                       <>
                         <strong className="text-slate-900 font-bold">{solarPanels} panelen</strong> ({solarKwp} kWp),{' '}
-                        opbrengst: <strong className="text-amber-600 font-bold">{solarYield.toLocaleString('nl-NL')} kWh/jr</strong>
+                        investering: <strong className="text-slate-900 font-bold">€{solarNetInvestment.toLocaleString('nl-NL')}</strong>,{' '}
+                        opbrengst: <strong className="text-amber-600 font-bold">{solarYield.toLocaleString('nl-NL')} kWh/jr</strong>,{' '}
+                        TVT: <strong className="text-amber-600 font-bold">{solarTvt > 0 && solarTvt < 99 ? `${solarTvt.toFixed(1)} jaar` : 'N.v.t.'}</strong>
                       </>
                     ) : (
                       <span className="text-slate-400 italic font-normal">Geen zonnepanelen ingevoerd</span>
@@ -813,6 +1031,7 @@ Energieplanner Peel en Maas
                 <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
                   <span className="leading-normal">
                     capaciteit: <strong className="text-slate-900 font-semibold">{batCapacity > 0 ? `${batCapacity} kWh` : (batteryOpt ? `${batteryOpt.capacityKwh} kWh` : '10 kWh')}</strong>,{' '}
+                    investering: <strong className="text-blue-600 font-bold">€{Math.round(batteryNetInvestment).toLocaleString('nl-NL')}</strong>,{' '}
                     jaarbesparing: <strong className="text-emerald-700 font-bold">€{batSavings.toLocaleString('nl-NL')}</strong>,{' '}
                     TVT: <strong className="text-blue-600 font-bold">{batTvt}</strong>
                   </span>
@@ -876,6 +1095,7 @@ Energieplanner Peel en Maas
                 <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
                   <span className="leading-normal">
                     type: <strong className="text-slate-900 font-semibold">{wpType} ({wpSize})</strong>,{' '}
+                    investering: <strong className="text-orange-600 font-bold">€{Math.round(chosenOpt?.netInvestment || 0).toLocaleString('nl-NL')}</strong>,{' '}
                     advies: <strong className={`${wpAdvice === 'Zinvol / Geadviseerd' ? 'text-emerald-600' : wpAdvice === 'Eerst isoleren' ? 'text-amber-600' : 'text-slate-600'} font-semibold`}>{wpAdvice}</strong>,{' '}
                     TVT: <strong className="text-orange-600 font-bold">{wpTvt}</strong>
                   </span>
@@ -909,7 +1129,9 @@ Energieplanner Peel en Maas
                   <span className="leading-normal">
                     {calculation.tech.evKilometers ? (
                       <>
-                        jaarlijks voordeel thuisladen: <strong className="text-emerald-600 font-bold">€{totalEvBenefit.toLocaleString('nl-NL')}</strong> <span className="text-[10px] text-slate-400 font-normal">(incl. vergoeding €{(evVol * 0.12).toFixed(0)}/jr)</span>
+                        investering: <strong className="text-slate-900 font-bold">€{(calculation.laadpaal?.netInvestmentEuro ?? 1200).toLocaleString('nl-NL')}</strong>,{' '}
+                        voordeel: <strong className="text-emerald-600 font-bold">€{totalEvBenefit.toLocaleString('nl-NL')} / jr</strong> <span className="text-[10px] text-slate-400 font-normal">(incl. vergoeding €{(evVol * 0.12).toFixed(0)}/jr)</span>,{' '}
+                        TVT: <strong className="text-emerald-700 font-bold">{(calculation.laadpaal?.tvt ?? 1.8).toFixed(1)} jaar</strong>
                       </>
                     ) : (
                       <span className="text-slate-400 italic font-normal">Geen elektrische auto ingevoerd</span>
@@ -918,6 +1140,62 @@ Energieplanner Peel en Maas
                   <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'laadpaal' ? 'rotate-45 text-emerald-600' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
                 </div>
               </button>
+
+              {/* 🌟 Subtle & Compact Totaalvoorstel Alle Maatregelen Samen */}
+              <div className="bg-slate-50/90 border border-slate-200/90 rounded-xl p-3.5 space-y-2 shadow-2xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="font-extrabold text-xs text-slate-800 tracking-tight">Totaalvoorstel Verduurzaming</span>
+                    <span className="bg-emerald-100 text-emerald-800 text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Alle Maatregelen Samen
+                    </span>
+                  </div>
+                  {totalCombinedSubsidies > 0 && (
+                    <span className="text-[11px] font-bold font-mono text-blue-700 bg-blue-50 border border-blue-200/80 px-2 py-0.5 rounded-md">
+                      € {totalCombinedSubsidies.toLocaleString('nl-NL')} Subsidie
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-slate-600 font-medium text-xs leading-normal">
+                  investering: <strong className="text-slate-900 font-bold">€{totalCombinedNetInvestment.toLocaleString('nl-NL')}</strong>,{' '}
+                  totale jaarbesparing: <strong className="text-emerald-700 font-extrabold">€{totalCombinedSavingsPerYear.toLocaleString('nl-NL')}/jr</strong>,{' '}
+                  gemiddelde TVT: <strong className="text-amber-600 font-bold">{totalCombinedTvt}</strong>,{' '}
+                  rendement: <strong className="text-blue-600 font-bold">{totalCombinedNetInvestment > 0 ? `${((totalCombinedSavingsPerYear / totalCombinedNetInvestment) * 100).toFixed(1)}%` : '0%'}</strong>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] text-slate-500 border-t border-slate-200/80">
+                  {hasIso && (
+                    <span className="bg-white border border-emerald-200 text-emerald-800 px-2 py-0.5 rounded-md font-medium">
+                      🏠 Isolatie (€{isoNetCosts.toLocaleString('nl-NL')})
+                    </span>
+                  )}
+                  {hasSolar && (
+                    <span className="bg-white border border-amber-200 text-amber-800 px-2 py-0.5 rounded-md font-medium">
+                      ☀️ Zonnepanelen (€{solarNetInvestment.toLocaleString('nl-NL')})
+                    </span>
+                  )}
+                  {hasBat && (
+                    <span className="bg-white border border-blue-200 text-blue-800 px-2 py-0.5 rounded-md font-medium">
+                      🔋 Thuisbatterij (€{batteryNetInvestment.toLocaleString('nl-NL')})
+                    </span>
+                  )}
+                  {hasWp && (
+                    <span className="bg-white border border-orange-200 text-orange-800 px-2 py-0.5 rounded-md font-medium">
+                      ♨️ Warmtepomp (€{Math.round(chosenOpt?.netInvestment || 0).toLocaleString('nl-NL')})
+                    </span>
+                  )}
+                  {hasEv && (
+                    <span className="bg-white border border-purple-200 text-purple-800 px-2 py-0.5 rounded-md font-medium">
+                      🚗 Laadpaal (€{(calculation.laadpaal?.netInvestmentEuro ?? 1200).toLocaleString('nl-NL')})
+                    </span>
+                  )}
+                  {!hasIso && !hasSolar && !hasBat && !hasWp && !hasEv && (
+                    <span className="text-slate-400 italic">Selecteer maatregelen om te combineren</span>
+                  )}
+                </div>
+              </div>
 
               {/* 📄 Advies Rapport (AI) */}
               <button 
@@ -1212,9 +1490,19 @@ Energieplanner Peel en Maas
 
               {/* Annual Savings Chart or Info Card */}
               <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <PiggyBank className="w-5 h-5 text-emerald-600" />
-                  <h4 className="text-sm font-bold text-slate-800">3. Jaarlijkse Structurele Besparing</h4>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <PiggyBank className="w-5 h-5 text-emerald-600" />
+                    <h4 className="text-sm font-bold text-slate-800">3. Jaarlijkse Structurele Besparing</h4>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowGasModal(true)}
+                    className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-full flex items-center gap-1 transition cursor-pointer"
+                  >
+                    <Info className="w-3.5 h-3.5 text-emerald-600" />
+                    Bekijk opbouw m³ gasbesparing
+                  </button>
                 </div>
                 <p className="text-xs text-slate-500">
                   De jaarlijkse structurele besparing op je energierekening in euro's na installatie.
@@ -1371,9 +1659,19 @@ Energieplanner Peel en Maas
                             <Icon className="w-4 h-4" />
                           </div>
                           <div className="space-y-0.5">
-                            <div className="flex items-baseline gap-1.5">
+                            <div className="flex flex-wrap items-baseline gap-1.5">
                               <span className="text-xs font-bold text-slate-700">{item.name}</span>
-                              <span className="text-xs font-extrabold" style={{ color: item.color }}>{item.roi}%</span>
+                              <span className="text-xs font-extrabold" style={{ color: item.color }}>{item.roi}% ROI</span>
+                              {item.investment > 0 && (
+                                <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded font-mono">
+                                  Investering: €{Math.round(item.investment).toLocaleString('nl-NL')}
+                                </span>
+                              )}
+                              {item.investment > 0 && item.savings > 0 && (
+                                <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded font-mono">
+                                  TVT: {item.tvt.toFixed(1)} jr
+                                </span>
+                              )}
                             </div>
                             <span className="text-[10px] text-slate-400 block leading-tight">{item.details}</span>
                           </div>
@@ -1424,6 +1722,42 @@ Energieplanner Peel en Maas
                 <p className="text-xs text-slate-500">Stroom die je teruglevert aan het net.</p>
               </div>
             </div>
+
+            {/* Financial statistics row */}
+            {solarPanelsCount > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5" id="solar-financials-grid">
+                <div className="bg-amber-50/40 border border-amber-100/60 p-5 rounded-2xl space-y-1">
+                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Netto investering zonnepanelen</span>
+                  <span className="text-xl font-extrabold text-amber-950">
+                    € {solarNetInvestment.toLocaleString('nl-NL')}
+                  </span>
+                  <p className="text-xs text-slate-500">
+                    {calculation.tech.customZonnepanelenPrijs !== undefined && calculation.tech.customZonnepanelenPrijs > 0
+                      ? 'Op basis van uw eigen prijsopgave.'
+                      : `Richtprijs incl. installatie (~ € ${Math.round(solarNetInvestment / (solarPanelsCount || 1)).toLocaleString('nl-NL')}/paneel).`}
+                  </p>
+                </div>
+                <div className="bg-amber-50/40 border border-amber-100/60 p-5 rounded-2xl space-y-1">
+                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Jaarbesparing zonnepanelen</span>
+                  <span className="text-xl font-extrabold text-amber-900">
+                    € {solarSavings.toLocaleString('nl-NL')} / jr
+                  </span>
+                  <p className="text-xs text-slate-500">
+                    Opbrengst vermenigvuldigd met nettobesparing per kWh.
+                  </p>
+                </div>
+                <div className="bg-amber-500/10 border border-amber-500/20 p-5 rounded-2xl space-y-1">
+                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Terugverdientijd (TVT)</span>
+                  <span className="text-xl font-extrabold text-amber-600 flex items-center gap-1.5">
+                    <TrendingUp className="w-5 h-5 text-amber-500 shrink-0" />
+                    {solarTvt.toFixed(1)} jaar
+                  </span>
+                  <p className="text-xs text-slate-500">
+                    Verwachte terugverdientijd van de zonnepanelen-investering.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Allocation Chart */}
             <div className="grid md:grid-cols-2 gap-8 items-center bg-slate-50/50 border border-slate-100 rounded-3xl p-6">
@@ -1503,9 +1837,198 @@ Energieplanner Peel en Maas
                 </div>
               </div>
 
-              <div className="text-xs text-rose-700/90 bg-rose-100/50 p-3 rounded-lg flex items-center gap-2">
-                <Info className="w-4 h-4 text-rose-600 shrink-0" />
-                <span><strong>Advies:</strong> Voorkom dit verlies door je direct verbruik te verhogen óf te kiezen voor een thuisbatterij waarmee je stroom opslaat in plaats van goedkoop weg te geven!</span>
+              {/* Detailed Calculation Accordion */}
+              <div className="bg-white/80 rounded-xl border border-rose-100/80 overflow-hidden shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setShowSalderingDetail(!showSalderingDetail)}
+                  className="w-full flex items-center justify-between p-4 text-left font-bold text-slate-700 hover:bg-rose-50/50 transition-colors text-xs"
+                >
+                  <span className="flex items-center gap-2 text-rose-800">
+                    <HelpCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    Hoe is deze verliespost berekend? Bekijk de uitgebreide berekening (met accu, warmtepomp, EV)
+                  </span>
+                  {showSalderingDetail ? (
+                    <ChevronUp className="w-4 h-4 text-rose-600 shrink-0" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-rose-600 shrink-0" />
+                  )}
+                </button>
+
+                {showSalderingDetail && (
+                  <div className="p-5 border-t border-rose-100/60 space-y-5 text-xs text-slate-600 bg-slate-50/50 animate-fadeIn">
+                    <div className="space-y-1.5">
+                      <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide">De Salderingsformule (Vanaf 2027)</span>
+                      <p className="bg-slate-100/80 p-3 rounded-lg font-mono text-[10px] text-slate-700 leading-relaxed border border-slate-200">
+                        <strong>Bruto Verliespost = Bruto Teruglevering (kWh) × (Stroomtarief [€ {calculation.house.elektraPrijs.toFixed(2)}] - Terugleververgoeding [€ 0,06])</strong>
+                        <br />
+                        <span className="text-slate-500 font-sans text-[9.5px] mt-1 block">
+                          Elke kWh die u opwekt en niet direct binnenshuis verbruikt, wordt teruggeleverd aan het net. Na de afschaffing van het salderen levert deze teruglevering u slechts een geschatte € 0,06/kWh op, terwijl u voor afname de hoofdprijs (€ {calculation.house.elektraPrijs.toFixed(2)}) betaalt. Dit verschil van <strong>€ {(calculation.house.elektraPrijs - 0.06).toFixed(2)}/kWh</strong> is uw netto verliespost.
+                        </span>
+                      </p>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide text-rose-800">Uitsplitsing Parameters van de Rekenmethode</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <div className="bg-white p-3 rounded-lg border border-slate-100 space-y-1 shadow-xs">
+                          <span className="text-[10px] font-bold text-blue-600 block">🔋 Thuisbatterij</span>
+                          <p className="text-[11px] leading-snug">
+                            <strong>Cap Accu:</strong> {calculation.tech.capaciteitAccu > 0 ? `${calculation.tech.capaciteitAccu} kWh` : `${batteryOpt ? batteryOpt.capacityKwh : 10} kWh (geadviseerd)`}
+                          </p>
+                          <p className="text-[10px] text-slate-400 leading-relaxed">Capaciteit om overdag overtollige zonnestroom tijdelijk op te slaan voor de avond.</p>
+                        </div>
+                        <div className="bg-white p-3 rounded-lg border border-slate-100 space-y-1 shadow-xs">
+                          <span className="text-[10px] font-bold text-indigo-600 block">♨️ Warmtepomp</span>
+                          <p className="text-[11px] leading-snug">
+                            <strong>Verbruik WP:</strong> {Math.round(chosenOpt?.elecIncreaseKwh || 1800)} kWh/jr
+                          </p>
+                          <p className="text-[10px] text-slate-400 leading-relaxed">Extra stroomverbruik van de warmtepomp om uw gasverbruik met 75%+ te verlagen.</p>
+                        </div>
+                        <div className="bg-white p-3 rounded-lg border border-slate-100 space-y-1 shadow-xs">
+                          <span className="text-[10px] font-bold text-purple-600 block">🚗 Slimme Laadpaal</span>
+                          <p className="text-[11px] leading-snug">
+                            <strong>Verbruik EV:</strong> {Math.round(calculation.laadpaal?.evAnnualDemandKwh || 2025)} kWh/jr
+                          </p>
+                          <p className="text-[10px] text-slate-400 leading-relaxed">Laadstroom benodigd voor de auto thuis op basis van kilometrage en verbruik.</p>
+                        </div>
+                        <div className="bg-white p-3 rounded-lg border border-slate-100 space-y-1 shadow-xs">
+                          <span className="text-[10px] font-bold text-amber-600 block">⚡ Arbitrage Trading</span>
+                          <p className="text-[11px] leading-snug">
+                            <strong>Systeem:</strong> {calculation.tech.typeContract === 'Dynamisch' ? 'Actief (Dynamisch)' : 'Geadviseerd / Optioneel'}
+                          </p>
+                          <p className="text-[10px] text-slate-400 leading-relaxed">Handelen op uurtarieven (slim laden bij lage tarieven, ontladen bij hoge tarieven).</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide">Stap-voor-stap Berekening van de Verliesbeperking</span>
+                      <div className="space-y-2.5">
+                        
+                        {/* 1. Base State */}
+                        <div className="bg-white p-3.5 rounded-xl border border-slate-150 flex justify-between items-start gap-4">
+                          <div className="space-y-1">
+                            <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                              <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block shrink-0" />
+                              Stap 1: Bruto Uitgangssituatie (Zonder slimme sturing)
+                            </span>
+                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                              Uw panelen wekken jaarlijks <strong>{Math.round(calculation.solar.annualYieldKwh).toLocaleString('nl-NL')} kWh</strong> op. Zonder actieve seizoenssturing verbruikt u direct slechts {Math.round(calculation.solar.selfConsumptionBase)}% ({Math.round(calculation.solar.absoluteSelfConsumptionBaseKwh).toLocaleString('nl-NL')} kWh). 
+                              De resterende <strong>{Math.round(calculation.solar.gridFeedBaseKwh).toLocaleString('nl-NL')} kWh</strong> levert u terug aan het net.
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-rose-600 font-extrabold block text-sm">
+                              + € {Math.round(calculation.solar.gridFeedBaseKwh * (calculation.house.elektraPrijs - 0.06)).toLocaleString('nl-NL')}
+                            </span>
+                            <span className="text-[9px] text-slate-400 block font-medium">bruto jaarverlies</span>
+                          </div>
+                        </div>
+
+                        {/* 2. Battery Impact */}
+                        <div className="bg-white p-3.5 rounded-xl border border-slate-150 flex justify-between items-start gap-4">
+                          <div className="space-y-1">
+                            <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                              <Battery className="w-4 h-4 text-blue-500 shrink-0" />
+                              Stap 2: Impact van de Thuisbatterij ({calculation.tech.capaciteitAccu > 0 ? `${calculation.tech.capaciteitAccu} kWh` : `${batteryOpt ? batteryOpt.capacityKwh : 10} kWh`})
+                            </span>
+                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                              De thuisaccu slaat overdag zonnestroom op voor de avonduren. Dit verhoogt uw directe eigen verbruik met <strong>{Math.round(calculation.solar.absoluteSelfConsumptionWithBatteryKwh - calculation.solar.absoluteSelfConsumptionBaseKwh).toLocaleString('nl-NL')} kWh/jaar</strong>. 
+                              Hierdoor hoeft deze stroom niet meer goedkoop te worden teruggeleverd.
+                            </p>
+                            {calculation.tech.typeContract === 'Dynamisch' && (
+                              <p className="text-[10px] text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded-md inline-block mt-1">
+                                🔗 <strong>Arbitrage Trading:</strong> Dankzij uw dynamische contract en slimme EMS-batterijsturing koopt u stroom in op goedkope of negatieve uren en levert u terug op dure piekuren. Dit levert u circa <strong>€ {Math.round(batteryOpt ? (batteryOpt.capacityKwh * (calculation.tech.dynamicProvider === 'Zonneplan' ? 85 : calculation.tech.dynamicProvider === 'Frank' ? 70 : calculation.tech.dynamicProvider === 'Tibber' ? 65 : 60)) : 650).toLocaleString('nl-NL')} per jaar</strong> aan additioneel handelsvoordeel op!
+                              </p>
+                            )}
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-emerald-600 font-extrabold block text-sm">
+                              - € {Math.round((calculation.solar.absoluteSelfConsumptionWithBatteryKwh - calculation.solar.absoluteSelfConsumptionBaseKwh) * (calculation.house.elektraPrijs - 0.06)).toLocaleString('nl-NL')}
+                            </span>
+                            <span className="text-[9px] text-slate-400 block font-medium">verlies vermeden</span>
+                          </div>
+                        </div>
+
+                        {/* 3. Heat Pump Impact */}
+                        <div className="bg-white p-3.5 rounded-xl border border-slate-150 flex justify-between items-start gap-4">
+                          <div className="space-y-1">
+                            <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                              <Flame className="w-4 h-4 text-orange-500 shrink-0" />
+                              Stap 3: Impact van de Warmtepomp ({Math.round(chosenOpt?.elecIncreaseKwh || 1800)} kWh/jr verbruik)
+                            </span>
+                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                              Door de warmtepomp slim overdag te sturen (bijvoorbeeld door uw boiler overdag op te warmen tot 55°C met zonnestroom), dekken uw panelen direct <strong>{Math.round(chosenOpt?.solarCoverageKwh || 0).toLocaleString('nl-NL')} kWh/jaar</strong> van het warmtepompverbruik. Dit is stroom die u anders direct zou terugleveren.
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-emerald-600 font-extrabold block text-sm">
+                              - € {Math.round((chosenOpt?.solarCoverageKwh || 0) * (calculation.house.elektraPrijs - 0.06)).toLocaleString('nl-NL')}
+                            </span>
+                            <span className="text-[9px] text-slate-400 block font-medium">verlies vermeden</span>
+                          </div>
+                        </div>
+
+                        {/* 4. EV Impact */}
+                        <div className="bg-white p-3.5 rounded-xl border border-slate-150 flex justify-between items-start gap-4">
+                          <div className="space-y-1">
+                            <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                              <Zap className="w-4 h-4 text-amber-500 shrink-0" />
+                              Stap 4: Impact van de Slimme EV Laadpaal ({Math.round(calculation.laadpaal?.evAnnualDemandKwh || 2025)} kWh/jr verbruik)
+                            </span>
+                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                              {calculation.tech.slimEmsOnlySolar ? (
+                                <span><strong>EMS Alleen Laden op Zonnestroom Actief:</strong> Uw auto laadt <i>uitsluitend</i> bij overschot aan zonne-energie. Dit voorkomt dat u stroom van het net moet inkopen om te laden. Uw auto verbruikt zo direct <strong>{Math.round(calculation.laadpaal?.evSolarCoverageKwh || 0).toLocaleString('nl-NL')} kWh/jaar</strong> gratis zonnestroom.</span>
+                              ) : (
+                                <span>Door uw auto overdag thuis in te pluggen, claimt de laadpaal direct <strong>{Math.round(calculation.laadpaal?.evSolarCoverageKwh || 0).toLocaleString('nl-NL')} kWh/jaar</strong> direct uit zonnestroom die anders het net op was gegaan.</span>
+                              )}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-emerald-600 font-extrabold block text-sm">
+                              - € {Math.round((calculation.laadpaal?.evSolarCoverageKwh || 0) * (calculation.house.elektraPrijs - 0.06)).toLocaleString('nl-NL')}
+                            </span>
+                            <span className="text-[9px] text-slate-400 block font-medium">verlies vermeden</span>
+                          </div>
+                        </div>
+
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 pt-2.5 border-t border-slate-200">
+                      <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide">Netto Seizoensbalans na Optimale Integratiesturing</span>
+                      <div className="bg-emerald-100/20 p-4 rounded-xl border border-emerald-500/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div className="space-y-1">
+                          <span className="font-bold text-slate-800 block text-xs">📉 Nieuwe Resterende Netto Teruglevering:</span>
+                          <p className="text-[11px] text-slate-600 leading-relaxed">
+                            Door het gecombineerde seizoensgebonden verbruik van de <strong>warmtepomp</strong> en de <strong>laadpaal</strong>, samen met de opslagcap van de <strong>thuisbatterij</strong>, minimaliseert u uw teruglevering. Er blijft na deze sturing jaarlijks nog slechts:  
+                            <strong className="text-slate-900 font-semibold block text-xs mt-0.5">
+                              {Math.max(0, Math.round(
+                                calculation.solar.gridFeedBaseKwh - 
+                                (calculation.solar.absoluteSelfConsumptionWithBatteryKwh - calculation.solar.absoluteSelfConsumptionBaseKwh) -
+                                (chosenOpt?.solarCoverageKwh || 0) -
+                                (calculation.laadpaal?.evSolarCoverageKwh || 0)
+                              )).toLocaleString('nl-NL')} kWh over om terug te leveren aan het net.
+                            </strong>
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0 md:border-l md:border-slate-100 md:pl-5">
+                          <span className="text-2xl font-black text-emerald-600 block">
+                            € {Math.max(0, Math.round(
+                              Math.max(0, calculation.solar.gridFeedBaseKwh - 
+                                (calculation.solar.absoluteSelfConsumptionWithBatteryKwh - calculation.solar.absoluteSelfConsumptionBaseKwh) -
+                                (chosenOpt?.solarCoverageKwh || 0) -
+                                (calculation.laadpaal?.evSolarCoverageKwh || 0)
+                              ) * (calculation.house.elektraPrijs - 0.06)
+                            )).toLocaleString('nl-NL')}
+                          </span>
+                          <span className="text-[9px] text-slate-400 block font-bold">resterende verliespost / jr</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1560,233 +2083,16 @@ Energieplanner Peel en Maas
               </div>
             )}
 
-            {/* Visual self-consumption increase comparison bar */}
-            {calculation.tech.capaciteitAccu > 0 && (
-              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-6 space-y-4">
-                <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-                  <ArrowUpRight className="w-4 h-4 text-emerald-600" />
-                  Stijging van Direct Verbruik door jouw geconfigureerde Thuisbatterij
-                </h4>
-                <div className="grid md:grid-cols-2 gap-6 items-center">
-                  <div className="space-y-4">
-                    <div className="space-y-1">
-                      <span className="text-xs font-semibold text-slate-500">Zonder Thuisbatterij (Basis):</span>
-                      <div className="flex items-center gap-3">
-                        <div className="w-full bg-slate-200 rounded-full h-3">
-                          <div className="bg-slate-400 h-3 rounded-full" style={{ width: `${calculation.solar.selfConsumptionBase}%` }}></div>
-                        </div>
-                        <span className="text-xs font-bold text-slate-700 min-w-[40px]">{Math.round(calculation.solar.selfConsumptionBase)}%</span>
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <span className="text-xs font-semibold text-emerald-700">Met jouw Thuisbatterij ({calculation.tech.capaciteitAccu} kWh):</span>
-                      <div className="flex items-center gap-3">
-                        <div className="w-full bg-emerald-100 rounded-full h-3">
-                          <div className="bg-emerald-500 h-3 rounded-full" style={{ width: `${calculation.solar.selfConsumptionWithBattery}%` }}></div>
-                        </div>
-                        <span className="text-xs font-bold text-emerald-600 min-w-[40px]">{Math.round(calculation.solar.selfConsumptionWithBattery)}%</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl text-center">
-                    <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wide block">Efficiëntie toename:</span>
-                    <span className="text-3xl font-extrabold text-emerald-600">+{Math.round(calculation.battery.efficiencyIncrease)}%</span>
-                    <p className="text-[10px] text-slate-500 mt-1">Meer gratis direct verbruik van eigen zonnestroom.</p>
-                  </div>
-                </div>
-              </div>
-            )}
 
-            {/* NEW: Seasonal Battery Simulation Chart */}
-            <div className="bg-white border border-slate-100 rounded-3xl p-6 md:p-8 space-y-6 shadow-sm" id="battery-monthly-simulation-chart">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full uppercase tracking-wider inline-block">
-                    Seizoenssimulatie
-                  </span>
-                  <h4 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-                    <BarChart3 className="w-5 h-5 text-blue-500" />
-                    Maandelijkse Energiestromen met Thuisaccu
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    Bekijk hoe de zonnestroom over het jaar heen verdeeld wordt bij een gekozen accucapaciteit van <strong>{chartBatteryCapacity} kWh</strong>.
-                  </p>
-                </div>
-                
-                {/* Interactive Capacity Selector for the Chart */}
-                <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-xl self-start md:self-auto">
-                  {[5, 10, 15, 30].map(cap => {
-                    const isSelected = chartBatteryCapacity === cap;
-                    const isConfigured = calculation.tech.capaciteitAccu === cap;
-                    return (
-                      <button
-                        key={cap}
-                        type="button"
-                        onClick={() => setChartBatteryCapacity(cap)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
-                          isSelected 
-                            ? 'bg-blue-600 text-white shadow-sm' 
-                            : 'text-slate-600 hover:text-slate-800 hover:bg-slate-200'
-                        }`}
-                      >
-                        {cap} kWh
-                        {isConfigured && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
-                        {cap === 30 && (
-                          <span className="text-[9px] bg-amber-550 text-white px-1.5 py-0.2 rounded-md font-black tracking-wide shrink-0">
-                            Praktijk
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                  {calculation.tech.capaciteitAccu > 0 && ![5, 10, 15, 30].includes(calculation.tech.capaciteitAccu) && (
-                    <button
-                      type="button"
-                      onClick={() => setChartBatteryCapacity(calculation.tech.capaciteitAccu)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
-                        chartBatteryCapacity === calculation.tech.capaciteitAccu 
-                          ? 'bg-blue-600 text-white shadow-sm' 
-                          : 'text-slate-600 hover:text-slate-800 hover:bg-slate-200'
-                      }`}
-                    >
-                      {calculation.tech.capaciteitAccu} kWh (Actief)
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {chartBatteryCapacity === 30 && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex gap-3 items-start text-xs text-emerald-950 shadow-xs">
-                  <span className="flex h-2.5 w-2.5 relative shrink-0 mt-1">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                  </span>
-                  <div>
-                    <span className="font-extrabold text-emerald-800 block text-xs">📊 Universele Smart-EMS & Arbitrage Simulatie</span>
-                    <p className="text-[11px] text-emerald-700/95 mt-0.5 leading-relaxed font-semibold">
-                      Voor deze <strong>30 kWh</strong> opstelling simuleren we een intelligent home-automatisatiesysteem (EMS) met <strong>actieve energie-arbitrage & dynamic load shifting</strong> (nul-op-de-meter).
-                    </p>
-                    <p className="text-[10px] text-emerald-800/80 mt-1.5 leading-relaxed font-medium">
-                      Dit algoritme is perfect gekalibreerd met de reële praktijkmetingen van april, mei en juni (gemiddeld ~90% zelfvoorzienendheid in de zomer). Het past deze prestaties universeel en procentueel toe op basis van uw eigen zonnepanelen en verbruik. In de wintermaanden simuleert het model actieve net-arbitrage (laden tijdens dal- of negatieve tarieven, ontladen tijdens pieken), wat zorgt voor extra netontlasting en kostenbesparing!
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Chart container */}
-              <div className="h-80 md:h-96 w-full pt-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart
-                    data={batteryChartData}
-                    margin={{ top: 20, right: 5, left: -20, bottom: 0 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                    <XAxis 
-                      dataKey="name" 
-                      tickLine={false}
-                      axisLine={false}
-                      tick={{ fill: '#64748b', fontSize: 11, fontWeight: 500 }}
-                    />
-                    <YAxis 
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(val) => `${val}`}
-                      tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }}
-                    />
-                    <Tooltip content={<BatteryTooltip />} />
-                    <Legend 
-                      verticalAlign="top" 
-                      height={40}
-                      iconType="circle"
-                      iconSize={8}
-                      wrapperStyle={{ fontSize: 11, fontWeight: 600, color: '#475569' }}
-                    />
-                    
-                    {/* Stacked Bars representing Destination of Solar Production */}
-                    <Bar 
-                      dataKey="Direct verbruik (zonder accu) (kWh)" 
-                      name="🏠 Direct verbruikte zonnestroom (kWh)" 
-                      stackId="solar" 
-                      fill="#10b981" 
-                    />
-                    <Bar 
-                      dataKey="Extra verbruik via accu (kWh)" 
-                      name="🔋 Opgeslagen &amp; verbruikt via accu (kWh)" 
-                      stackId="solar" 
-                      fill="#3b82f6" 
-                    />
-                    <Bar 
-                      dataKey="Teruglevering naar net (met accu) (kWh)" 
-                      name="🌐 Resterende teruglevering (kWh)" 
-                      stackId="solar" 
-                      fill="#94a3b8" 
-                      radius={[4, 4, 0, 0]} 
-                    />
-
-                    {/* Lines for context */}
-                    <Line 
-                      type="monotone" 
-                      dataKey="Stroomverbruik (kWh)" 
-                      name="📈 Totaal stroomverbruik (kWh)" 
-                      stroke="#f43f5e" 
-                      strokeWidth={3}
-                      strokeDasharray="4 4"
-                      dot={{ r: 3, strokeWidth: 1, stroke: '#f43f5e', fill: '#fff' }} 
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="Arbitrage stroomverschuiving (kWh)" 
-                      name="⚡ Arbitrage stroomverschuiving (kWh)" 
-                      stroke="#a855f7" 
-                      strokeWidth={2.5}
-                      dot={{ r: 3.5, strokeWidth: 1.5, stroke: '#a855f7', fill: '#fff' }} 
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Explanatory legend and key metrics of the active simulation */}
-              <div className="grid md:grid-cols-3 gap-4 pt-4 border-t border-slate-100">
-                <div className="space-y-1 bg-emerald-50/40 rounded-2xl p-4 border border-emerald-100/30">
-                  <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Eigen Verbruik Verhoging</span>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-2xl font-black text-emerald-700">
-                      +{Math.round(batteryChartData.reduce((acc, d) => acc + d['Extra verbruik via accu (kWh)'], 0) / (calculation.solar.annualYieldKwh || 1) * 100)}%
-                    </span>
-                    <span className="text-xs text-slate-500 font-medium">op jaarbasis</span>
-                  </div>
-                  <p className="text-[10px] text-slate-600 leading-relaxed">
-                    Dankzij de {chartBatteryCapacity} kWh accu verbruik je deze stroom direct zelf, in plaats van het goedkoop terug te leveren.
-                  </p>
-                </div>
-
-                <div className="space-y-1 bg-blue-50/30 rounded-2xl p-4 border border-blue-100/30">
-                  <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block font-sans">Totaal Opgeslagen Stroom</span>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-2xl font-black text-blue-700">
-                      {Math.round(batteryChartData.reduce((acc, d) => acc + d['Extra verbruik via accu (kWh)'], 0)).toLocaleString('nl-NL')} kWh
-                    </span>
-                    <span className="text-xs text-slate-500 font-medium">per jaar</span>
-                  </div>
-                  <p className="text-[10px] text-slate-600 leading-relaxed">
-                    Dit is de hoeveelheid gratis stroom die jaarlijks door de batterij is opgeslagen en op een later moment (bijv. 's avonds) is verbruikt.
-                  </p>
-                </div>
-
-                <div className="space-y-1 bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Autonomie (Zonne-dekking)</span>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-2xl font-black text-slate-700">
-                      {Math.min(100, Math.round((batteryChartData.reduce((acc, d) => acc + d['Totaal direct verbruik (met accu) (kWh)'], 0) / (calculation.house.verbruikKwh || 1)) * 100))}%
-                    </span>
-                    <span className="text-xs text-slate-500 font-medium">zelfvoorzienend</span>
-                  </div>
-                  <p className="text-[10px] text-slate-600 leading-relaxed">
-                    Het percentage van je totale stroomvraag dat nu rechtstreeks door je eigen zonnepanelen én accu samen wordt gedekt.
-                  </p>
-                </div>
-              </div>
+            {/* Maandelijkse Energiestromen met Thuisaccu Grafiek - Paginabreed */}
+            <div className="-mx-6 md:-mx-8">
+              <BatterySolarChart
+                resident={calculation.resident}
+                house={calculation.house}
+                insulation={calculation.insulation}
+                tech={calculation.tech}
+                setTech={setTech}
+              />
             </div>
 
             {/* Three Option Cards */}
@@ -1885,87 +2191,7 @@ Energieplanner Peel en Maas
               })}
             </div>
 
-            {/* Complete Battery Comparison Table */}
-            <div className="bg-white border border-slate-150 rounded-2xl shadow-sm overflow-hidden">
-              <div className="bg-slate-50/80 px-5 py-3 border-b border-slate-100">
-                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide">
-                  Gedetailleerde Vergelijkingstabel Thuisbatterijen
-                </h4>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-100 text-xs">
-                  <thead className="bg-slate-50/30">
-                    <tr>
-                      <th className="px-5 py-3 text-left font-bold text-slate-500">Financiële &amp; Technische Posten</th>
-                      <th className="px-5 py-3 text-right font-bold text-slate-700 bg-blue-50/10">Klein (5 kWh)</th>
-                      <th className="px-5 py-3 text-right font-bold text-slate-700 bg-emerald-50/10">Middel (10 kWh)</th>
-                      <th className="px-5 py-3 text-right font-bold text-slate-700 bg-indigo-50/10">Groot (15 kWh)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-150 bg-white">
-                    <tr>
-                      <td className="px-5 py-3 text-slate-600 font-medium">Gemiddelde Bruto Kosten (Incl. installatie)</td>
-                      <td className="px-5 py-3 text-right text-slate-800">€ {Math.round(calculation.battery.options[0].brutoInvestment).toLocaleString('nl-NL')}</td>
-                      <td className="px-5 py-3 text-right text-slate-800">€ {Math.round(calculation.battery.options[1].brutoInvestment).toLocaleString('nl-NL')}</td>
-                      <td className="px-5 py-3 text-right text-slate-800">€ {Math.round(calculation.battery.options[2].brutoInvestment).toLocaleString('nl-NL')}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-5 py-3 text-slate-600 font-medium">Btw-teruggave (21% via Belastingdienst voor handelssturing)</td>
-                      <td className="px-5 py-3 text-right text-emerald-600">-€ {Math.round(calculation.battery.options[0].btwRefund).toLocaleString('nl-NL')}</td>
-                      <td className="px-5 py-3 text-right text-emerald-600">-€ {Math.round(calculation.battery.options[1].btwRefund).toLocaleString('nl-NL')}</td>
-                      <td className="px-5 py-3 text-right text-emerald-600">-€ {Math.round(calculation.battery.options[2].btwRefund).toLocaleString('nl-NL')}</td>
-                    </tr>
-                    <tr className="bg-slate-50/30 font-bold">
-                      <td className="px-5 py-3 text-slate-800">Netto Investering</td>
-                      <td className="px-5 py-3 text-right text-slate-900">€ {Math.round(calculation.battery.options[0].netInvestment).toLocaleString('nl-NL')}</td>
-                      <td className="px-5 py-3 text-right text-slate-900">€ {Math.round(calculation.battery.options[1].netInvestment).toLocaleString('nl-NL')}</td>
-                      <td className="px-5 py-3 text-right text-slate-900">€ {Math.round(calculation.battery.options[2].netInvestment).toLocaleString('nl-NL')}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-5 py-3 text-slate-600 font-medium">Stijging direct verbruik (Zonne-energie)</td>
-                      <td className="px-5 py-3 text-right text-emerald-600">+{Math.round(calculation.battery.options[0].efficiencyIncrease)}%</td>
-                      <td className="px-5 py-3 text-right text-emerald-600">+{Math.round(calculation.battery.options[1].efficiencyIncrease)}%</td>
-                      <td className="px-5 py-3 text-right text-emerald-600">+{Math.round(calculation.battery.options[2].efficiencyIncrease)}%</td>
-                    </tr>
-                    <tr>
-                      <td className="px-5 py-3 text-slate-600 font-medium">Jaarbesparing Vast contract (Pre-2027)</td>
-                      <td className="px-5 py-3 text-right text-slate-500">€ {Math.round(calculation.battery.options[0].annualSavingsVastPre2027).toLocaleString('nl-NL')}</td>
-                      <td className="px-5 py-3 text-right text-slate-500">€ {Math.round(calculation.battery.options[1].annualSavingsVastPre2027).toLocaleString('nl-NL')}</td>
-                      <td className="px-5 py-3 text-right text-slate-500">€ {Math.round(calculation.battery.options[2].annualSavingsVastPre2027).toLocaleString('nl-NL')}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-5 py-3 text-slate-600 font-medium">Jaarbesparing Vast contract (Vanaf 2027 / Post-saldering)</td>
-                      <td className="px-5 py-3 text-right text-emerald-600">€ {Math.round(calculation.battery.options[0].annualSavingsVastPost2027).toLocaleString('nl-NL')} / jr</td>
-                      <td className="px-5 py-3 text-right text-emerald-600">€ {Math.round(calculation.battery.options[1].annualSavingsVastPost2027).toLocaleString('nl-NL')} / jr</td>
-                      <td className="px-5 py-3 text-right text-emerald-600">€ {Math.round(calculation.battery.options[2].annualSavingsVastPost2027).toLocaleString('nl-NL')} / jr</td>
-                    </tr>
-                    <tr className="bg-emerald-50/10 font-bold">
-                      <td className="px-5 py-3 text-slate-600 font-medium">
-                        <div>Jaarbesparing Dynamisch contract (Met smart-trading)</div>
-                        <div className="text-[10px] text-slate-400 font-normal mt-0.5">
-                          Gebaseerd op het reële Zonneplan H1 gemiddeld teruglevertarief van <strong>€ 0,1049 / kWh</strong> en actieve arbitrage.
-                        </div>
-                      </td>
-                      <td className="px-5 py-3 text-right text-emerald-600">€ {Math.round(calculation.battery.options[0].annualSavingsDynamisch).toLocaleString('nl-NL')} / jr</td>
-                      <td className="px-5 py-3 text-right text-emerald-600">€ {Math.round(calculation.battery.options[1].annualSavingsDynamisch).toLocaleString('nl-NL')} / jr</td>
-                      <td className="px-5 py-3 text-right text-emerald-600">€ {Math.round(calculation.battery.options[2].annualSavingsDynamisch).toLocaleString('nl-NL')} / jr</td>
-                    </tr>
-                    <tr className="bg-slate-50/50 font-bold">
-                      <td className="px-5 py-3 text-slate-700">Terugverdientijd (TVT) Vast contract (Vanaf 2027)</td>
-                      <td className="px-5 py-3 text-right text-slate-800">{calculation.battery.options[0].annualSavingsVastPost2027 > 0 ? `${calculation.battery.options[0].tvtPost2027.toFixed(1)} jr` : 'Geen'}</td>
-                      <td className="px-5 py-3 text-right text-slate-800">{calculation.battery.options[1].annualSavingsVastPost2027 > 0 ? `${calculation.battery.options[1].tvtPost2027.toFixed(1)} jr` : 'Geen'}</td>
-                      <td className="px-5 py-3 text-right text-slate-800">{calculation.battery.options[2].annualSavingsVastPost2027 > 0 ? `${calculation.battery.options[2].tvtPost2027.toFixed(1)} jr` : 'Geen'}</td>
-                    </tr>
-                    <tr className="bg-blue-50/10 font-black text-slate-900">
-                      <td className="px-5 py-3 text-slate-800">Terugverdientijd (TVT) Dynamisch contract + Arbitrage</td>
-                      <td className="px-5 py-3 text-right text-blue-700">{calculation.battery.options[0].annualSavingsDynamisch > 0 ? `${calculation.battery.options[0].tvtDynamisch.toFixed(1)} jr` : 'Geen'}</td>
-                      <td className="px-5 py-3 text-right text-blue-700">{calculation.battery.options[1].annualSavingsDynamisch > 0 ? `${calculation.battery.options[1].tvtDynamisch.toFixed(1)} jr` : 'Geen'}</td>
-                      <td className="px-5 py-3 text-right text-blue-700">{calculation.battery.options[2].annualSavingsDynamisch > 0 ? `${calculation.battery.options[2].tvtDynamisch.toFixed(1)} jr` : 'Geen'}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+
 
             {/* Advice & Recommendation Box */}
             <div className="bg-gradient-to-br from-slate-50 to-blue-50/20 border border-slate-100 rounded-2xl p-6 space-y-6">
@@ -2078,126 +2304,6 @@ Energieplanner Peel en Maas
                 </div>
               </div>
 
-              {/* 3. Interactive Provider Chooser & Details */}
-              <div className="space-y-4 pt-4 border-t border-slate-200/60">
-                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
-                  <span className="text-xs font-extrabold text-slate-700 uppercase tracking-wide block">
-                    Aanbevolen Dynamische Energieaanbieders voor Thuisaccu's:
-                  </span>
-                  {calculation.tech.typeContract === 'Vast' && (
-                    <span className="text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded self-start sm:self-auto">
-                      ⚠️ Alleen van toepassing bij Dynamisch contract
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {[
-                    { id: 'Zonneplan' as const, name: 'Zonneplan', tag: 'Powerplay', desc: 'Onbalansmarkt' },
-                    { id: 'Tibber' as const, name: 'Tibber', tag: 'Pulse & API', desc: 'Domotica ready' },
-                    { id: 'Frank' as const, name: 'Frank Energie', tag: 'Slim Handelen', desc: 'EPEX arbitrage' },
-                    { id: 'Anwb' as const, name: 'ANWB Energie', tag: 'Slim Laden', desc: 'EV Combinatie' }
-                  ].map((p) => {
-                    const isSelected = calculation.tech.dynamicProvider === p.id || (!calculation.tech.dynamicProvider && p.id === 'Zonneplan');
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        disabled={!setTech}
-                        onClick={() => {
-                          if (setTech) {
-                            setTech(prev => ({ ...prev, dynamicProvider: p.id, typeContract: 'Dynamisch' }));
-                          }
-                        }}
-                        className={`p-3.5 rounded-2xl border text-left transition flex flex-col justify-between ${
-                          isSelected
-                            ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white border-blue-500 shadow-md shadow-indigo-100 ring-2 ring-offset-2 ring-indigo-500'
-                            : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
-                        }`}
-                      >
-                        <div>
-                          <span className="font-extrabold text-xs block">{p.name}</span>
-                          <span className={`text-[9px] font-semibold mt-0.5 block ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>{p.tag}</span>
-                        </div>
-                        <span className={`text-[10px] mt-2 font-mono ${isSelected ? 'text-white font-bold' : 'text-slate-500'}`}>
-                          {p.desc}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Selected Provider Details Display */}
-                <div className="bg-white border border-slate-100 p-5 rounded-2xl space-y-3 shadow-sm">
-                  {((!calculation.tech.dynamicProvider || calculation.tech.dynamicProvider === 'Zonneplan')) && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-1.5 text-blue-900 font-bold text-sm">
-                        <Zap className="w-4 h-4 text-amber-500" />
-                        <span>Waarom Zonneplan Powerplay perfect is voor jouw thuisaccu:</span>
-                      </div>
-                      <p className="text-xs text-slate-600 leading-relaxed">
-                        Zonneplan Powerplay stuurt je thuisbatterij volledig automatisch aan op de <strong>onbalansmarkt</strong> van TenneT. In plaats van stroom simpelweg op te slaan voor de avond, helpt jouw batterij actief mee om het Nederlandse stroomnet te stabiliseren. Hiervoor ontvang je zeer hoge vergoedingen.
-                      </p>
-                      <ul className="list-disc pl-4 text-[11px] text-slate-500 space-y-1">
-                        <li><strong>Volledig ontzorgd:</strong> De slimme software handelt autonoom; je hoeft zelf niets in te stellen.</li>
-                        <li><strong>Maximale opbrengsten:</strong> Onbalansprijzen schieten vaak veel harder omhoog of omlaag dan reguliere uurprijzen (soms wel tot €1,00/kWh vergoeding).</li>
-                        <li><strong>Btw-teruggave:</strong> De Belastingdienst ziet je door dit actieve handelen als ondernemer, waardoor je de 21% btw op de accu volledig kunt terugvragen!</li>
-                      </ul>
-                    </div>
-                  )}
-
-                  {calculation.tech.dynamicProvider === 'Tibber' && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-1.5 text-blue-900 font-bold text-sm">
-                        <Zap className="w-4 h-4 text-sky-400" />
-                        <span>Waarom Tibber uitstekend is voor slimme tech-integraties:</span>
-                      </div>
-                      <p className="text-xs text-slate-600 leading-relaxed">
-                        Tibber is marktleider in slimme dynamic-sturing. Dankzij hun open en gedocumenteerde API-koppelingen communiceert Tibber perfect met Home Assistant, Bliq, en omvormers van bekende merken (zoals SolarEdge, Growatt of Victron).
-                      </p>
-                      <ul className="list-disc pl-4 text-[11px] text-slate-500 space-y-1">
-                        <li><strong>Tibber Pulse:</strong> Real-time inzicht in je stroommeter (P1-poort) om de accu exact aan te sturen op je actuele nul-verbruik.</li>
-                        <li><strong>Open Eco-systeem:</strong> Je zit niet vast aan één accumerk. Je kunt de sturing zelf programmeren of koppelen met externe domotica.</li>
-                        <li><strong>Lage inkoopopslag:</strong> Tibber rekent een zeer scherpe inkoopopslag per kWh, wat de marge voor batterij-arbitrage vergroot.</li>
-                      </ul>
-                    </div>
-                  )}
-
-                  {calculation.tech.dynamicProvider === 'Frank' && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-1.5 text-blue-900 font-bold text-sm">
-                        <Zap className="w-4 h-4 text-emerald-500" />
-                        <span>Waarom Frank Energie "Slim Handelen" de ideale partner is:</span>
-                      </div>
-                      <p className="text-xs text-slate-600 leading-relaxed">
-                        Frank Energie biedt de slimme sturingsdienst genaamd "Slim Handelen". Hun algoritme berekent elk uur de optimale laad- en ontlaadcycli op de EPEX spotmarkt.
-                      </p>
-                      <ul className="list-disc pl-4 text-[11px] text-slate-500 space-y-1">
-                        <li><strong>Wind- &amp; Zonne-Arbitrage:</strong> De accu laadt op de goedkoopste uren van de dag (bijvoorbeeld 's nachts bij harde wind of 's middags bij felle zon) en levert terug tijdens de dure piekuren.</li>
-                        <li><strong>Gebruiksvriendelijke app:</strong> Je ziet in de Frank Energie app live hoeveel winst je accu vandaag heeft gemaakt met slim handelen.</li>
-                        <li><strong>Geen ingewikkelde hardware:</strong> Directe softwarematige koppeling met de omvormer/accu van je thuisbatterij.</li>
-                      </ul>
-                    </div>
-                  )}
-
-                  {calculation.tech.dynamicProvider === 'Anwb' && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-1.5 text-blue-900 font-bold text-sm">
-                        <Zap className="w-4 h-4 text-amber-500" />
-                        <span>Waarom ANWB Energie de beste keuze is in combinatie met een EV:</span>
-                      </div>
-                      <p className="text-xs text-slate-600 leading-relaxed">
-                        ANWB Energie blinkt uit in de combinatie van een thuisaccu en een elektrische auto (EV). Hun slimme laad-software synchroniseert het opladen van je auto en je thuisaccu voor maximaal financieel voordeel.
-                      </p>
-                      <ul className="list-disc pl-4 text-[11px] text-slate-500 space-y-1">
-                        <li><strong>Geïntegreerde laadsturing:</strong> Voorkom dat de thuisaccu leegloopt in de auto op momenten dat dat financieel niet gunstig is.</li>
-                        <li><strong>Betrouwbare merknaam:</strong> Groene, transparante dynamic-stroom zonder winstoogmerk op je verbruik.</li>
-                        <li><strong>ANWB Slim Laden:</strong> Bekroonde app voor het inplannen van slimme laadbeurten op basis van de goedkoopste uren van de dag.</li>
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
 
             {/* Comprehensive Battery Market Overview & Decision Advice */}
@@ -2485,49 +2591,14 @@ Energieplanner Peel en Maas
               </div>
             </div>
 
-            {/* TACTVOL COMFORT PERSPECTIEF (De Auto-analogie) */}
-            <div className="bg-gradient-to-br from-indigo-50/70 via-white to-amber-50/40 border border-indigo-100/80 rounded-2xl p-5 md:p-6 shadow-sm space-y-4">
-              <div className="flex items-center gap-2.5">
-                <span className="text-xl shrink-0">🚗</span>
-                <div>
-                  <h4 className="text-sm font-extrabold text-indigo-900 tracking-tight">
-                    Investeren in Comfort &amp; Woongenot versus 'Terugverdientijd'
-                  </h4>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                    Een verfrissend perspectief van de Energieplanner
-                  </p>
-                </div>
-              </div>
-              <div className="text-xs text-slate-600 space-y-3 leading-relaxed">
-                <p>
-                  Wanneer we praten over verduurzaming van onze woning, staren we ons vaak blind op de <strong>terugverdientijd (TVT)</strong>. Maar wist je dat we dat bij andere grote levensinvesteringen eigenlijk nooit doen?
-                </p>
-                <div className="grid md:grid-cols-1 sm:grid-cols-2 gap-4 my-2.5">
-                  <div className="bg-white/60 border border-slate-100 p-3 rounded-xl">
-                    <span className="font-bold text-slate-800 text-xs block mb-1">De vergelijking met een auto of keuken:</span>
-                    <p className="text-[11px] text-slate-500 leading-normal">
-                      Niemand vraagt bij de aanschaf van een nieuwe auto, een moderne designkeuken of een luxe badkamer naar de terugverdientijd. We kopen deze voor de betrouwbaarheid, het dagelijkse comfort, de esthetiek en de directe stijging in levenskwaliteit.
-                    </p>
-                  </div>
-                  <div className="bg-emerald-50/50 border border-emerald-100/60 p-3 rounded-xl">
-                    <span className="font-bold text-emerald-900 text-xs block mb-1">De warmtepomp als woning-upgrade:</span>
-                    <p className="text-[11px] text-emerald-800/90 leading-normal">
-                      Een warmtepomp is precies hetzelfde: een modernisering van de technische installatie van je woning. Het brengt een heerlijk constante binnentemperatuur zonder koude zones of tocht. Het zorgt voor een gezonder binnenklimaat én verhoogt de waarde en het energielabel van je huis direct.
-                    </p>
-                  </div>
-                </div>
-                <p className="font-medium text-slate-700">
-                  Het grote verschil? Een nieuwe auto of designkeuken schrijft direct af vanaf dag één. Een warmtepomp is een comfort-upgrade die je – in tegenstelling tot een auto of keuken – <strong>elke maand direct geld oplevert</strong> in plaats van afschrijft!
-                </p>
-              </div>
-            </div>
+
           </div>
         )}
 
         {/* Tab Content 5: Dedicated Laadpaal results */}
         {activeTab === 'laadpaal' && (
           <div className="p-8 print:p-0 space-y-6">
-            <div className="bg-emerald-50/40 border border-emerald-100 rounded-3xl p-6 space-y-4 shadow-sm animate-fadeIn">
+            <div className="bg-emerald-50/40 border border-emerald-100 rounded-3xl p-6 space-y-6 shadow-sm animate-fadeIn">
               <div className="flex items-center gap-2 pb-2 border-b border-emerald-100/60">
                 <Zap className="w-5 h-5 text-emerald-600 animate-pulse" />
                 <h3 className="text-sm font-bold text-slate-800">🚗 Financiële Analyse: Eigen Laadpaal &amp; ERE-vergoeding</h3>
@@ -2537,19 +2608,17 @@ Energieplanner Peel en Maas
                 <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm space-y-1">
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Thuisgeladen volume</span>
                   <span className="text-lg font-extrabold text-slate-800">
-                    {Math.round(((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100).toLocaleString('nl-NL')} kWh
+                    {(calculation.laadpaal?.evAnnualDemandKwh ?? 2025).toLocaleString('nl-NL')} kWh
                   </span>
                   <span className="text-[10px] text-slate-500 block">
-                    ({calculation.tech?.evThuisLaden ?? 70}% van jaarlijks EV verbruik)
+                    ({calculation.tech?.evThuisLaden ?? 75}% van jaarlijks EV verbruik)
                   </span>
                 </div>
 
                 <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm space-y-1">
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Laadpaal Besparing</span>
                   <span className="text-lg font-extrabold text-emerald-600">
-                    € {Math.round(
-                      (((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * (0.50 - (calculation.house?.elektraPrijs ?? 0.30))
-                    ).toLocaleString('nl-NL')} / jr
+                    € {(calculation.laadpaal?.evSavingsEuro ?? 405).toLocaleString('nl-NL')} / jr
                   </span>
                   <span className="text-[10px] text-slate-500 block">
                     (t.o.v. openbaar laden à €0,50/kWh)
@@ -2559,9 +2628,7 @@ Energieplanner Peel en Maas
                 <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm space-y-1">
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Wettelijke ERE-vergoeding</span>
                   <span className="text-lg font-extrabold text-indigo-600">
-                    € {Math.round(
-                      (((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * 0.12
-                    ).toLocaleString('nl-NL')} / jr
+                    € {(calculation.laadpaal?.ereRevenueEuro ?? 243).toLocaleString('nl-NL')} / jr
                   </span>
                   <span className="text-[10px] text-slate-500 block">
                     (Opbrengst van €0,12 / kWh geladen)
@@ -2569,22 +2636,34 @@ Energieplanner Peel en Maas
                 </div>
               </div>
 
+              {/* Solar energy balance integration warning / explanation */}
+              {calculation.solar.annualYieldKwh > 0 && (
+                <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-4 text-xs text-emerald-950 space-y-2">
+                  <span className="font-bold block">☀️ Energiebalans &amp; Slim Zonnestroom Laden</span>
+                  {calculation.tech?.slimEmsOnlySolar ? (
+                    <p className="leading-relaxed">
+                      Op basis van je zonnepanelenopbrengst en laadprofiel is berekend dat je jaarlijks circa <strong>{(calculation.laadpaal?.evSolarCoverageKwh ?? 0).toLocaleString('nl-NL')} kWh</strong> direct uit je eigen zonnepanelen laadt. Omdat je beschikt over een <strong>slim EMS dat alleen op overtollige zonnestroom laadt</strong>, importeer je thuis <strong>0 kWh</strong> van het net. De overige <strong>{Math.max(0, (calculation.laadpaal?.evAnnualDemandKwh ?? 0) - (calculation.laadpaal?.evSolarCoverageKwh ?? 0)).toLocaleString('nl-NL')} kWh</strong> laad je extern of openbaar.
+                    </p>
+                  ) : (
+                    <p className="leading-relaxed">
+                      Op basis van je zonnepanelenopbrengst en laadprofiel is berekend dat je jaarlijks circa <strong>{(calculation.laadpaal?.evSolarCoverageKwh ?? 0).toLocaleString('nl-NL')} kWh</strong> direct uit je eigen zonnepanelen kunt laden (slim gestuurd overdag). De resterende <strong>{(calculation.laadpaal?.evGridImportKwh ?? 2025).toLocaleString('nl-NL')} kWh</strong> laad je vanuit het stroomnet.
+                    </p>
+                  )}
+                  <div className="bg-emerald-100/40 p-2.5 rounded-xl border border-emerald-200/50 text-[11px] leading-relaxed text-emerald-900 font-mono">
+                    ⚠️ <strong>Let op:</strong> De <strong>{(calculation.laadpaal?.evSolarCoverageKwh ?? 0).toLocaleString('nl-NL')} kWh</strong> aan zonnestroom die direct naar je auto gaat, is automatisch in mindering gebracht op de totale teruglevering aan het net én is niet meer beschikbaar voor een eventuele warmtepomp. Dit voorkomt dubbeltellingen en zorgt voor een 100% sluitende energiebalans!
+                  </div>
+                </div>
+              )}
+
               <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div className="space-y-0.5">
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Gecombineerd Jaarlijks Voordeel</span>
                   <span className="text-2xl font-black text-slate-900">
-                    € {Math.round(
-                      ((((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * (0.50 - (calculation.house?.elektraPrijs ?? 0.30))) + 
-                      ((((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * 0.12)
-                    ).toLocaleString('nl-NL')} / jr
+                    € {(calculation.laadpaal?.totalSavingsEuro ?? 648).toLocaleString('nl-NL')} / jr
                   </span>
                 </div>
                 <div className="bg-emerald-50 text-emerald-800 font-extrabold text-xs px-3 py-1.5 rounded-lg border border-emerald-100 font-mono">
-                  Terugverdientijd: ~{(
-                    ((calculation.tech?.customLaadpaalPrijs !== undefined && calculation.tech?.customLaadpaalPrijs > 0) ? calculation.tech?.customLaadpaalPrijs : 1200) / 
-                    ((((((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * (0.50 - (calculation.house?.elektraPrijs ?? 0.30))) + 
-                    ((((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 70) / 100) * 0.12)) || 1)
-                  ).toFixed(1)} jaar {(calculation.tech?.customLaadpaalPrijs !== undefined && calculation.tech?.customLaadpaalPrijs > 0) ? '(op basis van eigen prijsopgave)' : '(standaard raming)'}
+                  Terugverdientijd: ~{(calculation.laadpaal?.tvt ?? 1.8).toFixed(1)} jaar {(calculation.tech?.customLaadpaalPrijs !== undefined && calculation.tech?.customLaadpaalPrijs > 0) ? '(op basis van eigen prijsopgave)' : '(standaard raming)'}
                 </div>
               </div>
 
@@ -2644,7 +2723,7 @@ Energieplanner Peel en Maas
             ) : (
               <div className="text-center py-12 space-y-3" id="empty-report-placeholder">
                 <p className="text-slate-400 text-sm">
-                  Er is nog geen energieadvies gegenereerd. Vul links je gegevens in en klik op de knop om direct een op maat gemaakt, begrijpelijk en betrouwbaar NTA 8800 adviesrapport te ontvangen.
+                  Er is nog geen energieadvies gegenereerd. Vul links je gegevens in en klik op de knop om direct een op maat gemaakt, begrijpelijk en betrouwbaar adviesrapport te ontvangen.
                 </p>
                 <p className="text-xs text-emerald-600 font-semibold">
                   Tip: Gebruik de snelprofielen bovenaan om direct te testen!
@@ -2655,6 +2734,171 @@ Energieplanner Peel en Maas
         )}
 
       </div>
+
+      {/* Gasbesparing Opbouw Modal */}
+      {showGasModal && createPortal(
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-6">
+            
+            {/* Header */}
+            <div className="flex justify-between items-start border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-50 rounded-2xl text-emerald-600 border border-emerald-100">
+                  <Flame className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-slate-800">
+                    Opbouw &amp; Berekening Gasbesparing
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Gedetailleerd overzicht van hoe de besparing in m³ en euro's is berekend
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowGasModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Top KPI Summary */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-emerald-50/70 border border-emerald-100 p-3.5 rounded-2xl">
+                <span className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                  Totaal Gasbesparing
+                </span>
+                <span className="text-xl font-extrabold text-emerald-900 block mt-0.5 font-mono">
+                  {Math.round(calculation.measures.reduce((sum, m) => sum + m.savingM3, 0))} m³
+                </span>
+                <span className="text-[11px] text-emerald-700 font-medium block">per jaar</span>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
+                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Financiële Waarde
+                </span>
+                <span className="text-xl font-extrabold text-slate-800 block mt-0.5 font-mono">
+                  € {Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}
+                </span>
+                <span className="text-[11px] text-slate-500 font-medium block">
+                  à € {(calculation.house.gasPrijs || 1.30).toFixed(2)} / m³
+                </span>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
+                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Stookgedragfactor
+                </span>
+                <span className="text-xl font-extrabold text-slate-800 block mt-0.5 font-mono">
+                  {(calculation.house.stookgedragFactor || 1.0).toFixed(1)}x
+                </span>
+                <span className="text-[11px] text-slate-500 font-medium block truncate">
+                  {calculation.house.stookgedragBerekend || 'Normaal'}
+                </span>
+              </div>
+            </div>
+
+            {/* Tabel met maatregelen */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Gespecificeerde opbouw per gekozen isolatiemaatregel
+              </h4>
+              <div className="border border-slate-200 rounded-2xl overflow-hidden text-xs bg-white shadow-sm">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-[11px]">
+                      <th className="p-3">Maatregel</th>
+                      <th className="p-3 text-right">Opp. (m²)</th>
+                      <th className="p-3 text-right">Norm m³/m²</th>
+                      <th className="p-3 text-right">Stookfactor</th>
+                      <th className="p-3 text-right text-emerald-700">Gas (m³/jr)</th>
+                      <th className="p-3 text-right text-slate-500">Gasprijs</th>
+                      <th className="p-3 text-right text-emerald-700">Besparing (€/jr)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {calculation.measures.length > 0 ? (
+                      calculation.measures.map((m) => {
+                        const coeff = COEFFS[m.id as keyof typeof COEFFS];
+                        const normSaving = coeff?.saving || 0;
+                        const stookFactor = calculation.house.stookgedragFactor || 1.0;
+                        return (
+                          <tr key={m.id} className="hover:bg-slate-50/60 transition-colors">
+                            <td className="p-3 font-semibold text-slate-800">{m.name}</td>
+                            <td className="p-3 text-right font-mono text-slate-600">{m.area} m²</td>
+                            <td className="p-3 text-right font-mono text-slate-500">{normSaving.toFixed(1)}</td>
+                            <td className="p-3 text-right font-mono text-slate-500">{stookFactor.toFixed(2)}x</td>
+                            <td className="p-3 text-right font-mono font-bold text-emerald-600">
+                              {Math.round(m.savingM3)} m³
+                            </td>
+                            <td className="p-3 text-right font-mono text-slate-500">
+                              € {(calculation.house.gasPrijs || 1.30).toFixed(2)}
+                            </td>
+                            <td className="p-3 text-right font-mono font-bold text-emerald-600">
+                              € {Math.round(m.savingEuro).toLocaleString('nl-NL')}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="p-6 text-center text-slate-400 italic">
+                          Er zijn momenteel geen isolatiemaatregelen geselecteerd. Vul oppervlakten in bij het invoerformulier om de besparing te berekenen.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                  {calculation.measures.length > 0 && (
+                    <tfoot>
+                      <tr className="bg-slate-100/80 font-extrabold text-slate-900 border-t border-slate-200">
+                        <td className="p-3" colSpan={4}>Totaal Gecombineerd</td>
+                        <td className="p-3 text-right font-mono text-emerald-700 text-sm">
+                          {Math.round(calculation.measures.reduce((sum, m) => sum + m.savingM3, 0))} m³
+                        </td>
+                        <td className="p-3 text-right font-mono text-slate-500 text-xs font-normal">
+                          € {(calculation.house.gasPrijs || 1.30).toFixed(2)}/m³
+                        </td>
+                        <td className="p-3 text-right font-mono text-emerald-700 text-sm">
+                          € {Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+
+            {/* Toelichting Normen &amp; Stookgedrag */}
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 text-xs text-slate-600 space-y-2">
+              <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                <Info className="w-4 h-4 text-emerald-600" /> Achtergrond &amp; Bronvermelding
+              </span>
+              <p className="leading-relaxed">
+                • <strong>Norm-kengetallen:</strong> De besparingen per m² vloeien voort uit praktijkrichtlijnen voor isolatie (bijv. Spouwmuurisolatie = 7,0 m³/m², Dakisolatie binnenzijde = 9,0 m³/m², HR++ Glas = 12,0 m³/m²).
+              </p>
+              <p className="leading-relaxed">
+                • <strong>Stookgedragfactor ({(calculation.house.stookgedragFactor || 1.0).toFixed(1)}x — {calculation.house.stookgedragBerekend || 'Normaal'}):</strong> Deze waarde vergelijkt uw werkelijke gasverbruik ({calculation.house.verbruikM3 || 0} m³) met het gemiddelde verbruik van een gelijkwaardige woning en gezinssamenstelling ({calculation.resident.aantalPersonen || 1} pers.). Hierdoor sluit het advies exact aan op uw praktijksituatie.
+              </p>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex justify-end pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowGasModal(false)}
+                className="bg-slate-800 hover:bg-slate-900 active:bg-black text-white text-xs font-bold py-2.5 px-6 rounded-xl transition cursor-pointer shadow-sm"
+              >
+                Sluiten
+              </button>
+            </div>
+
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

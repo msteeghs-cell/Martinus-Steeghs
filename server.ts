@@ -232,7 +232,6 @@ Schrijf het rapport exact volgens deze 9 opeenvolgende genummerde fasen. Gebruik
   - Indien 'WeHeat 8kW': Hybride warmtepomp (middelgrote capaciteit, 6-8 kW).
   - Indien 'Panasonic 12kW': All-Electric warmtepomp (grote capaciteit, 10-12 kW).
 - Waarschuw expliciet voor de risico's van overdimensionering (te groot vermogen leidt tot schadelijk en inefficiënt pendelgedrag van de warmtepomp). Leg uit hoe een goed gedimensioneerde warmtepomp (bijvoorbeeld 4 of 6 kW) in de Nederlandse praktijk uitstekend functioneert.
-- **TACTVOLLE COMFORT- EN WAARDE-PERSPECTIEF (DE AUTO-ANALOGIE)**: Leg op een uiterst overtuigende en tactvolle manier uit dat we bij verduurzaming vaak blindstaren op de 'terugverdientijd' (TVT), terwijl we dat bij andere grote uitgaven in ons leven nooit doen. Gebruik de vergelijking met een auto: *Niemand vraagt bij de aanschaf van een nieuwe auto, een moderne designkeuken of een luxe badkamer naar de 'terugverdientijd'.* Dit zijn investeringen in dagelijks comfort, betrouwbaarheid, woningwaarde en plezier. Een warmtepomp is precies hetzelfde: het is de modernisering van het hart van je woning. Het brengt een heerlijk constante binnentemperatuur (zonder koude zones of tocht), een gezonder binnenklimaat en onafhankelijkheid van stijgende gasbelastingen. Het is een upgrade van je woongenot die – in tegenstelling tot een auto of keuken – elke maand direct geld oplevert in plaats van afschrijft! Formuleer dit met passie voor comfort en toekomstbestendigheid.
 
 ### Fase 5: Netwerkcontrole & Elektrische Aansluiting
 - Controleer de elektrische netwerkaansluiting van de woning. Bespreek of de meterkast geschikt is voor een warmtepomp, laadpaal of zonnepanelen (1x25A of upgrade naar 3x25A vereist?).
@@ -257,9 +256,9 @@ Schrijf het rapport exact volgens deze 9 opeenvolgende genummerde fasen. Gebruik
 - Geef prioriteit aan de schilmaatregelen met de kortste terugverdientijd en de grootste thermische verbetering.
 - Leg uit hoe de bewoner offertes kan opvragen en waar hij/zij op moet letten bij isolatiebedrijven (bijvoorbeeld de opmerkingen voor de isolatiebedrijven: "${opmerkingenOffertes || 'Geen'}").
 
-### Fase 9: Officiële Deskundigenverklaring conform NTA 8800
+### Fase 9: Deskundigenverklaring (Praktische besparingskengetallen & NTA 8800)
 - Sluit af met een formele, geruststellende verklaring in de rol van de Energiecoach van de 'Energieplanner Peel en Maas'.
-- Bevestig dat dit rapport is opgesteld conform de vigerende NTA 8800 methodologie en ISSO-richtlijnen en onderteken het rapport met: "Getekend, Energiecoach Peel en Maas".
+- Bevestig dat dit rapport is opgesteld op basis van praktische besparingskengetallen gebaseerd op ervaringscijfers en de systematiek van de NTA 8800 / ISSO-richtlijnen en onderteken het rapport met: "Getekend, Energiecoach Peel en Maas".
 
 Schrijf direct en persoonlijk tot de bewoner ("je/jij"). Wees to-the-point, professioneel en vermijd pop-ups, meta-verwijzingen of AI-clichés. Zorg dat alle berekende getallen exact overeenkomen met de input!
 `;

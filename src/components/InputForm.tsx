@@ -17,7 +17,7 @@ import {
   ComposedChart,
   Line
 } from 'recharts';
-import { calculateAll } from '../utils/calculator';
+import { calculateAll, getSolarInvestmentEstimate, getSolarInvestmentRange, getBatteryInvestmentEstimate, getBatteryInvestmentRange } from '../utils/calculator';
 
 interface InputFormProps {
   resident: ResidentData;
@@ -37,25 +37,40 @@ interface InputFormProps {
   onDownloadJSON: () => void;
 }
 
-function Tooltip({ text, align = 'left' }: { text: React.ReactNode; align?: 'left' | 'right' | 'center' }) {
-  // Use left-0 or right-0 to keep tooltip text completely within the narrow screen column
+function Tooltip({
+  text,
+  align = 'left',
+  position = 'top'
+}: {
+  text: React.ReactNode;
+  align?: 'left' | 'right' | 'center';
+  position?: 'top' | 'bottom';
+}) {
   let alignClasses = 'left-0 translate-x-0';
-  let arrowClasses = 'left-3';
+  let arrowAlignClasses = 'left-3';
 
   if (align === 'center') {
     alignClasses = 'left-1/2 -translate-x-1/2';
-    arrowClasses = 'left-1/2 -translate-x-1/2';
+    arrowAlignClasses = 'left-1/2 -translate-x-1/2';
   } else if (align === 'right') {
     alignClasses = 'right-0 translate-x-0';
-    arrowClasses = 'right-3';
+    arrowAlignClasses = 'right-3';
   }
+
+  const posClasses = position === 'bottom'
+    ? 'top-full mt-2'
+    : 'bottom-full mb-2';
+
+  const arrowPosClasses = position === 'bottom'
+    ? 'bottom-full border-4 border-transparent border-b-slate-900'
+    : 'top-full border-4 border-transparent border-t-slate-900';
 
   return (
     <span className="group relative inline-block text-slate-400 hover:text-slate-600 cursor-help ml-1.5 align-middle shrink-0 z-30 hover:z-[9999]">
       <HelpCircle className="w-3.5 h-3.5" />
-      <span className={`pointer-events-none absolute bottom-full mb-2 hidden group-hover:block w-64 bg-slate-900 text-white text-[11px] p-3 rounded-xl shadow-xl z-[9999] font-normal leading-relaxed normal-case text-left ${alignClasses}`}>
+      <span className={`pointer-events-none absolute hidden group-hover:block w-64 bg-slate-900 text-white text-[11px] p-3 rounded-xl shadow-xl z-[9999] font-normal leading-relaxed normal-case text-left ${posClasses} ${alignClasses}`}>
         {text}
-        <span className={`absolute top-full border-4 border-transparent border-t-slate-900 ${arrowClasses}`} />
+        <span className={`absolute ${arrowPosClasses} ${arrowAlignClasses}`} />
       </span>
     </span>
   );
@@ -83,7 +98,23 @@ export default function InputForm({
   const [smartCalcReason, setSmartCalcReason] = useState<string>('');
   const [simulatedSpotPrice, setSimulatedSpotPrice] = useState<number>(0.08);
 
+  // Helper to update resident data and auto-update datum to today
+  const updateResident = (updater: Partial<ResidentData> | ((prev: ResidentData) => Partial<ResidentData>)) => {
+    const today = new Date().toISOString().split('T')[0];
+    setResident(prev => {
+      const changes = typeof updater === 'function' ? updater(prev) : updater;
+      return {
+        ...prev,
+        ...changes,
+        datum: changes.datum !== undefined ? changes.datum : today
+      };
+    });
+  };
+
   // Calculate local solar yield and break-even points for the 'zon' tab (declared at top so available to all hooks)
+  const liveCalcResult = calculateAll(resident, house, insulation, tech);
+  const liveStookgedragBerekend = liveCalcResult.house.stookgedragBerekend;
+
   const paneelVermogenLocal = tech.vermogenPerPaneel || 400;
   const totalWpLocal = tech.aantalZonnepanelen * paneelVermogenLocal;
   const orientRadLocal = (tech.dakOrientatie * Math.PI) / 180;
@@ -193,7 +224,7 @@ export default function InputForm({
     const totalSavings = directSavings + arbitrageYield;
 
     // Investment estimation (with VAT reclamation: net = bruto * 100/121)
-    let bruto = cap <= 5 ? cap * 840 : cap <= 10 ? 4200 + (cap - 5) * 660 : 7500 + (cap - 10) * 600;
+    let bruto = getBatteryInvestmentEstimate(cap);
     if (customPriceOverride !== undefined && customPriceOverride > 0) {
       bruto = customPriceOverride;
     }
@@ -379,14 +410,86 @@ export default function InputForm({
   };
 
   // Presets
-  const applyPreset = (type: '70s' | '90s' | 'modern') => {
-    if (type === '70s') {
+  const applyPreset = (type: '60s' | '70s' | '80s' | '90s' | 'modern') => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (type === '60s') {
+      setResident({
+        naam: 'Piet Berends',
+        registratiecode: 'PM-60PB-19',
+        brutoGezinsinkomen: 38000,
+        coach: 'Online Zelfscan',
+        datum: todayStr,
+        aanhef: 'De heer',
+        voorletters: 'P.',
+        achternaam: 'Berends',
+        straat: 'Schoolstraat',
+        huisnummer: '19',
+        toevoeging: '',
+        postcode: '5981AB',
+        plaats: 'Panningen',
+        aantalPersonen: 2,
+        telefoon: '0611223344',
+        email: 'piet@berends.nl',
+        akkoord: true
+      });
+      setHouse({
+        wozWaarde: 295000,
+        energielabel: 'F',
+        verbruikKwh: 2900,
+        verbruikM3: 1750,
+        soortWoning: 'Tussenwoning',
+        bouwjaar: 1965,
+        woonoppervlakte: 115,
+        verwarming: 'CV-ketel',
+        afgiftesysteem: 'Radiatoren',
+        tapwater: 'CV-ketel',
+        koken: 'Gas',
+        ventilatie: 'Natuurlijk (Type A)',
+        zonnepanelenPresent: 'Nee',
+        elektraPrijs: 0.30,
+        elektraTeruglevering: 0,
+        gasPrijs: 1.30,
+        stookgedragOverride: 'auto',
+        stookgedragBerekend: 'Normaal (1.0x)',
+        stookgedragFactor: 1.0,
+        isoDak: 'slecht',
+        isoGevel: 'slecht',
+        isoGlasBg: 'slecht',
+        isoGlasVd: 'slecht',
+        isoVloer: 'slecht',
+        isoKieren: 'Nee, onderhoud nodig',
+        inkomenCheck: true
+      });
+      setInsulation({
+        vloer: 45,
+        bodem: 0,
+        spouw: 55,
+        zolderVliering: 0,
+        dakBinnenzijde: 0,
+        gevelBuitenzijde: 0,
+        glasEnkelHR: 10,
+        glasDubbelHR: 0,
+        glasTripleHout: 0,
+      });
+      setTech({
+        aantalZonnepanelen: 0,
+        dakOrientatie: 0,
+        huidigDirectVerbruik: 30,
+        capaciteitAccu: 0,
+        omzettingsverliezen: 10,
+        typeContract: 'Vast',
+        evKilometers: 0,
+        evVerbruik: 18,
+        evThuisLaden: 0,
+        laadvermogen: 0,
+      });
+    } else if (type === '70s') {
       setResident({
         naam: 'Jan Janssen',
         registratiecode: 'PM-70TJ-88',
         brutoGezinsinkomen: 45000,
         coach: 'Online Zelfscan',
-        datum: '2026-04-24',
+        datum: todayStr,
         aanhef: 'De heer',
         voorletters: 'J.',
         achternaam: 'Janssen',
@@ -451,13 +554,84 @@ export default function InputForm({
         evThuisLaden: 0,
         laadvermogen: 0,
       });
+    } else if (type === '80s') {
+      setResident({
+        naam: 'Karel Visser',
+        registratiecode: 'PM-80KV-33',
+        brutoGezinsinkomen: 52000,
+        coach: 'Online Zelfscan',
+        datum: todayStr,
+        aanhef: 'De heer',
+        voorletters: 'K.',
+        achternaam: 'Visser',
+        straat: 'Dorpsstraat',
+        huisnummer: '33',
+        toevoeging: '',
+        postcode: '5981AE',
+        plaats: 'Panningen',
+        aantalPersonen: 3,
+        telefoon: '0622334455',
+        email: 'karel@visser.nl',
+        akkoord: true
+      });
+      setHouse({
+        wozWaarde: 365000,
+        energielabel: 'D',
+        verbruikKwh: 3100,
+        verbruikM3: 1450,
+        soortWoning: 'Hoekwoning',
+        bouwjaar: 1984,
+        woonoppervlakte: 125,
+        verwarming: 'CV-ketel',
+        afgiftesysteem: 'Radiatoren',
+        tapwater: 'CV-ketel',
+        koken: 'Gas',
+        ventilatie: 'Mechanisch (Type C)',
+        zonnepanelenPresent: 'Ja',
+        elektraPrijs: 0.28,
+        elektraTeruglevering: 0,
+        gasPrijs: 1.30,
+        stookgedragOverride: 'auto',
+        stookgedragBerekend: 'Normaal (1.0x)',
+        stookgedragFactor: 1.0,
+        isoDak: 'matig',
+        isoGevel: 'slecht',
+        isoGlasBg: 'slecht',
+        isoGlasVd: 'slecht',
+        isoVloer: 'matig',
+        isoKieren: 'Nee, onderhoud nodig',
+        inkomenCheck: true
+      });
+      setInsulation({
+        vloer: 45,
+        bodem: 0,
+        spouw: 60,
+        zolderVliering: 0,
+        dakBinnenzijde: 0,
+        gevelBuitenzijde: 0,
+        glasEnkelHR: 0,
+        glasDubbelHR: 14,
+        glasTripleHout: 0,
+      });
+      setTech({
+        aantalZonnepanelen: 12,
+        dakOrientatie: 0,
+        huidigDirectVerbruik: 30,
+        capaciteitAccu: 0,
+        omzettingsverliezen: 10,
+        typeContract: 'Vast',
+        evKilometers: 0,
+        evVerbruik: 18,
+        evThuisLaden: 0,
+        laadvermogen: 0,
+      });
     } else if (type === '90s') {
       setResident({
         naam: 'Familie Smeets',
         registratiecode: 'PM-90HW-42',
         brutoGezinsinkomen: 72000,
         coach: 'Online Zelfscan',
-        datum: '2026-04-24',
+        datum: todayStr,
         aanhef: 'De heer en mevrouw',
         voorletters: 'H. & M.',
         achternaam: 'Smeets',
@@ -475,7 +649,7 @@ export default function InputForm({
         wozWaarde: 410000,
         energielabel: 'D',
         verbruikKwh: 3800,
-        verbruikM3: 1200,
+        verbruikM3: 2100,
         soortWoning: 'Vrijstaand',
         bouwjaar: 1994,
         woonoppervlakte: 160,
@@ -525,31 +699,31 @@ export default function InputForm({
     } else if (type === 'modern') {
       setResident({
         naam: 'Anouk de Vries',
-        registratiecode: 'PM-20VS-11',
-        brutoGezinsinkomen: 58000,
+        registratiecode: 'PM-23AV-11',
+        brutoGezinsinkomen: 68000,
         coach: 'Online Zelfscan',
-        datum: '2026-04-24',
+        datum: todayStr,
         aanhef: 'Mevrouw',
         voorletters: 'A.',
         achternaam: 'de Vries',
-        straat: 'Maasstraat',
-        huisnummer: '8',
+        straat: 'Nieuwbouwweg',
+        huisnummer: '12',
         toevoeging: '',
         postcode: '5995XH',
         plaats: 'Kessel',
-        aantalPersonen: 1,
+        aantalPersonen: 3,
         telefoon: '0655443322',
         email: 'anouk@devries.nl',
         akkoord: true
       });
       setHouse({
-        wozWaarde: 510000,
+        wozWaarde: 520000,
         energielabel: 'A - B - C',
-        verbruikKwh: 2800,
-        verbruikM3: 400,
+        verbruikKwh: 3400,
+        verbruikM3: 350,
         soortWoning: 'Hoekwoning',
-        bouwjaar: 2012,
-        woonoppervlakte: 110,
+        bouwjaar: 2023,
+        woonoppervlakte: 135,
         verwarming: 'Hybride warmtepomp',
         afgiftesysteem: 'Vloerverwarming',
         tapwater: 'Warmtepompboiler',
@@ -557,7 +731,7 @@ export default function InputForm({
         ventilatie: 'Balans (Type D/WTW)',
         zonnepanelenPresent: 'Ja',
         elektraPrijs: 0.25,
-        elektraTeruglevering: 3000,
+        elektraTeruglevering: 3500,
         gasPrijs: 1.30,
         stookgedragOverride: 'auto',
         stookgedragBerekend: 'Zuinig (0.7x)',
@@ -568,7 +742,7 @@ export default function InputForm({
         isoGlasVd: 'goed',
         isoVloer: 'goed',
         isoKieren: 'Ja, in orde',
-        inkomenCheck: true
+        inkomenCheck: false
       });
       setInsulation({
         vloer: 0,
@@ -582,15 +756,15 @@ export default function InputForm({
         glasTripleHout: 0,
       });
       setTech({
-        aantalZonnepanelen: 14,
-        dakOrientatie: -90, // East
+        aantalZonnepanelen: 12,
+        dakOrientatie: 0, // South
         huidigDirectVerbruik: 40,
-        capaciteitAccu: 10,
+        capaciteitAccu: 0,
         omzettingsverliezen: 5,
         typeContract: 'Dynamisch',
-        evKilometers: 20000,
-        evVerbruik: 16,
-        evThuisLaden: 80,
+        evKilometers: 15000,
+        evVerbruik: 17,
+        evThuisLaden: 75,
         laadvermogen: 11,
       });
     }
@@ -667,8 +841,8 @@ export default function InputForm({
       <div className="bg-slate-100 p-1.5 rounded-2xl border border-slate-200/60 grid grid-cols-3 xl:grid-cols-6 gap-1" id="panelTabbar">
         {[
           { id: 'isolatie', label: 'Isolatie', icon: Layers },
-          { id: 'zon', label: 'Zon', icon: Sun },
-          { id: 'accu', label: 'Accu', icon: Battery },
+          { id: 'zon', label: 'Zonnepanelen', icon: Sun },
+          { id: 'accu', label: 'Thuisaccu', icon: Battery },
           { id: 'saldering', label: 'Saldering', icon: RefreshCw },
           { id: 'warmtepomp', label: 'Warmtepomp', icon: Zap },
           { id: 'laadpaal', label: 'Laadpaal', icon: Zap },
@@ -702,76 +876,56 @@ export default function InputForm({
               <Sparkles className="w-4 h-4 text-emerald-500" />
               Snel Woning-profiel Laden
             </h3>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              <button
+                onClick={() => applyPreset('60s')}
+                className="flex flex-col items-center justify-center p-2.5 text-xs font-medium border border-rose-100 bg-rose-50/40 text-rose-800 rounded-xl hover:bg-rose-50 transition"
+                id="preset-60s-btn"
+              >
+                <span className="font-bold">Jaren &apos;60</span>
+                <span className="text-[10px] text-rose-600/85">Label F • NIP Subsidie</span>
+              </button>
               <button
                 onClick={() => applyPreset('70s')}
-                className="flex flex-col items-center justify-center p-3 text-xs font-medium border border-orange-100 bg-orange-50/40 text-orange-800 rounded-xl hover:bg-orange-50 transition"
+                className="flex flex-col items-center justify-center p-2.5 text-xs font-medium border border-orange-100 bg-orange-50/40 text-orange-800 rounded-xl hover:bg-orange-50 transition"
                 id="preset-70s-btn"
               >
                 <span className="font-bold">Jaren &apos;70</span>
                 <span className="text-[10px] text-orange-600/85">Label E • Matig</span>
               </button>
               <button
+                onClick={() => applyPreset('80s')}
+                className="flex flex-col items-center justify-center p-2.5 text-xs font-medium border border-amber-100 bg-amber-50/40 text-amber-800 rounded-xl hover:bg-amber-50 transition"
+                id="preset-80s-btn"
+              >
+                <span className="font-bold">Jaren &apos;80</span>
+                <span className="text-[10px] text-amber-700/85">Label C/D • Redelijk</span>
+              </button>
+              <button
                 onClick={() => applyPreset('90s')}
-                className="flex flex-col items-center justify-center p-3 text-xs font-medium border border-amber-100 bg-amber-50/40 text-amber-800 rounded-xl hover:bg-amber-50 transition"
+                className="flex flex-col items-center justify-center p-2.5 text-xs font-medium border border-yellow-100 bg-yellow-50/40 text-yellow-800 rounded-xl hover:bg-yellow-50 transition"
                 id="preset-90s-btn"
               >
                 <span className="font-bold">Jaren &apos;90</span>
-                <span className="text-[10px] text-amber-600/85">Label D • Gemiddeld</span>
+                <span className="text-[10px] text-yellow-700/85">Label C • Gemiddeld</span>
               </button>
               <button
                 onClick={() => applyPreset('modern')}
-                className="flex flex-col items-center justify-center p-3 text-xs font-medium border border-emerald-100 bg-emerald-50/40 text-emerald-800 rounded-xl hover:bg-emerald-50 transition"
+                className="flex flex-col items-center justify-center p-2.5 text-xs font-medium border border-emerald-100 bg-emerald-50/40 text-emerald-800 rounded-xl hover:bg-emerald-50 transition col-span-2 sm:col-span-1"
                 id="preset-modern-btn"
               >
-                <span className="font-bold">Nieuwer</span>
-                <span className="text-[10px] text-emerald-600/85">Label A • Goed</span>
+                <span className="font-bold">2022+</span>
+                <span className="text-[10px] text-emerald-600/85">Label A • Zon &amp; LP</span>
               </button>
             </div>
           </div>
 
-          {/* 1. Berekening & Metadata */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-sm font-semibold text-slate-700">1. Berekeningsgegevens</h3>
-            </div>
-            <div className="p-5 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">
-                    Datum
-                  </label>
-                  <input
-                    type="date"
-                    value={resident.datum}
-                    onChange={(e) => setResident(prev => ({ ...prev, datum: e.target.value }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-emerald-500"
-                    id="datum"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">
-                    Berekeningswijze
-                  </label>
-                  <input
-                    type="text"
-                    value="Online Zelfscan (NTA 8800)"
-                    disabled
-                    className="w-full text-sm bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 text-slate-500 cursor-not-allowed font-medium"
-                    id="coach"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 2. Bewoner & Adres (BAG API!) */}
+          {/* 1. Bewoner & Adres (BAG API!) */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <User className="w-4 h-4 text-emerald-600" />
-                <h3 className="text-sm font-semibold text-slate-700">2. Bewoners &amp; Adres Gegevens</h3>
+                <h3 className="text-sm font-semibold text-slate-700">1. Bewoners &amp; Adres Gegevens</h3>
               </div>
               <span className="text-[10px] font-bold text-slate-400 bg-slate-200/50 px-2.5 py-1 rounded-full uppercase tracking-wider font-mono">
                 {resident.registratiecode || "PM-CONCEPT"}
@@ -790,7 +944,7 @@ export default function InputForm({
                     <input
                       type="text"
                       value={resident.postcode}
-                      onChange={(e) => setResident(prev => ({ ...prev, postcode: e.target.value.toUpperCase() }))}
+                      onChange={(e) => updateResident({ postcode: e.target.value.toUpperCase() })}
                       onBlur={autoFetchBag}
                       placeholder="5981AD"
                       className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 uppercase text-center"
@@ -804,7 +958,7 @@ export default function InputForm({
                     <input
                       type="text"
                       value={resident.huisnummer}
-                      onChange={(e) => setResident(prev => ({ ...prev, huisnummer: e.target.value }))}
+                      onChange={(e) => updateResident({ huisnummer: e.target.value })}
                       onBlur={autoFetchBag}
                       placeholder="12"
                       className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 text-center"
@@ -818,7 +972,7 @@ export default function InputForm({
                     <input
                       type="text"
                       value={resident.toevoeging}
-                      onChange={(e) => setResident(prev => ({ ...prev, toevoeging: e.target.value }))}
+                      onChange={(e) => updateResident({ toevoeging: e.target.value })}
                       onBlur={autoFetchBag}
                       placeholder="A"
                       className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 text-center"
@@ -847,7 +1001,7 @@ export default function InputForm({
                   </label>
                   <select
                     value={resident.aanhef}
-                    onChange={(e) => setResident(prev => ({ ...prev, aanhef: e.target.value }))}
+                    onChange={(e) => updateResident({ aanhef: e.target.value })}
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
                     id="aanhef"
                   >
@@ -863,7 +1017,7 @@ export default function InputForm({
                   <input
                     type="text"
                     value={resident.voorletters}
-                    onChange={(e) => setResident(prev => ({ ...prev, voorletters: e.target.value, naam: `${e.target.value} ${prev.achternaam}`.trim() }))}
+                    onChange={(e) => updateResident(prev => ({ voorletters: e.target.value, naam: `${e.target.value} ${prev.achternaam}`.trim() }))}
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
                     placeholder="Bijv. J."
                     id="voorletters"
@@ -876,7 +1030,7 @@ export default function InputForm({
                   <input
                     type="text"
                     value={resident.achternaam}
-                    onChange={(e) => setResident(prev => ({ ...prev, achternaam: e.target.value, naam: `${prev.voorletters} ${e.target.value}`.trim() }))}
+                    onChange={(e) => updateResident(prev => ({ achternaam: e.target.value, naam: `${prev.voorletters} ${e.target.value}`.trim() }))}
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
                     placeholder="Bijv. Janssen"
                     id="achternaam"
@@ -892,7 +1046,7 @@ export default function InputForm({
                   <input
                     type="text"
                     value={resident.straat}
-                    onChange={(e) => setResident(prev => ({ ...prev, straat: e.target.value }))}
+                    onChange={(e) => updateResident({ straat: e.target.value })}
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
                     id="straat"
                   />
@@ -903,7 +1057,7 @@ export default function InputForm({
                   </label>
                   <select
                     value={resident.plaats}
-                    onChange={(e) => setResident(prev => ({ ...prev, plaats: e.target.value }))}
+                    onChange={(e) => updateResident({ plaats: e.target.value })}
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
                     id="plaats"
                   >
@@ -915,7 +1069,7 @@ export default function InputForm({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">
                     Telefoon / mobiel
@@ -923,7 +1077,7 @@ export default function InputForm({
                   <input
                     type="tel"
                     value={resident.telefoon}
-                    onChange={(e) => setResident(prev => ({ ...prev, telefoon: e.target.value }))}
+                    onChange={(e) => updateResident({ telefoon: e.target.value })}
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
                     placeholder="0612345678"
                     id="telefoon"
@@ -936,10 +1090,23 @@ export default function InputForm({
                   <input
                     type="email"
                     value={resident.email}
-                    onChange={(e) => setResident(prev => ({ ...prev, email: e.target.value }))}
+                    onChange={(e) => updateResident({ email: e.target.value })}
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
                     placeholder="naam@voorbeeld.nl"
                     id="email"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center justify-between">
+                    <span>Datum opname</span>
+                    <span className="text-[10px] text-emerald-600 font-medium">Auto-update</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={resident.datum || new Date().toISOString().split('T')[0]}
+                    onChange={(e) => updateResident({ datum: e.target.value })}
+                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500 font-medium"
+                    id="datum"
                   />
                 </div>
               </div>
@@ -986,11 +1153,11 @@ export default function InputForm({
             </div>
           </div>
 
-          {/* 3. Woning Kenmerken & Installaties */}
+          {/* 2. Woning Kenmerken & Installaties */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-2">
               <Home className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-sm font-semibold text-slate-700">3. Woning &amp; Huidige Installaties</h3>
+              <h3 className="text-sm font-semibold text-slate-700">2. Woning &amp; Huidige Installaties</h3>
             </div>
             <div className="p-5 space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -1256,11 +1423,11 @@ export default function InputForm({
             </div>
           </div>
 
-          {/* 4. Energie verbruik en kosten */}
+          {/* 3. Energie verbruik en kosten */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-2">
               <Zap className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-sm font-semibold text-slate-700">4. Energieverbruik &amp; Stookgedrag (Jaarrekening)</h3>
+              <h3 className="text-sm font-semibold text-slate-700">3. Energieverbruik &amp; Stookgedrag (Jaarrekening)</h3>
             </div>
             <div className="p-5 space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -1327,11 +1494,11 @@ export default function InputForm({
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
                     <span>Stookgedrag (Auto)</span>
-                    <Tooltip text="Vergelijkt gasverbruik met het theoretische verbruik op basis van de NTA 8800." />
+                    <Tooltip text="Deze waarde vergelijkt het werkelijke gasverbruik met het gemiddelde verbruik van een gelijkwaardige woning en gezinssamenstelling." />
                   </label>
                   <input
                     type="text"
-                    value={house.stookgedragBerekend || 'Vul in...'}
+                    value={liveStookgedragBerekend || 'Vul in...'}
                     readOnly
                     className="w-full text-sm bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-2 font-bold text-emerald-800"
                     id="stookgedrag_berekend"
@@ -1340,7 +1507,7 @@ export default function InputForm({
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
                     <span>Correctie / Forceer</span>
-                    <Tooltip text="Laat op 'Berekend (Auto)' om de stookgedrag-check automatisch te laten bepalen op basis van het werkelijke verbruik, of forceer een stookgedragfactor." align="right" />
+                    <Tooltip text="Laat op 'Berekend (Auto)' om het stookgedrag automatisch af te stemmen op uw werkelijke verbruik, of kies handmatig een vaste factor." align="right" />
                   </label>
                   <select
                     value={house.stookgedragOverride}
@@ -1358,11 +1525,11 @@ export default function InputForm({
             </div>
           </div>
 
-          {/* 5. Huidige Isolatie Status */}
+          {/* 4. Huidige Isolatie Status */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-2">
               <Layers className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-sm font-semibold text-slate-700">5. Huidige Isolatie Status</h3>
+              <h3 className="text-sm font-semibold text-slate-700">4. Huidige Isolatie Status</h3>
             </div>
             <div className="p-5 space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -1483,18 +1650,18 @@ export default function InputForm({
             </div>
           </div>
 
-          {/* 6. Ingemeten isolatie oppervlakten (m2) */}
+          {/* 5. Ingemeten isolatie oppervlakten (m2) */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-2">
               <Layers className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-sm font-semibold text-slate-700">6. Ingemeten Isolatie Oppervlakten (m²)</h3>
+              <h3 className="text-sm font-semibold text-slate-700">5. Ingemeten Isolatie Oppervlakten (m²)</h3>
             </div>
             <div className="p-5 space-y-4">
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Vloer (onder)</span>
-                    <Tooltip text="Het aantal vierkante meters te isoleren vloer aan de onderzijde (vanuit de kruipruimte)." />
+                    <Tooltip text="Het aantal vierkante meters te isoleren vloer aan de onderzijde (vanuit de kruipruimte). Besparing: 6,0 m³/m²." />
                   </label>
                   <input
                     type="number"
@@ -1508,7 +1675,7 @@ export default function InputForm({
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Bodem (chips)</span>
-                    <Tooltip text="Het oppervlak van de kruipruimtebodem geschikt voor bodemisolatie (bijv. EPS-parels of isolatiechips)." />
+                    <Tooltip text="Het oppervlak van de kruipruimtebodem geschikt voor bodemisolatie (bijv. EPS-parels of isolatiechips). Besparing: 1,0 m³/m²." />
                   </label>
                   <input
                     type="number"
@@ -1522,7 +1689,7 @@ export default function InputForm({
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Spouwmuur</span>
-                    <Tooltip text="Het totale oppervlak van de buitenmuren (min de ramen en deuren) geschikt voor spouwmuurisolatie." align="right" />
+                    <Tooltip text="Het totale oppervlak van de buitenmuren (min de ramen en deuren) geschikt voor spouwmuurisolatie. Besparing: 7,0 m³/m²." align="right" />
                   </label>
                   <input
                     type="number"
@@ -1539,7 +1706,7 @@ export default function InputForm({
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Zoldervloer</span>
-                    <Tooltip text="Het oppervlak van de zoldervloer of vliering, zeer effectief als de zolder niet verwarmd wordt." />
+                    <Tooltip text="Het oppervlak van de zoldervloer of vliering, zeer effectief als de zolder niet verwarmd wordt. Besparing: 6,0 m³/m²." />
                   </label>
                   <input
                     type="number"
@@ -1553,7 +1720,7 @@ export default function InputForm({
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Dak binnen</span>
-                    <Tooltip text="Het aantal vierkante meters te isoleren schuin dak aan de binnenzijde." />
+                    <Tooltip text="Het aantal vierkante meters te isoleren schuin dak aan de binnenzijde. Besparing: 9,0 m³/m²." />
                   </label>
                   <input
                     type="number"
@@ -1567,7 +1734,7 @@ export default function InputForm({
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Gevel buiten</span>
-                    <Tooltip text="Het oppervlak geschikt voor gevelisolatie aan de buitenzijde (of binnenzijde d.m.v. voorzetwanden)." align="right" />
+                    <Tooltip text="Het oppervlak geschikt voor gevelisolatie aan de buitenzijde (of binnenzijde d.m.v. voorzetwanden). Besparing: 7,0 m³/m²." align="right" />
                   </label>
                   <input
                     type="number"
@@ -1584,7 +1751,7 @@ export default function InputForm({
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Enkel → HR++</span>
-                    <Tooltip text="Het oppervlak aan enkel glas dat vervangen gaat worden door hoogrendementsglas (HR++)." />
+                    <Tooltip text="Het oppervlak aan enkel glas dat vervangen gaat worden door hoogrendementsglas (HR++). Besparing: 12,0 m³/m²." />
                   </label>
                   <input
                     type="number"
@@ -1598,7 +1765,7 @@ export default function InputForm({
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Dubbel → HR++</span>
-                    <Tooltip text="Het oppervlak aan oud dubbel glas dat vervangen gaat worden door HR++ glas." />
+                    <Tooltip text="Het oppervlak aan oud dubbel glas dat vervangen gaat worden door HR++ glas. Besparing: 3,0 m³/m²." />
                   </label>
                   <input
                     type="number"
@@ -1612,7 +1779,7 @@ export default function InputForm({
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Triple + Hout</span>
-                    <Tooltip text="Het oppervlak aan glas dat vervangen wordt door triple glas (HR+++) inclusief eventuele nieuwe kozijnen." align="right" />
+                    <Tooltip text="Het oppervlak aan glas dat vervangen wordt door triple glas (HR+++) inclusief eventuele nieuwe kozijnen. Besparing: 12,5 m³/m²." align="right" />
                   </label>
                   <input
                     type="number"
@@ -1622,6 +1789,34 @@ export default function InputForm({
                     id="m_glas_trip"
                     placeholder="0"
                   />
+                </div>
+              </div>
+
+              {/* Informatiestrook: Oud Dubbelglas vs. Modern HR++ */}
+              <div className="mt-4 bg-sky-50/60 border border-sky-100 rounded-xl p-3.5 text-xs text-slate-700">
+                <div className="flex items-center gap-2 font-bold text-sky-900 mb-2">
+                  <Info className="w-4 h-4 text-sky-600 shrink-0" />
+                  <span>Vergelijk Glasisolatie: Oud Dubbelglas vs. Modern HR++</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                  <div className="bg-white/90 p-2.5 rounded-lg border border-sky-100 shadow-2xs">
+                    <div className="flex justify-between items-center font-bold text-amber-800 mb-1">
+                      <span>Oud dubbel glas</span>
+                      <span className="text-[10px] font-extrabold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md">U ≈ 2,8 (Hoog)</span>
+                    </div>
+                    <p className="text-slate-600 leading-snug">
+                      Geen edelgas of gecoat glas. Veroorzaakt veel warmteverlies, kouval en condensatie aan de binnenkant.
+                    </p>
+                  </div>
+                  <div className="bg-white/90 p-2.5 rounded-lg border border-sky-100 shadow-2xs">
+                    <div className="flex justify-between items-center font-bold text-emerald-800 mb-1">
+                      <span>HR++ glas</span>
+                      <span className="text-[10px] font-extrabold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">U ≈ 1,1 (Zeer laag)</span>
+                    </div>
+                    <p className="text-slate-600 leading-snug">
+                      Argongas &amp; HR-coating. Isoleert <strong>2,5x beter</strong> dan oud dubbelglas en komt in aanmerking voor ISDE-subsidie!
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1663,8 +1858,8 @@ export default function InputForm({
       {activeTab === 'zon' && (
         <div className="space-y-6 animate-fadeIn">
           {/* Zonnepanelen Instellingen */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm">
+            <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-2 rounded-t-2xl">
               <Sun className="w-4 h-4 text-emerald-600" />
               <h3 className="text-sm font-semibold text-slate-700">Zonnepanelen Instellingen</h3>
             </div>
@@ -1824,12 +2019,12 @@ export default function InputForm({
                 </div>
               </div>
 
-              {/* Eigen Prijsopgave (Optioneel) */}
-              <div>
-                <div className="flex justify-between items-center mb-1.5">
+              {/* Eigen Prijsopgave & Marktconforme Richtprijzen */}
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
                   <div className="flex items-center gap-1">
                     <label className="text-xs font-medium text-slate-500">Eigen Prijsopgave (€, incl. btw - optioneel)</label>
-                    <Tooltip text="Vul hier de totale aanschaf- en installatiekosten (inclusief btw) van de zonnepanelen in (bijv. uit een offerte). Laat leeg om met onze standaard schatting te rekenen (€500 per paneel)." />
+                    <Tooltip text="Vul hier de totale aanschaf- en installatiekosten (inclusief btw) van de zonnepanelen in (bijv. uit een offerte). Laat leeg om te rekenen met onze marktconforme richtprijzen inclusief installatie." />
                   </div>
                   {tech.customZonnepanelenPrijs !== undefined && tech.customZonnepanelenPrijs > 0 && (
                     <button
@@ -1847,7 +2042,7 @@ export default function InputForm({
                     type="number"
                     min="0"
                     step="50"
-                    placeholder="Bijv. 4200 (laat leeg voor standaard schatting)"
+                    placeholder={`Bijv. ${getSolarInvestmentEstimate(tech.aantalZonnepanelen || 10)} (laat leeg voor marktconforme schatting)`}
                     value={tech.customZonnepanelenPrijs !== undefined ? tech.customZonnepanelenPrijs : ''}
                     onChange={(e) => {
                       const val = e.target.value === '' ? undefined : Number(e.target.value);
@@ -1856,6 +2051,85 @@ export default function InputForm({
                     className="w-full pl-7 pr-3 py-1.5 text-xs text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-emerald-500 font-mono"
                   />
                 </div>
+
+                {/* Indicatieve prijsweergave & Kengetallen overzicht */}
+                {tech.aantalZonnepanelen > 0 && (() => {
+                  const range = getSolarInvestmentRange(tech.aantalZonnepanelen);
+                  const isCustom = tech.customZonnepanelenPrijs !== undefined && tech.customZonnepanelenPrijs > 0;
+                  return (
+                    <div className="bg-amber-50/60 border border-amber-200/70 rounded-xl p-3 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-amber-900 flex items-center gap-1.5">
+                          <Sun className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>Indicatieve kosten ({tech.aantalZonnepanelen} panelen):</span>
+                        </span>
+                        <span className="font-extrabold text-amber-950 font-mono">
+                          {isCustom 
+                            ? `€ ${tech.customZonnepanelenPrijs?.toLocaleString('nl-NL')} (eigen opgave)` 
+                            : `€ ${range.min.toLocaleString('nl-NL')} – € ${range.max.toLocaleString('nl-NL')}`}
+                        </span>
+                      </div>
+                      {!isCustom && (
+                        <div className="text-[11px] text-amber-800 flex justify-between pt-1 border-t border-amber-200/50">
+                          <span>Gemiddelde totaalprijs: <strong>€ {range.avg.toLocaleString('nl-NL')}</strong></span>
+                          <span>Prijs per paneel: <strong>~ € {range.avgPerPanel.toLocaleString('nl-NL')}</strong></span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Referentietabel Zonnepanelen Richtprijzen */}
+                <details className="text-xs text-slate-500 group">
+                  <summary className="cursor-pointer font-medium hover:text-emerald-700 flex items-center gap-1 py-1">
+                    <Info className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Bekijk de richtprijzentabel zonnepanelen (incl. installatie)</span>
+                  </summary>
+                  <div className="mt-2 overflow-x-auto border border-slate-200 rounded-lg bg-white p-2">
+                    <table className="w-full text-left text-[11px]">
+                      <thead>
+                        <tr className="border-b border-slate-200 text-slate-700 font-bold bg-slate-50">
+                          <th className="py-1.5 px-2">Aantal panelen</th>
+                          <th className="py-1.5 px-2">Indicatieve totaalprijs</th>
+                          <th className="py-1.5 px-2">Gem. prijs per paneel</th>
+                          <th className="py-1.5 px-2">Verwachte opbrengst</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        <tr className={tech.aantalZonnepanelen === 2 ? 'bg-emerald-50 font-semibold' : ''}>
+                          <td className="py-1 px-2">2 panelen</td>
+                          <td className="py-1 px-2">€ 1.200 – € 1.600</td>
+                          <td className="py-1 px-2">~ € 700</td>
+                          <td className="py-1 px-2">~ 750 kWh</td>
+                        </tr>
+                        <tr className={tech.aantalZonnepanelen === 6 ? 'bg-emerald-50 font-semibold' : ''}>
+                          <td className="py-1 px-2">6 panelen</td>
+                          <td className="py-1 px-2">€ 2.500 – € 3.200</td>
+                          <td className="py-1 px-2">~ € 475</td>
+                          <td className="py-1 px-2">~ 2.300 kWh</td>
+                        </tr>
+                        <tr className={tech.aantalZonnepanelen === 10 ? 'bg-emerald-50 font-semibold' : ''}>
+                          <td className="py-1 px-2">10 panelen</td>
+                          <td className="py-1 px-2">€ 3.800 – € 5.100</td>
+                          <td className="py-1 px-2">~ € 445</td>
+                          <td className="py-1 px-2">~ 4.000 kWh</td>
+                        </tr>
+                        <tr className={tech.aantalZonnepanelen === 20 ? 'bg-emerald-50 font-semibold' : ''}>
+                          <td className="py-1 px-2">20 panelen</td>
+                          <td className="py-1 px-2">€ 7.500 – € 9.500</td>
+                          <td className="py-1 px-2">~ € 425</td>
+                          <td className="py-1 px-2">~ 8.200 kWh</td>
+                        </tr>
+                        <tr className={tech.aantalZonnepanelen === 36 ? 'bg-emerald-50 font-semibold' : ''}>
+                          <td className="py-1 px-2">36 panelen</td>
+                          <td className="py-1 px-2">€ 13.500 – € 16.000</td>
+                          <td className="py-1 px-2">~ € 410</td>
+                          <td className="py-1 px-2">~ 14.500 kWh</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
               </div>
 
               <div className="bg-slate-50 border border-slate-100 rounded-xl p-4 space-y-4">
@@ -1863,7 +2137,7 @@ export default function InputForm({
                   <div>
                     <label className="text-xs font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1">
                       <span>Berekend direct eigen verbruik</span>
-                      <Tooltip text="Het percentage zonnestroom dat direct in huis wordt verbruikt op het moment dat de zon schijnt (bijv. door wasmachine, warmtepomp, EV). Dit percentage is vooraf berekend op basis van je jaarverbruik en zonne-opbrengst, maar kun je hieronder handmatig aanpassen." />
+                      <Tooltip position="bottom" text="Het percentage zonnestroom dat direct in huis wordt verbruikt op het moment dat de zon schijnt (bijv. door wasmachine, warmtepomp, EV). Dit percentage is vooraf berekend op basis van je jaarverbruik en zonne-opbrengst, maar kun je hieronder handmatig aanpassen." />
                     </label>
                     <p className="text-[11px] text-slate-500 mt-0.5">
                       {tech.aantalZonnepanelen > 0 
@@ -2195,15 +2469,6 @@ export default function InputForm({
                   Maar wanneer precies is het omslagpunt? Dat hangt af van je opwek, verbruik, en de opslagen van je leverancier. 
                   Deze tool berekent je persoonlijke break-even punt en geeft realtime advies.
                 </p>
-                
-                {/* Statistic highlight box */}
-                <div className="bg-amber-50/70 border border-amber-100 rounded-xl p-3 flex items-start gap-2.5 text-amber-900">
-                  <TrendingDown className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div className="text-xs">
-                    <span className="font-bold">Sterke marktverandering:</span> In 2025 waren er maar liefst <strong className="text-amber-700">107 dagen</strong> met minstens één kwartier een negatieve spotprijs. 
-                    Dat is <strong className="text-amber-700">vier keer meer</strong> dan in 2022! Dit maakt slim omgaan met je zonnestroom steeds belangrijker.
-                  </div>
-                </div>
               </div>
 
               {/* Surcharge setting */}
@@ -2323,7 +2588,7 @@ export default function InputForm({
       )}
 
       {activeTab === 'accu' && (
-        <div className="space-y-6 animate-fadeIn">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start animate-fadeIn">
           {/* Thuisbatterij Instellingen */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-2">
@@ -2407,7 +2672,7 @@ export default function InputForm({
                     type="number"
                     min="0"
                     step="50"
-                    placeholder="Bijv. 4500 (laat leeg voor standaard schatting)"
+                    placeholder={`Bijv. ${getBatteryInvestmentEstimate(tech.capaciteitAccu || 10)} (laat leeg voor marktconforme schatting)`}
                     value={tech.customAccuPrijs !== undefined ? tech.customAccuPrijs : ''}
                     onChange={(e) => {
                       const val = e.target.value === '' ? undefined : Number(e.target.value);
@@ -2418,6 +2683,92 @@ export default function InputForm({
                   />
                 </div>
               </div>
+
+              {/* Indicatieve prijsweergave & Kengetallen overzicht thuisaccu */}
+              {tech.capaciteitAccu > 0 && (() => {
+                const range = getBatteryInvestmentRange(tech.capaciteitAccu);
+                const isCustom = tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0;
+                return (
+                  <div className="bg-blue-50/60 border border-blue-200/70 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-blue-900 flex items-center gap-1.5">
+                        <Battery className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>Indicatieve kosten ({tech.capaciteitAccu} kWh):</span>
+                      </span>
+                      <span className="font-extrabold text-blue-950 font-mono">
+                        {isCustom 
+                          ? `€ ${tech.customAccuPrijs?.toLocaleString('nl-NL')} (eigen opgave)` 
+                          : `€ ${range.min.toLocaleString('nl-NL')} – € ${range.max.toLocaleString('nl-NL')}`}
+                      </span>
+                    </div>
+                    {!isCustom && (
+                      <div className="text-[11px] text-blue-800 space-y-1 pt-1 border-t border-blue-200/50">
+                        <div className="flex justify-between">
+                          <span>Gemiddelde totaalprijs: <strong>€ {range.avg.toLocaleString('nl-NL')}</strong></span>
+                          <span>Prijs per kWh: <strong>~ € {range.avgPerKwh.toLocaleString('nl-NL')} / kWh</strong></span>
+                        </div>
+                        {range.application && (
+                          <div className="text-[10px] text-blue-700 italic">
+                            💡 <strong>Toepassing:</strong> {range.application}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Referentietabel Thuisaccu Richtprijzen */}
+              <details className="text-xs text-slate-500 group">
+                <summary className="cursor-pointer font-medium hover:text-emerald-700 flex items-center gap-1 py-1">
+                  <Info className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Bekijk de richtprijzentabel thuisaccu's (incl. installatie)</span>
+                </summary>
+                <div className="mt-2 overflow-x-auto border border-slate-200 rounded-lg bg-white p-2">
+                  <table className="w-full text-left text-[11px]">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-slate-700 font-bold bg-slate-50">
+                        <th className="py-1.5 px-2">Capaciteit (kWh)</th>
+                        <th className="py-1.5 px-2">Indicatieve totaalprijs (incl. installatie)</th>
+                        <th className="py-1.5 px-2">Prijs per kWh capaciteit</th>
+                        <th className="py-1.5 px-2">Toepassing / Doelgroep</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      <tr className={tech.capaciteitAccu > 0 && tech.capaciteitAccu <= 2 ? 'bg-emerald-50 font-semibold text-emerald-950' : ''}>
+                        <td className="py-1.5 px-2 font-bold font-mono">2 kWh</td>
+                        <td className="py-1.5 px-2">€ 1.500 – € 2.500</td>
+                        <td className="py-1.5 px-2">€ 750 – € 1.250</td>
+                        <td className="py-1.5 px-2">Appartementen, klein verbruik, opslaan van een middagje zon.</td>
+                      </tr>
+                      <tr className={tech.capaciteitAccu > 2 && tech.capaciteitAccu <= 5 ? 'bg-emerald-50 font-semibold text-emerald-950' : ''}>
+                        <td className="py-1.5 px-2 font-bold font-mono">5 kWh</td>
+                        <td className="py-1.5 px-2">€ 3.500 – € 5.000</td>
+                        <td className="py-1.5 px-2">€ 700 – € 1.000</td>
+                        <td className="py-1.5 px-2">Gemiddeld huishouden, overbruggen van de avonduren.</td>
+                      </tr>
+                      <tr className={tech.capaciteitAccu > 5 && tech.capaciteitAccu <= 10 ? 'bg-emerald-50 font-semibold text-emerald-950' : ''}>
+                        <td className="py-1.5 px-2 font-bold font-mono">10 kWh</td>
+                        <td className="py-1.5 px-2">€ 6.000 – € 8.500</td>
+                        <td className="py-1.5 px-2">€ 600 – € 850</td>
+                        <td className="py-1.5 px-2">Groot huishouden, warmtepomp, elektrische auto opgeladen via de accu.</td>
+                      </tr>
+                      <tr className={tech.capaciteitAccu > 10 && tech.capaciteitAccu <= 20 ? 'bg-emerald-50 font-semibold text-emerald-950' : ''}>
+                        <td className="py-1.5 px-2 font-bold font-mono">20 kWh</td>
+                        <td className="py-1.5 px-2">€ 10.500 – € 14.500</td>
+                        <td className="py-1.5 px-2">€ 525 – € 725</td>
+                        <td className="py-1.5 px-2">Zeer groot verbruik, (semi-)off-grid, kleinzakelijk.</td>
+                      </tr>
+                      <tr className={tech.capaciteitAccu > 20 ? 'bg-emerald-50 font-semibold text-emerald-950' : ''}>
+                        <td className="py-1.5 px-2 font-bold font-mono">30 kWh</td>
+                        <td className="py-1.5 px-2">€ 14.000 – € 20.000</td>
+                        <td className="py-1.5 px-2">€ 465 – € 665</td>
+                        <td className="py-1.5 px-2">Combinatie met 36 zonnepanelen, agrarisch, kleinzakelijk gebruik.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </details>
             </div>
           </div>
 
@@ -2577,9 +2928,9 @@ export default function InputForm({
                 <div className="p-3 bg-blue-50/30 border border-blue-100/60 rounded-xl text-[11px] leading-relaxed">
                   {(!tech.dynamicProvider || tech.dynamicProvider === 'Zonneplan') && (
                     <div>
-                      <span className="font-bold text-blue-950 block">⚡ Zonneplan Powerplay integratie:</span>
+                      <span className="font-bold text-blue-950 block">⚡ Zonneplan Dynamisch:</span>
                       <p className="text-slate-600 mt-1">
-                        Zonneplan Powerplay stuurt de batterij volledig automatisch aan op de onbalansmarkt (tenneT). Dit levert aanzienlijk hogere vergoedingen op dan pure dag/nacht arbitrage. Ze claimen een rendement tot wel €80 - €100 per kWh opslag per jaar.
+                        Geautomatiseerde sturing van de thuisaccu op basis van dynamische stroomtarieven en de stroommarkt.
                       </p>
                     </div>
                   )}
@@ -2780,7 +3131,7 @@ export default function InputForm({
                         type="number"
                         min="0"
                         step="50"
-                        placeholder="Bijv. 4500 (laat leeg voor standaard schatting)"
+                        placeholder={`Bijv. ${getBatteryInvestmentEstimate(tech.capaciteitAccu || 10)} (laat leeg voor marktconforme schatting)`}
                         value={tech.customAccuPrijs !== undefined ? tech.customAccuPrijs : ''}
                         onChange={(e) => {
                           const val = e.target.value === '' ? undefined : Number(e.target.value);
@@ -3301,10 +3652,10 @@ export default function InputForm({
                     type="number"
                     min="0"
                     max="100"
-                    value={tech.evThuisLaden ?? 70}
+                    value={tech.evThuisLaden ?? 75}
                     onChange={(e) => setTech(prev => ({ ...prev, evThuisLaden: Number(e.target.value) }))}
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
-                    placeholder="Bijv. 70"
+                    placeholder="Bijv. 75"
                   />
                 </div>
                 <div>
@@ -3319,6 +3670,26 @@ export default function InputForm({
                     <option value="11">11 kW (3-fase 16A • Standaard)</option>
                     <option value="22">22 kW (3-fase 32A)</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Slim EMS Toggle */}
+              <div className="bg-emerald-50/30 border border-emerald-100 rounded-xl p-4 flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="slimEmsOnlySolar"
+                  checked={tech.slimEmsOnlySolar || false}
+                  onChange={(e) => setTech(prev => ({ ...prev, slimEmsOnlySolar: e.target.checked }))}
+                  className="mt-1 accent-emerald-500 w-4 h-4 rounded border-slate-300 cursor-pointer shrink-0"
+                />
+                <div className="space-y-1">
+                  <label htmlFor="slimEmsOnlySolar" className="block text-xs font-bold text-slate-700 cursor-pointer flex items-center gap-1.5">
+                    <span>Slim EMS: Alleen laden op overtollige zonnestroom</span>
+                    <span className="bg-emerald-100 text-emerald-800 text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">Aanbevolen</span>
+                  </label>
+                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                    Schakel dit in als je een intelligent Home Energy Management System (EMS) hebt dat de laadsessies dynamisch regelt. De laadpaal laadt de auto dan uitsluitend als er zonne-energie over is. Dit voorkomt dat je dure stroom van het net moet inkopen om te laden.
+                  </p>
                 </div>
               </div>
 
@@ -3370,26 +3741,6 @@ export default function InputForm({
           </div>
         </div>
       )}
-
-      {/* Grote actieknop */}
-      <button
-        onClick={onGenerate}
-        disabled={loading}
-        className="w-full bg-emerald-600 text-white font-bold py-4 px-6 rounded-2xl shadow-lg hover:bg-emerald-700 active:bg-emerald-800 disabled:bg-slate-300 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
-        id="generate-coach-report-btn"
-      >
-        {loading ? (
-          <>
-            <RefreshCw className="w-5 h-5 animate-spin" />
-            <span>Stappenplan opstellen...</span>
-          </>
-        ) : (
-          <>
-            <Sparkles className="w-5 h-5 fill-emerald-500/20" />
-            <span>Genereer Uitgebreid Adviesrapport</span>
-          </>
-        )}
-      </button>
     </div>
   );
 }

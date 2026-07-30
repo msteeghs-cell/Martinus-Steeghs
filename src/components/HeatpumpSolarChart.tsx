@@ -27,11 +27,12 @@ const HeatpumpSolarTooltip = ({ active, payload, label }: HeatpumpSolarTooltipPr
   const data = payload[0].payload;
   const solar = data['Zonne-energie opwek (kWh)'] || 0;
   const wp = data['Warmtepomp verbruik (kWh)'] || 0;
+  const laadpaal = data['Laadpaal verbruik (kWh)'] || 0;
   const direct = data['Direct eigen verbruik (kWh)'] || 0;
   const nettoKosten = data['Netto maandkosten (€)'] || 0;
 
   return (
-    <div className="bg-slate-900/95 backdrop-blur-md text-white rounded-2xl p-5 shadow-2xl border border-slate-800 text-xs space-y-4 min-w-[320px] font-sans">
+    <div className="bg-slate-900/95 backdrop-blur-md text-white rounded-2xl p-4 sm:p-5 shadow-2xl border border-slate-800 text-xs space-y-3.5 w-[290px] sm:w-[330px] max-w-[calc(100vw-32px)] font-sans pointer-events-none">
       <div className="font-bold text-slate-200 border-b border-slate-800 pb-2.5 flex justify-between items-center">
         <span className="text-sm">Maand: {label}</span>
         <span className="text-[10px] text-amber-400 font-extrabold bg-amber-500/10 px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center gap-1 border border-amber-500/20">
@@ -67,6 +68,19 @@ const HeatpumpSolarTooltip = ({ active, payload, label }: HeatpumpSolarTooltipPr
               <p className="text-[10px] text-slate-400 pl-4">Het stroomverbruik van de warmtepomp om uw huis te verwarmen.</p>
             </div>
 
+            {laadpaal > 0 && (
+              <div>
+                <div className="flex justify-between items-center gap-4">
+                  <span className="text-slate-300 flex items-center gap-2 font-medium">
+                    <span className="w-2.5 h-2.5 rounded-full inline-block shrink-0 bg-purple-500" />
+                    🚗 Laadpaal verbruik:
+                  </span>
+                  <span className="font-bold text-purple-300 font-mono text-right">{Math.round(laadpaal).toLocaleString('nl-NL')} kWh</span>
+                </div>
+                <p className="text-[10px] text-slate-400 pl-4">Het stroomverbruik van de laadpaal om uw elektrische auto te laden.</p>
+              </div>
+            )}
+
             <div className="bg-emerald-950/40 p-2 rounded-xl border border-emerald-500/10 space-y-0.5">
               <div className="flex justify-between items-center gap-4">
                 <span className="text-emerald-400 flex items-center gap-1.5 font-bold">
@@ -75,7 +89,7 @@ const HeatpumpSolarTooltip = ({ active, payload, label }: HeatpumpSolarTooltipPr
                 </span>
                 <span className="font-black text-emerald-300 font-mono text-right">{Math.round(direct).toLocaleString('nl-NL')} kWh</span>
               </div>
-              <p className="text-[10px] text-slate-400 pl-3.5">Zonnestroom die direct door de warmtepomp gebruikt is (volledig gratis).</p>
+              <p className="text-[10px] text-slate-400 pl-3.5">Zonnestroom die direct door de warmtepomp en laadpaal gebruikt is (volledig gratis).</p>
             </div>
           </div>
         </div>
@@ -121,7 +135,7 @@ const HeatpumpSolarTooltip = ({ active, payload, label }: HeatpumpSolarTooltipPr
           </p>
         ) : (
           <p className="text-rose-400/90 font-semibold flex items-center gap-1">
-            ❄️ De warmtepomp vraagt meer stroom dan uw panelen opwekken. Dit is uw netto bijdrage.
+            ❄️ Het stroomverbruik vraagt meer dan uw panelen opwekken. Dit is uw netto bijdrage.
           </p>
         )}
       </div>
@@ -147,6 +161,7 @@ export default function HeatpumpSolarChart({
   // Read custom overrides globally if present, fallback locally if setTech is missing
   const [localUserAnnualSolar, setLocalUserAnnualSolar] = useState<number | ''>('');
   const [localUserAnnualWp, setLocalUserAnnualWp] = useState<number | ''>('');
+  const [localUserAnnualLp, setLocalUserAnnualLp] = useState<number | ''>('');
 
   const userAnnualSolar = setTech
     ? (tech.userAnnualSolar !== undefined ? tech.userAnnualSolar : '')
@@ -155,6 +170,10 @@ export default function HeatpumpSolarChart({
   const userAnnualWp = setTech
     ? (tech.userAnnualWp !== undefined ? tech.userAnnualWp : '')
     : localUserAnnualWp;
+
+  const userAnnualLp = setTech
+    ? (tech.userAnnualLp !== undefined ? tech.userAnnualLp : '')
+    : localUserAnnualLp;
 
   const setUserAnnualSolar = (val: number | '') => {
     if (setTech) {
@@ -169,6 +188,14 @@ export default function HeatpumpSolarChart({
       setTech(prev => ({ ...prev, userAnnualWp: val === '' ? undefined : val }));
     } else {
       setLocalUserAnnualWp(val);
+    }
+  };
+
+  const setUserAnnualLp = (val: number | '') => {
+    if (setTech) {
+      setTech(prev => ({ ...prev, userAnnualLp: val === '' ? undefined : val }));
+    } else {
+      setLocalUserAnnualLp(val);
     }
   };
 
@@ -213,19 +240,22 @@ export default function HeatpumpSolarChart({
   // Apply user overrides if specified
   const finalAnnualSolar = userAnnualSolar !== '' ? userAnnualSolar : localAnnualYieldKwh;
   const finalAnnualWp = userAnnualWp !== '' ? userAnnualWp : totalWpKwh;
+  const evAnnualDemand = userAnnualLp !== '' ? userAnnualLp : (calcResult.laadpaal?.evAnnualDemandKwh || 0);
 
   // Calculate monthly data points
   const chartData = months.map((month, i) => {
     const solarM = (finalAnnualSolar * solarDistribution[i]) / 100;
     const wpM = (finalAnnualWp * heatingDistribution[i]) / 100;
+    const evM = evAnnualDemand / 12; // Flat monthly charging distribution
+    const totalConsumptionM = wpM + evM;
     
     // Smooth, highly realistic coincidence factor on monthly scale
-    const R = solarM / (wpM + 0.1);
-    // Max 80% coverage under high solar months for tap water / minor summer load
-    const sufficiencyFraction = Math.min(0.80, 1 - Math.exp(-0.85 * R));
-    const directUse = wpM * sufficiencyFraction;
+    const R = solarM / (totalConsumptionM + 0.1);
+    // Max 85% coverage under high solar months for tap water / minor summer load and EV charging overday
+    const sufficiencyFraction = Math.min(0.85, 1 - Math.exp(-0.85 * R));
+    const directUse = totalConsumptionM * sufficiencyFraction;
     
-    const netImport = Math.max(0, wpM - directUse);
+    const netImport = Math.max(0, totalConsumptionM - directUse);
     const netExport = Math.max(0, solarM - directUse);
     
     const kostenImport = netImport * inkoopprijs;
@@ -236,6 +266,7 @@ export default function HeatpumpSolarChart({
       name: month,
       'Zonne-energie opwek (kWh)': Math.round(solarM),
       'Warmtepomp verbruik (kWh)': Math.round(wpM),
+      'Laadpaal verbruik (kWh)': Math.round(evM),
       'Direct eigen verbruik (kWh)': Math.round(directUse),
       'Net-import (resterend verbruik) (kWh)': Math.round(netImport),
       'Net-export (teruggeleverd) (kWh)': Math.round(netExport),
@@ -250,12 +281,14 @@ export default function HeatpumpSolarChart({
   // Calculate annual aggregated metrics from the monthly realistic distribution
   const totalSolarOpwek = chartData.reduce((acc, d) => acc + d['Zonne-energie opwek (kWh)'], 0);
   const totalWpVerbruik = chartData.reduce((acc, d) => acc + d['Warmtepomp verbruik (kWh)'], 0);
+  const totalLpVerbruik = chartData.reduce((acc, d) => acc + d['Laadpaal verbruik (kWh)'], 0);
   const totalDirectEigenVerbruik = chartData.reduce((acc, d) => acc + d['Direct eigen verbruik (kWh)'], 0);
   const totalNetImport = chartData.reduce((acc, d) => acc + d['Net-import (resterend verbruik) (kWh)'], 0);
   const totalNetExport = chartData.reduce((acc, d) => acc + d['Net-export (teruggeleverd) (kWh)'], 0);
   const totalNettoKosten = chartData.reduce((acc, d) => acc + d['Netto maandkosten (€)'], 0);
 
-  const solarPercentage = totalWpVerbruik > 0 ? Math.round((totalDirectEigenVerbruik / totalWpVerbruik) * 100) : 0;
+  const totalConsumption = totalWpVerbruik + totalLpVerbruik;
+  const solarPercentage = totalConsumption > 0 ? Math.round((totalDirectEigenVerbruik / totalConsumption) * 100) : 0;
 
   return (
     <div className="bg-white rounded-3xl border border-slate-150/70 shadow-md overflow-hidden space-y-4" id="hp-solar-integration-card-wide">
@@ -273,8 +306,8 @@ export default function HeatpumpSolarChart({
 
       <div className="p-6 space-y-6">
         <p className="text-xs text-slate-600 leading-relaxed max-w-4xl">
-          Deze interactieve grafiek toont het realistische, seizoensgebonden samenspel tussen uw zonnepanelen opwek en de stroomconsumptie van de geselecteerde <strong>{typeLabel} ({selectedModel})</strong> warmtepomp. 
-          De zonne-opwek is maximaal in de zomer, terwijl de warmtepomp stroomvraag piekt in de winter. De grafiek berekent exact hoeveel procent u direct zelf kunt afdekken en wat de resterende netto energiekosten of terugleveropbrengsten per maand zijn.
+          Deze interactieve grafiek toont het realistische, seizoensgebonden samenspel tussen uw zonnepanelen opwek en de stroomconsumptie van de geselecteerde {evAnnualDemand > 0 ? <strong>{typeLabel} ({selectedModel}) en laadpaal</strong> : <strong>{typeLabel} ({selectedModel})</strong>}. 
+          De zonne-opwek is maximaal in de zomer, terwijl de stroomvraag van de warmtepomp piekt in de winter. De grafiek berekent exact hoeveel procent u direct zelf kunt afdekken en wat de resterende netto energiekosten of terugleveropbrengsten per maand zijn.
         </p>
 
         {/* Custom user inputs to fine-tune practical measurements */}
@@ -284,9 +317,9 @@ export default function HeatpumpSolarChart({
             <span>Praktijkgegevens verfijnen</span>
           </h4>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Heeft u concrete cijfers van uw eigen installatie (zoals het werkelijke stroomverbruik van uw warmtepomp of de opbrengst van uw zonnepanelen)? Pas de onderstaande jaarwaarden aan om de seizoensgrafiek en de berekeningen direct op uw praktijk af te stemmen:
+            Heeft u concrete cijfers van uw eigen installatie (zoals het werkelijke stroomverbruik van uw warmtepomp of laadpaal, of de opbrengst van uw zonnepanelen)? Pas de onderstaande jaarwaarden aan om de seizoensgrafiek en de berekeningen direct op uw praktijk af te stemmen:
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
             <div className="space-y-1.5">
               <label className="block text-xs font-bold text-slate-700" htmlFor="user_annual_solar_input">
                 Jaarlijkse zonne-opwekking (kWh)
@@ -332,11 +365,34 @@ export default function HeatpumpSolarChart({
                 Vul uw werkelijke jaarverbruik in (of pas het aan op basis van uw gemeten winterverbruik) voor een perfecte seizoenssimulatie.
               </p>
             </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700" htmlFor="user_annual_lp_input">
+                Jaarlijks stroomverbruik laadpaal (kWh)
+              </label>
+              <div className="relative rounded-lg shadow-sm">
+                <input
+                  type="number"
+                  id="user_annual_lp_input"
+                  className="w-full text-xs font-semibold px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono"
+                  placeholder={`${Math.round(calcResult.laadpaal?.evAnnualDemandKwh || 0)} kWh (theoretische schatting)`}
+                  value={userAnnualLp}
+                  onChange={(e) => {
+                    const val = e.target.value === '' ? '' : Number(e.target.value);
+                    setUserAnnualLp(val);
+                  }}
+                />
+                <span className="absolute right-3 top-2 text-[10px] text-slate-400 font-bold">kWh</span>
+              </div>
+              <p className="text-[10px] text-slate-400">
+                Vul uw werkelijke laadpaal/EV-jaarverbruik in om het samenspel met de warmtepomp en zonnepanelen te bekijken.
+              </p>
+            </div>
           </div>
         </div>
 
         {/* Summary metric pill cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-slate-100 p-4 rounded-3xl text-xs">
+        <div className={`grid grid-cols-1 sm:grid-cols-2 ${totalLpVerbruik > 0 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4 bg-slate-100 p-4 rounded-3xl text-xs`}>
           <div className="bg-amber-50/50 border border-amber-100/80 p-4 rounded-2xl shadow-xs">
             <span className="text-slate-500 block font-bold mb-1">☀️ Jaaropbrengst Zonnestroom</span>
             <strong className="text-amber-600 text-lg font-black font-mono">{Math.round(totalSolarOpwek).toLocaleString('nl-NL')} kWh</strong>
@@ -345,6 +401,12 @@ export default function HeatpumpSolarChart({
             <span className="text-slate-500 block font-bold mb-1">⚡ Warmtepomp Verbruik</span>
             <strong className="text-indigo-700 text-lg font-black font-mono">{Math.round(totalWpVerbruik).toLocaleString('nl-NL')} kWh</strong>
           </div>
+          {totalLpVerbruik > 0 && (
+            <div className="bg-purple-50 border border-purple-150 p-4 rounded-2xl shadow-xs">
+              <span className="text-slate-500 block font-bold mb-1">🚗 Laadpaal Verbruik</span>
+              <strong className="text-purple-700 text-lg font-black font-mono">{Math.round(totalLpVerbruik).toLocaleString('nl-NL')} kWh</strong>
+            </div>
+          )}
           <div className="bg-emerald-50/50 border border-emerald-100/80 p-4 rounded-2xl shadow-xs">
             <span className="text-slate-500 block font-bold mb-1">🔄 Direct Eigen Verbruik</span>
             <strong className="text-emerald-700 text-lg font-black font-mono">
@@ -389,12 +451,15 @@ export default function HeatpumpSolarChart({
                 label={{ value: 'Netto Maandresultaat (€)', angle: 90, position: 'insideRight', offset: -10, fill: '#475569', fontSize: 11, fontWeight: 750 }} 
               />
               
-              <RechartsTooltip content={<HeatpumpSolarTooltip />} />
+              <RechartsTooltip position={{ y: 50 }} offset={15} allowEscapeViewBox={{ x: false, y: false }} content={<HeatpumpSolarTooltip />} />
               <RechartsLegend verticalAlign="top" height={40} iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 600, color: '#475569' }} />
               
               {/* Energy (Left Axis) */}
               <Bar yAxisId="left" dataKey="Zonne-energie opwek (kWh)" fill="#f59e0b" radius={[4, 4, 0, 0]} name="☀️ Opgewekte Zonnestroom (kWh)" barSize={16} />
-              <Bar yAxisId="left" dataKey="Warmtepomp verbruik (kWh)" fill="#4f46e5" radius={[4, 4, 0, 0]} name="⚡ Warmtepomp Verbruik (kWh)" barSize={16} />
+              <Bar yAxisId="left" dataKey="Warmtepomp verbruik (kWh)" stackId="verbruik" fill="#4f46e5" radius={totalLpVerbruik > 0 ? [0, 0, 0, 0] : [4, 4, 0, 0]} name="⚡ Warmtepomp Verbruik (kWh)" barSize={16} />
+              {totalLpVerbruik > 0 && (
+                <Bar yAxisId="left" dataKey="Laadpaal verbruik (kWh)" stackId="verbruik" fill="#a855f7" radius={[4, 4, 0, 0]} name="🚗 Laadpaal Verbruik (kWh)" barSize={16} />
+              )}
               
               {/* Financial Result (Right Axis) - Plotting as a beautifully highlighted Line instead of redundant bars */}
               <Line 
@@ -417,7 +482,7 @@ export default function HeatpumpSolarChart({
           <div>
             <span className="font-bold block mb-0.5">Inzicht uit de seizoensbalans:</span>
             <p>
-              De grafiek vergelijkt de maandelijkse zonne-opwekking (geel) direct met het warmtepompverbruik (paars). In de winter (nov t/m feb) verbruikt de warmtepomp de meeste energie terwijl zonnepanelen minimaal opwekken. In de zomer is dit precies omgekeerd. Met een slimme sturing of warmtepomp-optimalisaties kunt u het directe eigen verbruik verhogen.
+              De grafiek vergelijkt de maandelijkse zonne-opwekking (geel) direct met het gestapelde stroomverbruik van de warmtepomp (blauw) en de laadpaal (paars, indien van toepassing). In de winter (nov t/m feb) verbruikt de warmtepomp de meeste energie terwijl zonnepanelen minimaal opwekken. In de zomer is de zonne-opbrengst maximaal, wat ideaal is om je elektrische auto via de laadpaal direct met gratis zonnestroom te laden!
             </p>
           </div>
         </div>

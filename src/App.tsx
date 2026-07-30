@@ -4,9 +4,11 @@ import { ResidentData, HouseData, InsulationData, TechData } from './types';
 import InputForm from './components/InputForm';
 import AdviceReport from './components/AdviceReport';
 import HeatpumpSolarChart from './components/HeatpumpSolarChart';
+import LaadpaalSolarChart from './components/LaadpaalSolarChart';
+import SolarSelfConsumptionChart from './components/SolarSelfConsumptionChart';
 import { safeStorage } from './utils/storage';
 import { 
-  Leaf, Info, HelpCircle, FileSpreadsheet, Sparkles, 
+  Leaf, Info, HelpCircle, FileSpreadsheet, Sparkles, RefreshCw,
   Phone, Mail, MapPin, Download, Trash2, MailIcon, Printer,
   Share2, Check
 } from 'lucide-react';
@@ -17,7 +19,7 @@ const defaultResident: ResidentData = {
   registratiecode: 'PM-70TJ-88',
   brutoGezinsinkomen: 45000,
   coach: 'Online Zelfscan',
-  datum: '2026-04-24',
+  datum: new Date().toISOString().split('T')[0],
   aanhef: 'De heer',
   voorletters: 'J.',
   achternaam: 'Janssen',
@@ -85,7 +87,7 @@ const defaultTech: TechData = {
   dynamicProvider: 'Zonneplan',
   evKilometers: 15000,
   evVerbruik: 18,
-  evThuisLaden: 70,
+  evThuisLaden: 75,
   laadvermogen: 11,
   opslagLeverancier: 0.02,
   selectedWarmtepompModel: 'Standard',
@@ -290,8 +292,8 @@ export default function App() {
       { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Elektriciteitsverbruik (kWh)", Waarde: house.verbruikKwh },
       { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Teruglevering (kWh)", Waarde: house.elektraTeruglevering },
       { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Gasverbruik (m³)", Waarde: house.verbruikM3 },
-      { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Berekend stookgedrag", Waarde: house.stookgedragBerekend },
-      { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Stookgedrag factor", Waarde: house.stookgedragFactor },
+      { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Berekend stookgedrag", Waarde: calculation.house.stookgedragBerekend },
+      { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Stookgedrag factor", Waarde: calculation.house.stookgedragFactor },
       { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Gasprijs (€/m³)", Waarde: house.gasPrijs },
       { Categorie: "ENERGIEVERBRUIK", Onderdeel: "Elektraprijs (€/kWh)", Waarde: house.elektraPrijs },
     ];
@@ -327,7 +329,7 @@ export default function App() {
     insulationData.push({}); // Empty separator row
     insulationData.push({
       Maatregel: "TOTAAL (BASIS SCENARIO)",
-      Oppervlakte: "",
+      Oppervlakte: calculation.measures.reduce((sum, m) => sum + (m.area || 0), 0),
       "Bruto Kosten (€)": calculation.totals.bruto,
       "ISDE Subsidie (€)": Math.round(calculation.totals.isde),
       "NIP Subsidie (€)": Math.round(calculation.totals.nip),
@@ -365,7 +367,7 @@ export default function App() {
       });
       insulationData.push({
         Maatregel: "TOTAAL (GEOPTIMALISEERD SCENARIO)",
-        Oppervlakte: "",
+        Oppervlakte: calculation.optimalMeasures.reduce((sum, m) => sum + (m.area || 0), 0),
         "Bruto Kosten (€)": calculation.totalsOptimal.bruto,
         "ISDE Subsidie (€)": Math.round(calculation.totalsOptimal.isde),
         "NIP Subsidie (€)": Math.round(calculation.totalsOptimal.nip),
@@ -502,24 +504,32 @@ export default function App() {
     hpLpData.push({});
     hpLpData.push({ Onderdeel: "ELEKTRISCH RIJDEN & LAADPAAL ANALYSE", Waarde: "", Details: "" });
     
+    const lpResult = calculation.laadpaal || {
+      evAnnualDemandKwh: Math.round(((tech.evKilometers ?? 15000) / 100) * (tech.evVerbruik ?? 18) * ((tech.evThuisLaden ?? 75) / 100)),
+      evSolarCoverageKwh: 0,
+      evGridImportKwh: Math.round(((tech.evKilometers ?? 15000) / 100) * (tech.evVerbruik ?? 18) * ((tech.evThuisLaden ?? 75) / 100)),
+      evSavingsEuro: Math.round(((tech.evKilometers ?? 15000) / 100) * (tech.evVerbruik ?? 18) * ((tech.evThuisLaden ?? 75) / 100) * (0.50 - house.elektraPrijs)),
+      ereRevenueEuro: Math.round(((tech.evKilometers ?? 15000) / 100) * (tech.evVerbruik ?? 18) * ((tech.evThuisLaden ?? 75) / 100) * 0.12),
+      totalSavingsEuro: Math.round(((tech.evKilometers ?? 15000) / 100) * (tech.evVerbruik ?? 18) * ((tech.evThuisLaden ?? 75) / 100) * (0.50 - house.elektraPrijs + 0.12)),
+      netInvestmentEuro: 1200,
+      tvt: 1.8
+    };
+
     const evKm = tech.evKilometers ?? 15000;
     const evCons = tech.evVerbruik ?? 18;
-    const evHome = tech.evThuisLaden ?? 70;
-    const volKwh = Math.round((evKm / 100) * evCons * (evHome / 100));
-    const lpSavings = Math.round(volKwh * (0.50 - house.elektraPrijs));
-    const ereClaim = Math.round(volKwh * 0.12);
-    const combinedSavings = lpSavings + ereClaim;
-    const lpTvt = combinedSavings > 0 ? (1200 / combinedSavings) : 99;
+    const evHome = tech.evThuisLaden ?? 75;
 
     hpLpData.push({ Onderdeel: "Jaarkilometrage EV", Waarde: `${evKm} km/jaar`, Details: "" });
     hpLpData.push({ Onderdeel: "EV Normverbruik", Waarde: `${evCons} kWh/100km`, Details: "" });
     hpLpData.push({ Onderdeel: "Thuislaad-aandeel", Waarde: `${evHome}%`, Details: "" });
     hpLpData.push({ Onderdeel: "Laadvermogen laadpaal", Waarde: `${tech.laadvermogen ?? 11} kW`, Details: "" });
-    hpLpData.push({ Onderdeel: "Thuisgeladen volume", Waarde: `${volKwh} kWh/jaar`, Details: "" });
-    hpLpData.push({ Onderdeel: "Laadpaal besparing (vs openbaar laden)", Waarde: `€ ${lpSavings} / jaar`, Details: "" });
-    hpLpData.push({ Onderdeel: "Wettelijke ERE-vergoeding (€0,12/kWh)", Waarde: `€ ${ereClaim} / jaar`, Details: "" });
-    hpLpData.push({ Onderdeel: "Gecombineerd jaarlijks voordeel laadpaal", Waarde: `€ ${combinedSavings} / jaar`, Details: "" });
-    hpLpData.push({ Onderdeel: "Geschatte terugverdientijd laadpaal", Waarde: lpTvt < 90 ? `${lpTvt.toFixed(1)} jaar` : "N.v.t.", Details: "Op basis van €1.200 installatiekosten" });
+    hpLpData.push({ Onderdeel: "Thuisgeladen volume", Waarde: `${lpResult.evAnnualDemandKwh} kWh/jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Zonnedekking laadsessies", Waarde: `${lpResult.evSolarCoverageKwh} kWh/jaar`, Details: "Zonnestroom direct gebruikt voor de EV, in mindering gebracht op teruglevering en warmtepomp" });
+    hpLpData.push({ Onderdeel: "Netstroom laadsessies", Waarde: `${lpResult.evGridImportKwh} kWh/jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Laadpaal besparing (vs openbaar laden)", Waarde: `€ ${lpResult.evSavingsEuro} / jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Wettelijke ERE-vergoeding (€0,12/kWh)", Waarde: `€ ${lpResult.ereRevenueEuro} / jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Gecombineerd jaarlijks voordeel laadpaal", Waarde: `€ ${lpResult.totalSavingsEuro} / jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Geschatte terugverdientijd laadpaal", Waarde: lpResult.tvt < 90 ? `${lpResult.tvt.toFixed(1)} jaar` : "N.v.t.", Details: `Op basis van € ${lpResult.netInvestmentEuro} installatiekosten` });
 
     // Build the workbook
     const wb = XLSX.utils.book_new();
@@ -580,7 +590,7 @@ export default function App() {
             <div>
               <h1 className="text-xl md:text-2xl font-bold tracking-tight">Energieplanner Peel en Maas</h1>
               <p className="text-xs text-emerald-200/90 font-medium">
-                Onafhankelijk, lokaal en betrouwbaar berekenen en besparen (NTA 8800)
+                Onafhankelijk, lokaal en betrouwbaar berekenen en besparen
               </p>
             </div>
           </div>
@@ -617,15 +627,12 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left Column: Form & Inputs */}
-        <div className="lg:col-span-5 space-y-6 relative z-20">
+        <div className={`space-y-6 ${activeTab === 'accu' || activeTab === 'zon' || activeTab === 'warmtepomp' || activeTab === 'laadpaal' ? 'lg:col-span-12' : 'lg:col-span-5'}`}>
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
               <span className="bg-emerald-600 text-white text-xs w-5 h-5 rounded-full inline-flex items-center justify-center font-bold">1</span>
               Invoer Gegevens
             </h2>
-            <span className="text-xs font-semibold text-slate-400 bg-white px-3 py-1 rounded-full border border-slate-100 shadow-sm">
-              2e Pilot Inventarisatie
-            </span>
           </div>
 
           <InputForm
@@ -648,7 +655,7 @@ export default function App() {
         </div>
 
         {/* Right Column: Live Table & Dynamic Advice */}
-        <div className="lg:col-span-7 space-y-6 relative z-10">
+        <div className={`space-y-6 ${activeTab === 'accu' || activeTab === 'zon' || activeTab === 'warmtepomp' || activeTab === 'laadpaal' ? 'lg:col-span-12' : 'lg:col-span-7'}`}>
           {activeTab === 'isolatie' && (
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -666,12 +673,19 @@ export default function App() {
           {/* Quick Realtime Math Spreadsheet (Direct feedback on changes) */}
           {activeTab === 'isolatie' && (
             <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-md space-y-4">
-              <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
                 <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
                   <FileSpreadsheet className="w-4 h-4 text-slate-400" />
                   Live Rekenoverzicht (Basis vs Optimalisatie)
                 </h3>
-                <span className="text-[10px] text-slate-400 uppercase font-mono">Gasprijs €{(house.gasPrijs ?? 1.30).toFixed(2)}/m³</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-semibold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200/80 flex items-center gap-1">
+                    <span>Stookfactor:</span>
+                    <strong className="font-mono text-emerald-700 font-bold">{(calculation?.house?.stookgedragFactor ?? 1.0).toFixed(1)}x</strong>
+                    <span className="text-[9px] text-slate-500">({calculation?.house?.stookgedragBerekend || 'Normaal'})</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">Gasprijs €{(house.gasPrijs ?? 1.30).toFixed(2)}/m³</span>
+                </div>
               </div>
 
               {calculation.measures.length > 0 ? (
@@ -707,7 +721,7 @@ export default function App() {
                       {/* Totale sommen */}
                       <tr className="bg-slate-50/50 font-bold border-t border-slate-200">
                         <td className="py-3 text-slate-800 pl-2">Totaal (Basis)</td>
-                        <td className="py-3 text-center">-</td>
+                        <td className="py-3 text-center">{calculation.measures.reduce((sum, m) => sum + (m.area || 0), 0)} m²</td>
                         <td className="py-3 text-right">€{calculation.totals.bruto}</td>
                         <td className="py-3 text-right text-emerald-600">€{Math.round(calculation.totals.isde)}</td>
                         <td className="py-3 text-right text-blue-600">€{Math.round(calculation.totals.nip)}</td>
@@ -721,7 +735,7 @@ export default function App() {
                             <Sparkles className="w-3.5 h-3.5 fill-emerald-500/20 text-emerald-600 shrink-0" />
                             <span>Totaal (Geoptimaliseerd)</span>
                           </td>
-                          <td className="py-3 text-center">-</td>
+                          <td className="py-3 text-center">{calculation.optimalMeasures.reduce((sum, m) => sum + (m.area || 0), 0)} m²</td>
                           <td className="py-3 text-right">€{calculation.totalsOptimal.bruto}</td>
                           <td className="py-3 text-right">€{Math.round(calculation.totalsOptimal.isde)}</td>
                           <td className="py-3 text-right">€{Math.round(calculation.totalsOptimal.nip)}</td>
@@ -743,6 +757,7 @@ export default function App() {
                 <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
                 <p>
                   Bovenstaande is een directe, real-time rekenberekening gebaseerd op de lokale Peel en Maas richtlijnen. 
+                  De gasbesparingen en TVT zijn gecorrigeerd met stookgedragfactor <strong className="text-slate-700">{(calculation?.house?.stookgedragFactor ?? 1.0).toFixed(1)}x</strong> ({calculation?.house?.stookgedragBerekend || 'Normaal'}).
                   De NIP subsidie (€2.900) wordt toegekend bij minimaal twee isolatiemaatregelen mits wordt voldaan aan de WOZ-waarde (maximaal €477.000 met peildatum 2024) en inkomenseisen.
                 </p>
               </div>
@@ -772,6 +787,17 @@ export default function App() {
         </div>
 
         {/* Full-width/Page-wide sections */}
+        {activeTab === 'zon' && (
+          <div className="lg:col-span-12 mt-4 animate-fadeIn">
+            <SolarSelfConsumptionChart
+              resident={resident}
+              house={house}
+              insulation={insulation}
+              tech={tech}
+              setTech={setTech}
+            />
+          </div>
+        )}
         {activeTab === 'warmtepomp' && (
           <div className="lg:col-span-12 mt-4 animate-fadeIn">
             <HeatpumpSolarChart
@@ -783,6 +809,39 @@ export default function App() {
             />
           </div>
         )}
+        {activeTab === 'laadpaal' && calculation.solar.annualYieldKwh > 0 && (
+          <div className="lg:col-span-12 mt-4 animate-fadeIn">
+            <LaadpaalSolarChart
+              resident={resident}
+              house={house}
+              insulation={insulation}
+              tech={tech}
+              setTech={setTech}
+            />
+          </div>
+        )}
+
+        {/* Grote actieknop - altijd helemaal onderin als laatste op alle tabbladen */}
+        <div className="lg:col-span-12 mt-8 pt-6 border-t border-slate-200/80">
+          <button
+            onClick={generateReport}
+            disabled={loadingAdvice}
+            className="w-full bg-emerald-600 text-white font-bold py-4 px-6 rounded-2xl shadow-lg hover:bg-emerald-700 active:bg-emerald-800 disabled:bg-slate-300 disabled:cursor-not-allowed transition flex items-center justify-center gap-2 text-base"
+            id="generate-coach-report-btn"
+          >
+            {loadingAdvice ? (
+              <>
+                <RefreshCw className="w-5 h-5 animate-spin" />
+                <span>Stappenplan opstellen...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-5 h-5 fill-emerald-500/20" />
+                <span>Genereer Uitgebreid Adviesrapport</span>
+              </>
+            )}
+          </button>
+        </div>
       </main>
 
       {/* Footer */}
@@ -790,7 +849,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto space-y-3">
           <p>© 2026 Energie Advies Centrum Peel en Maas. Alle rechten voorbehouden.</p>
           <p className="max-w-2xl mx-auto text-slate-500 leading-relaxed font-normal">
-            De opgestelde adviezen en subsidies zijn indicatief en gebaseerd op de NTA 8800 / ISSO-praktijkrichtlijnen, de gemeentelijke regelingen voor Peel en Maas en de landelijke ISDE-subsidieregels 2026. Er kunnen geen rechten worden ontleend aan de prognoses.
+            De opgestelde adviezen en subsidies zijn indicatief en gebaseerd op praktijkrichtlijnen, de gemeentelijke regelingen voor Peel en Maas en de landelijke ISDE-subsidieregels 2026. Er kunnen geen rechten worden ontleend aan de prognoses.
           </p>
         </div>
       </footer>

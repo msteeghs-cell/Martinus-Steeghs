@@ -82,6 +82,8 @@ export interface TechData {
   customLaadpaalPrijs?: number; // Custom installation/purchase cost for EV charger
   userAnnualSolar?: number; // Custom user override for annual solar yield
   userAnnualWp?: number; // Custom user override for annual heat pump consumption
+  userAnnualLp?: number; // Custom user override for annual EV laadpaal consumption
+  slimEmsOnlySolar?: boolean; // Smart EMS: charge EV only on surplus solar energy
 }
 
 export interface CalculatedMeasure {
@@ -194,6 +196,16 @@ export interface CalculationResult {
   solar: SolarPrognose;
   battery: BatteryImpact;
   heatpump: HeatpumpCheck;
+  laadpaal?: {
+    evAnnualDemandKwh: number;
+    evSolarCoverageKwh: number;
+    evGridImportKwh: number;
+    evSavingsEuro: number;
+    ereRevenueEuro: number;
+    totalSavingsEuro: number;
+    netInvestmentEuro: number;
+    tvt: number;
+  };
   opmerkingenOffertes: string;
   opmerkingen: string;
 }

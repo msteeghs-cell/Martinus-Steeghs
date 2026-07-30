@@ -18,14 +18,171 @@ export const ELEC_PRICE = 0.25; // €/kWh
 export const COEFFS = {
   bodem: { saving: 1.0, cost: 30, isde1: 3, isde2: 6, cat: 'vloer', name: 'Bodemisolatie' },
   zolderVliering: { saving: 6.0, cost: 30, isde1: 4, isde2: 8, cat: 'dak', name: 'Zolder-/vlieringvloerisolatie' },
-  spouw: { saving: 5.0, cost: 30, isde1: 5.25, isde2: 10.5, cat: 'gevel', name: 'Spouwmuurisolatie' },
-  glasEnkelHR: { saving: 10.0, cost: 250, isde1: 25, isde2: 50, cat: 'glas', name: 'Glasisolatie (enkel → HR++)' },
+  spouw: { saving: 7.0, cost: 30, isde1: 5.25, isde2: 10.5, cat: 'gevel', name: 'Spouwmuurisolatie' },
+  glasEnkelHR: { saving: 12.0, cost: 250, isde1: 25, isde2: 50, cat: 'glas', name: 'Glasisolatie (enkel → HR++)' },
   glasTripleHout: { saving: 12.5, cost: 950, isde1: 111, isde2: 222, cat: 'glas', name: 'Glasisolatie (triple + hout)' },
   dakBinnenzijde: { saving: 9.0, cost: 50, isde1: 16.25, isde2: 32.5, cat: 'dak', name: 'Dakisolatie (binnenzijde)' },
   vloer: { saving: 6.0, cost: 50, isde1: 5.5, isde2: 11, cat: 'vloer', name: 'Vloerisolatie (onderkant)' },
   gevelBuitenzijde: { saving: 7.0, cost: 200, isde1: 20.25, isde2: 40.5, cat: 'gevel', name: 'Gevelisolatie (buitenzijde)' },
-  glasDubbelHR: { saving: 1.5, cost: 250, isde1: 25, isde2: 50, cat: 'glas', name: 'Glasisolatie (dubbel → HR++)' },
+  glasDubbelHR: { saving: 3.0, cost: 250, isde1: 25, isde2: 50, cat: 'glas', name: 'Glasisolatie (dubbel → HR++)' },
 };
+
+/**
+ * Indicatieve prijsberekening zonnepanelen (inclusief installatie):
+ * 2 panelen:  € 1.200 – € 1.600 (~ € 700 / paneel, ~ 750 kWh)
+ * 6 panelen:  € 2.500 – € 3.200 (~ € 475 / paneel, ~ 2.300 kWh)
+ * 10 panelen: € 3.800 – € 5.100 (~ € 445 / paneel, ~ 4.000 kWh)
+ * 20 panelen: € 7.500 – € 9.500 (~ € 425 / paneel, ~ 8.200 kWh)
+ * 36 panelen: € 13.500 – € 16.000 (~ € 410 / paneel, ~ 14.500 kWh)
+ */
+export function getSolarInvestmentEstimate(count: number): number {
+  if (count <= 0) return 0;
+  if (count <= 2) {
+    return Math.round(count * 700);
+  }
+  if (count <= 6) {
+    const ratio = (count - 2) / (6 - 2);
+    return Math.round(1400 + ratio * (2850 - 1400));
+  }
+  if (count <= 10) {
+    const ratio = (count - 6) / (10 - 6);
+    return Math.round(2850 + ratio * (4450 - 2850));
+  }
+  if (count <= 20) {
+    const ratio = (count - 10) / (20 - 10);
+    return Math.round(4450 + ratio * (8500 - 4450));
+  }
+  if (count <= 36) {
+    const ratio = (count - 20) / (36 - 20);
+    return Math.round(8500 + ratio * (14760 - 8500));
+  }
+  return Math.round(14760 + (count - 36) * 410);
+}
+
+export function getSolarInvestmentRange(count: number): { min: number; max: number; avg: number; avgPerPanel: number } {
+  if (count <= 0) return { min: 0, max: 0, avg: 0, avgPerPanel: 0 };
+
+  let min = 0;
+  let max = 0;
+
+  if (count <= 2) {
+    min = Math.round(count * 600);
+    max = Math.round(count * 800);
+  } else if (count <= 6) {
+    const ratio = (count - 2) / 4;
+    min = Math.round(1200 + ratio * (2500 - 1200));
+    max = Math.round(1600 + ratio * (3200 - 1600));
+  } else if (count <= 10) {
+    const ratio = (count - 6) / 4;
+    min = Math.round(2500 + ratio * (3800 - 2500));
+    max = Math.round(3200 + ratio * (5100 - 3200));
+  } else if (count <= 20) {
+    const ratio = (count - 10) / 10;
+    min = Math.round(3800 + ratio * (7500 - 3800));
+    max = Math.round(5100 + ratio * (9500 - 5100));
+  } else if (count <= 36) {
+    const ratio = (count - 20) / 16;
+    min = Math.round(7500 + ratio * (13500 - 7500));
+    max = Math.round(9500 + ratio * (16000 - 9500));
+  } else {
+    min = Math.round(13500 + (count - 36) * 375);
+    max = Math.round(16000 + (count - 36) * 440);
+  }
+
+  const avg = getSolarInvestmentEstimate(count);
+  const avgPerPanel = Math.round(avg / count);
+
+  return { min, max, avg, avgPerPanel };
+}
+
+/**
+ * Indicatieve prijsberekening thuisbatterijen / accu's (inclusief installatie & btw):
+ * 2 kWh:  € 1.500 – € 2.500 (€ 750 – € 1.250 / kWh)  - Appartementen, klein verbruik, opslaan van een middagje zon.
+ * 5 kWh:  € 3.500 – € 5.000 (€ 700 – € 1.000 / kWh)  - Gemiddeld huishouden, overbruggen van de avonduren.
+ * 10 kWh: € 6.000 – € 8.500 (€ 600 – € 850 / kWh)    - Groot huishouden, warmtepomp, elektrische auto opgeladen via de accu.
+ * 20 kWh: € 10.500 – € 14.500 (€ 525 – € 725 / kWh)  - Zeer groot verbruik, (semi-)off-grid, kleinzakelijk.
+ * 30 kWh: € 14.000 – € 20.000 (€ 465 – € 665 / kWh)  - Combinatie met 36 zonnepanelen, agrarisch, kleinzakelijk gebruik.
+ */
+export function getBatteryInvestmentEstimate(capacityKwh: number): number {
+  if (capacityKwh <= 0) return 0;
+  if (capacityKwh <= 2) {
+    const ratio = capacityKwh / 2;
+    return Math.round(ratio * 2000);
+  }
+  if (capacityKwh <= 5) {
+    const ratio = (capacityKwh - 2) / 3;
+    return Math.round(2000 + ratio * (4250 - 2000));
+  }
+  if (capacityKwh <= 10) {
+    const ratio = (capacityKwh - 5) / 5;
+    return Math.round(4250 + ratio * (7250 - 4250));
+  }
+  if (capacityKwh <= 20) {
+    const ratio = (capacityKwh - 10) / 10;
+    return Math.round(7250 + ratio * (12500 - 7250));
+  }
+  if (capacityKwh <= 30) {
+    const ratio = (capacityKwh - 20) / 10;
+    return Math.round(12500 + ratio * (17000 - 12500));
+  }
+  return Math.round(17000 + (capacityKwh - 30) * 550);
+}
+
+export function getBatteryInvestmentRange(capacityKwh: number): {
+  min: number;
+  max: number;
+  avg: number;
+  minPerKwh: number;
+  maxPerKwh: number;
+  avgPerKwh: number;
+  application: string;
+} {
+  if (capacityKwh <= 0) {
+    return { min: 0, max: 0, avg: 0, minPerKwh: 0, maxPerKwh: 0, avgPerKwh: 0, application: '' };
+  }
+
+  let min = 0;
+  let max = 0;
+  let application = '';
+
+  if (capacityKwh <= 2) {
+    const ratio = capacityKwh / 2;
+    min = Math.round(ratio * 1500);
+    max = Math.round(ratio * 2500);
+    application = 'Appartementen, klein verbruik, opslaan van een middagje zon.';
+  } else if (capacityKwh <= 5) {
+    const ratio = (capacityKwh - 2) / 3;
+    min = Math.round(1500 + ratio * (3500 - 1500));
+    max = Math.round(2500 + ratio * (5000 - 2500));
+    application = 'Gemiddeld huishouden, overbruggen van de avonduren.';
+  } else if (capacityKwh <= 10) {
+    const ratio = (capacityKwh - 5) / 5;
+    min = Math.round(3500 + ratio * (6000 - 3500));
+    max = Math.round(5000 + ratio * (8500 - 5000));
+    application = 'Groot huishouden, warmtepomp, elektrische auto opgeladen via de accu.';
+  } else if (capacityKwh <= 20) {
+    const ratio = (capacityKwh - 10) / 10;
+    min = Math.round(6000 + ratio * (10500 - 6000));
+    max = Math.round(8500 + ratio * (14500 - 8500));
+    application = 'Zeer groot verbruik, (semi-)off-grid, kleinzakelijk.';
+  } else if (capacityKwh <= 30) {
+    const ratio = (capacityKwh - 20) / 10;
+    min = Math.round(10500 + ratio * (14000 - 10500));
+    max = Math.round(14500 + ratio * (20000 - 14500));
+    application = 'Combinatie met 36 zonnepanelen, agrarisch, kleinzakelijk gebruik.';
+  } else {
+    min = Math.round(14000 + (capacityKwh - 30) * 450);
+    max = Math.round(20000 + (capacityKwh - 30) * 650);
+    application = 'Grootschalige opslag, zakelijk / agrarisch.';
+  }
+
+  const avg = getBatteryInvestmentEstimate(capacityKwh);
+  const avgPerKwh = Math.round(avg / capacityKwh);
+  const minPerKwh = Math.round(min / capacityKwh);
+  const maxPerKwh = Math.round(max / capacityKwh);
+
+  return { min, max, avg, minPerKwh, maxPerKwh, avgPerKwh, application };
+}
 
 export function calculateAll(
   resident: ResidentData,
@@ -51,30 +208,46 @@ export function calculateAll(
     const werkelijkVerwarmingsGas = Math.max(0, verbruikM3 - tapwaterGas);
 
     const ratio = werkelijkVerwarmingsGas / verwachtVerwarmingsGas;
+    const roundedFactor = Math.round(ratio * 10) / 10;
+    // Bound factor between 0.1 and 2.5 for stability
+    calculatedFactor = Math.max(0.1, Math.min(2.5, roundedFactor));
 
-    if (ratio > 0.8) {
-      calculatedFactor = 1.0;
-      calculatedLabel = 'Normaal (1.0x)';
-    } else if (ratio >= 0.5) {
-      calculatedFactor = 0.7;
-      calculatedLabel = 'Zuinig (0.7x)';
+    let labelCategory = 'Normaal';
+    if (calculatedFactor >= 1.2) {
+      labelCategory = 'Hoog';
+    } else if (calculatedFactor >= 0.9) {
+      labelCategory = 'Normaal';
+    } else if (calculatedFactor >= 0.6) {
+      labelCategory = 'Zuinig';
     } else {
-      calculatedFactor = 0.4;
-      calculatedLabel = 'Minimaal (0.4x)';
+      labelCategory = 'Minimaal';
     }
+
+    calculatedLabel = `${labelCategory} (${calculatedFactor.toFixed(1)}x)`;
   } else {
     calculatedLabel = 'Vul in...';
   }
 
   // Handle manual override
   let finalStookFactor = calculatedFactor;
-  if (stookgedragOverride === 'normaal') finalStookFactor = 1.0;
-  else if (stookgedragOverride === 'zuinig') finalStookFactor = 0.7;
-  else if (stookgedragOverride === 'minimaal') finalStookFactor = 0.4;
+  let activeStookLabel = calculatedLabel;
+
+  if (stookgedragOverride === 'normaal') {
+    finalStookFactor = 1.0;
+    activeStookLabel = 'Geforceerd: Normaal (1.0x)';
+  } else if (stookgedragOverride === 'zuinig') {
+    finalStookFactor = 0.7;
+    activeStookLabel = 'Geforceerd: Zuinig (0.7x)';
+  } else if (stookgedragOverride === 'minimaal') {
+    finalStookFactor = 0.4;
+    activeStookLabel = 'Geforceerd: Minimaal (0.4x)';
+  } else {
+    activeStookLabel = calculatedLabel;
+  }
 
   const updatedHouse: HouseData = {
     ...house,
-    stookgedragBerekend: calculatedLabel,
+    stookgedragBerekend: activeStookLabel,
     stookgedragFactor: finalStookFactor,
   };
 
@@ -181,9 +354,19 @@ export function calculateAll(
 
   // Allocate NIP subsidy if eligible
   // NIP covers remaining costs after ISDE, capped at €2,900.
+  // Priority order: maatregelen met de hoogste besparing per m² (en hoogste totale besparing in €/jr) krijgen als eerste NIP subsidie
   if (eligibleNip) {
     let remainingNipPool = 2900;
-    measures.forEach((m) => {
+    const sortedForNip = [...measures].sort((a, b) => {
+      const savPerM2A = a.area > 0 ? a.savingEuro / a.area : 0;
+      const savPerM2B = b.area > 0 ? b.savingEuro / b.area : 0;
+      if (Math.abs(savPerM2B - savPerM2A) > 0.0001) {
+        return savPerM2B - savPerM2A;
+      }
+      return b.savingEuro - a.savingEuro;
+    });
+
+    sortedForNip.forEach((m) => {
       const remainingCost = m.brutoCosts - m.isdeSubsidy;
       const nipAmount = Math.min(remainingCost, remainingNipPool);
       m.nipSubsidy = nipAmount;
@@ -285,7 +468,16 @@ export function calculateAll(
       const testEligibleNip = satisfiesWoz && satisfiesLabel && satisfiesIncome && true; // true count is now 2
       if (testEligibleNip) {
         let remainingNipPool = 2900;
-        testMeasures.forEach((m) => {
+        const sortedTestForNip = [...testMeasures].sort((a, b) => {
+          const savPerM2A = a.area > 0 ? a.savingEuro / a.area : 0;
+          const savPerM2B = b.area > 0 ? b.savingEuro / b.area : 0;
+          if (Math.abs(savPerM2B - savPerM2A) > 0.0001) {
+            return savPerM2B - savPerM2A;
+          }
+          return b.savingEuro - a.savingEuro;
+        });
+
+        sortedTestForNip.forEach((m) => {
           const remainingCost = m.brutoCosts - m.isdeSubsidy;
           const nipAmount = Math.min(remainingCost, remainingNipPool);
           m.nipSubsidy = nipAmount;
@@ -398,7 +590,7 @@ export function calculateAll(
             (cap === 30 && annualYieldKwh >= 12000)
           : cap === 10);
 
-    let bruto = cap === 5 ? 4200 : cap === 10 ? 7500 : cap === 15 ? 10500 : 18500;
+    let bruto = getBatteryInvestmentEstimate(cap);
     if (tech.capaciteitAccu === cap && tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0) {
       bruto = tech.customAccuPrijs;
     }
@@ -475,6 +667,53 @@ export function calculateAll(
     };
   });
 
+  // --- MODULE 3.5: ELECTRIC VEHICLE & LAADPAAL ---
+  const evKm = tech.evKilometers !== undefined && tech.evKilometers !== null ? tech.evKilometers : 15000;
+  const evCons = (tech.evVerbruik !== undefined && tech.evVerbruik > 0) ? tech.evVerbruik : 18;
+  const evHome = (tech.evThuisLaden !== undefined && tech.evThuisLaden > 0) 
+    ? tech.evThuisLaden 
+    : (evKm > 0 ? 75 : 0);
+  const evAnnualDemandKwh = (evKm / 100) * evCons * (evHome / 100);
+
+  // Hoeveel van deze stroom kan uit eigen zonnepanelen gedekt worden?
+  // We schatten dit op maximaal 50% van het laadvolume of de beschikbare teruglevering (overtollige zonnestroom)
+  // Bij een slim EMS systeem dat alleen op zonne-energie laadt is dit maximaal 100% (geen kunstmatig maximum van 50%)
+  const evMaxSolarFraction = tech.slimEmsOnlySolar ? 1.00 : 0.50;
+  const evSolarCoverageBaseKwh = annualYieldKwh > 0 ? Math.min(evAnnualDemandKwh * evMaxSolarFraction, gridFeedBaseKwh) : 0;
+  const evSolarCoverageWithBatteryKwh = annualYieldKwh > 0 ? Math.min(evAnnualDemandKwh * evMaxSolarFraction, gridFeedWithBatteryKwh) : 0;
+
+  const evGridImportBaseKwh = tech.slimEmsOnlySolar ? 0 : Math.max(0, evAnnualDemandKwh - evSolarCoverageBaseKwh);
+  const evGridImportWithBatteryKwh = tech.slimEmsOnlySolar ? 0 : Math.max(0, evAnnualDemandKwh - evSolarCoverageWithBatteryKwh);
+
+  const isBatteryActive = tech.capaciteitAccu > 0;
+  const chosenEvSolarCoverageKwh = isBatteryActive ? evSolarCoverageWithBatteryKwh : evSolarCoverageBaseKwh;
+  const chosenEvGridImportKwh = isBatteryActive ? evGridImportWithBatteryKwh : evGridImportBaseKwh;
+
+  const evSolarChargingSavingsEuro = chosenEvSolarCoverageKwh * (0.50 - 0.05); // zonnestroom 'kost' ons de misgelopen terugleververgoeding
+  const evGridChargingSavingsEuro = chosenEvGridImportKwh * (0.50 - updatedHouse.elektraPrijs); // netstroom laden bespaart het verschil tussen openbaar (€0,50) en thuisnet
+  const evSavingsEuro = Math.round(evSolarChargingSavingsEuro + evGridChargingSavingsEuro);
+
+  const actualHomeChargedKwh = chosenEvSolarCoverageKwh + chosenEvGridImportKwh;
+  const ereRevenueEuro = Math.round(actualHomeChargedKwh * 0.12);
+  const totalEvSavingsEuro = evSavingsEuro + ereRevenueEuro;
+
+  let laadpaalInvestment = 1200;
+  if (tech.customLaadpaalPrijs !== undefined && tech.customLaadpaalPrijs > 0) {
+    laadpaalInvestment = tech.customLaadpaalPrijs;
+  }
+  const laadpaalTvt = totalEvSavingsEuro > 0 ? laadpaalInvestment / totalEvSavingsEuro : 99;
+
+  const laadpaalResult = {
+    evAnnualDemandKwh: Math.round(evAnnualDemandKwh),
+    evSolarCoverageKwh: Math.round(chosenEvSolarCoverageKwh),
+    evGridImportKwh: Math.round(chosenEvGridImportKwh),
+    evSavingsEuro,
+    ereRevenueEuro,
+    totalSavingsEuro: totalEvSavingsEuro,
+    netInvestmentEuro: laadpaalInvestment,
+    tvt: laadpaalTvt
+  };
+
   const solar: SolarPrognose = {
     annualYieldKwh,
     orientationFactor,
@@ -482,8 +721,9 @@ export function calculateAll(
     selfConsumptionWithBattery,
     absoluteSelfConsumptionBaseKwh,
     absoluteSelfConsumptionWithBatteryKwh,
-    gridFeedBaseKwh,
-    gridFeedWithBatteryKwh,
+    // De auto verbruikt zonnestroom, waardoor deze niet meer teruggeleverd kan worden aan het net!
+    gridFeedBaseKwh: Math.max(0, gridFeedBaseKwh - evSolarCoverageBaseKwh),
+    gridFeedWithBatteryKwh: Math.max(0, gridFeedWithBatteryKwh - evSolarCoverageWithBatteryKwh),
     disclaimer: 'Dit is een prognose. De werkelijke opbrengst hangt af van lokale beschaduwing, vervuiling en omvormerverliezen.',
   };
 
@@ -601,8 +841,10 @@ export function calculateAll(
   // If they have excess solar generation (gridFeedBaseKwh), they can offset some or all of the heat pump electricity!
   // The cost of that offset solar electricity is the missed feed-in return tariff (opportunity cost), 
   // while the remaining electricity is bought from the grid at standard price.
+  // NOTE: We subtract the solar energy already consumed by the EV (evSolarCoverageBaseKwh) because you can't use the same solar energy twice!
   const returnTariff = 0.05; // fixed feed-in return rate (€/kWh)
-  const hybridSolarCoverage = Math.min(hybridElecUsed, gridFeedBaseKwh);
+  const gridFeedAvailableForHybridWp = Math.max(0, gridFeedBaseKwh - evSolarCoverageBaseKwh);
+  const hybridSolarCoverage = Math.min(hybridElecUsed, gridFeedAvailableForHybridWp);
   const hybridGridImport = Math.max(0, hybridElecUsed - hybridSolarCoverage);
   const hybridElecCostEuro = (hybridSolarCoverage * returnTariff) + (hybridGridImport * updatedHouse.elektraPrijs);
 
@@ -625,7 +867,8 @@ export function calculateAll(
     ? Number(tech.userAnnualWp)
     : aeGasSaved * aeCOPFactor;
   
-  const aeSolarCoverage = Math.min(aeElecUsed, gridFeedBaseKwh);
+  const gridFeedAvailableForAeWp = Math.max(0, gridFeedBaseKwh - evSolarCoverageBaseKwh);
+  const aeSolarCoverage = Math.min(aeElecUsed, gridFeedAvailableForAeWp);
   const aeGridImport = Math.max(0, aeElecUsed - aeSolarCoverage);
   const aeElecCostEuro = (aeSolarCoverage * returnTariff) + (aeGridImport * updatedHouse.elektraPrijs);
 
@@ -735,6 +978,7 @@ export function calculateAll(
     solar,
     battery,
     heatpump,
+    laadpaal: laadpaalResult,
     opmerkingenOffertes: '',
     opmerkingen: '',
   };
@@ -752,7 +996,8 @@ export function getBatterySimulationData(
   capacity: number,
   omzettingsverliezen: number,
   selfConsumptionBase: number,
-  absoluteSelfConsumptionBaseKwh: number
+  absoluteSelfConsumptionBaseKwh: number,
+  dynamicProvider?: string
 ) {
   const months = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
   const solarDistribution = [1.2, 4.6, 8.0, 12.0, 14.5, 16.0, 15.5, 12.5, 9.0, 4.5, 1.1, 1.1];
@@ -763,10 +1008,6 @@ export function getBatterySimulationData(
     let solarM = (annualSolar * solarDistribution[idx]) / 100;
     let demandM = (annualDemand * demandDistribution[idx]) / 100;
 
-    // Apply specific calibration for April, May, and June when capacity is 30 kWh
-    // April: Verbruik = 156 kWh, Teruglevering = 840 kWh
-    // Mei: Verbruik = 191 kWh, Teruglevering = 872 kWh
-    // Juni: Verbruik = 104 kWh, Teruglevering = 891 kWh
     if (capacity === 30) {
       if (month === 'Apr') {
         demandM = (annualDemand / 2400) * 156;
@@ -784,12 +1025,10 @@ export function getBatterySimulationData(
     const solarD = solarM / days;
     const demandD = demandM / days;
 
-    // Direct consumption without battery
     const ratio = solarD / (demandD + 0.1);
     const selfUseFractionBase = Math.min(0.90, 1 - Math.exp(-0.35 * (ratio + 0.1)));
     const directBaseD = solarD * selfUseFractionBase;
 
-    // Direct consumption with battery
     const excessD = Math.max(0, solarD - directBaseD);
     const nightDemandD = demandD - directBaseD;
     const storedD = Math.min(capacity * 0.85, excessD, nightDemandD);
@@ -824,15 +1063,29 @@ export function getBatterySimulationData(
   const sumBatteryAdditionM = rawMonthsData.reduce((acc, d) => acc + (d.directWithBatteryM - d.directBaseM), 0);
   const additionScale = sumBatteryAdditionM > 0 ? targetBatteryAdditionY / sumBatteryAdditionM : 1;
 
-  return rawMonthsData.map(d => {
+  // Provider factor for dynamic contract trading yield
+  let providerFactor = 1.0;
+  if (dynamicProvider === 'Frank') providerFactor = 0.85;
+  else if (dynamicProvider === 'Tibber') providerFactor = 0.80;
+  else if (dynamicProvider === 'Anwb') providerFactor = 0.72;
+
+  const capacityRatio = capacity / 28;
+
+  // Calculate volumes first to compute total annual arbitrage volume
+  const monthlyVolumes = rawMonthsData.map(d => {
+    const isWinter = ['Jan', 'Feb', 'Nov', 'Dec'].includes(d.month);
+    return isWinter 
+      ? Math.min(capacity * 18.2, d.demandM * 0.65) 
+      : Math.min(capacity * 5, d.demandM * 0.15);
+  });
+
+  return rawMonthsData.map((d, idx) => {
     const finalDirectBase = Math.min(d.solarM, d.demandM, d.directBaseM * baseScale);
 
     let finalDirectWithBattery = 0;
     let finalAddition = 0;
 
     if (capacity === 30) {
-      // Highly optimized Smart EMS (Home Automation & Arbitrage steering)
-      // Achieve "nul op de meter" (100% self-sufficiency) during high solar/calibrated months!
       if (['Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep'].includes(d.month)) {
         finalDirectWithBattery = d.demandM;
       } else {
@@ -840,7 +1093,6 @@ export function getBatterySimulationData(
       }
       finalAddition = finalDirectWithBattery - finalDirectBase;
     } else if (capacity > 0) {
-      // Universal Smart EMS scaling based on the chosen capacity
       const smartScalingFactor = Math.min(1.0, capacity / 30);
       const rawAddition = d.directWithBatteryM - d.directBaseM;
       const baseDirectWithBattery = finalDirectBase + Math.min(
@@ -863,10 +1115,30 @@ export function getBatterySimulationData(
     const netGridFeedWithBattery = Math.max(0, d.solarM - finalDirectWithBattery);
     const netGridFeedWithoutBattery = Math.max(0, d.solarM - finalDirectBase);
 
-    const isWinter = ['Jan', 'Feb', 'Mrt', 'Okt', 'Nov', 'Dec'].includes(d.month);
-    const arbitrageVolume = isWinter 
-      ? Math.min(capacity * 18.2, d.demandM * 0.65) 
-      : Math.min(capacity * 5, d.demandM * 0.15);
+    const arbitrageVolume = monthlyVolumes[idx];
+
+    // Seasonal breakdown calibrated against 28 kWh benchmark (universal capacity scaling)
+    const isWinter = ['Jan', 'Feb', 'Nov', 'Dec'].includes(d.month);
+    const isSpringAutumn = ['Mrt', 'Apr', 'Sep', 'Okt'].includes(d.month);
+
+    let pureArbitrageEuro = 0;
+    let eigenZonEvEuro = 0;
+
+    if (capacity > 0) {
+      if (isWinter) {
+        pureArbitrageEuro = Math.round(105 * capacityRatio * providerFactor);
+        eigenZonEvEuro = Math.round(30 * capacityRatio);
+      } else if (isSpringAutumn) {
+        pureArbitrageEuro = Math.round(85 * capacityRatio * providerFactor);
+        eigenZonEvEuro = Math.round(100 * capacityRatio);
+      } else {
+        // Summer (Mei, Jun, Jul, Aug)
+        pureArbitrageEuro = Math.round(75 * capacityRatio * providerFactor);
+        eigenZonEvEuro = Math.round(140 * capacityRatio);
+      }
+    }
+
+    const totalMaandEuro = pureArbitrageEuro + eigenZonEvEuro;
 
     return {
       name: d.month,
@@ -877,7 +1149,11 @@ export function getBatterySimulationData(
       'Totaal direct verbruik (met accu) (kWh)': Math.round(finalDirectWithBattery),
       'Teruglevering naar net (met accu) (kWh)': Math.round(netGridFeedWithBattery),
       'Teruglevering naar net (zonder accu) (kWh)': Math.round(netGridFeedWithoutBattery),
-      'Arbitrage stroomverschuiving (kWh)': Math.round(arbitrageVolume)
+      'Arbitrage stroomverschuiving (kWh)': Math.round(arbitrageVolume),
+      'Pure Arbitrage Handel (€)': pureArbitrageEuro,
+      'Eigen Zon & Slim Laden (€)': eigenZonEvEuro,
+      'Totaal Maandvoordeel (€)': totalMaandEuro,
+      'Arbitrage opbrengst (€)': pureArbitrageEuro // Backwards compatible alias
     };
   });
 }

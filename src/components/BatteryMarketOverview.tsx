@@ -575,7 +575,7 @@ export default function BatteryMarketOverview({
 
   const displayedBatteries = showAll ? filteredBatteries : filteredBatteries.slice(0, 8);
 
-  // Determine top personalized recommendation based on user setup
+  // Determine personalized hardware advice based on user's chosen contract setup
   const getSubstantiatedAdvice = () => {
     const isZonneplan = dynamicProvider === 'Zonneplan' && typeContract === 'Dynamisch';
     const isTibber = dynamicProvider === 'Tibber' && typeContract === 'Dynamisch';
@@ -583,29 +583,29 @@ export default function BatteryMarketOverview({
 
     if (isZonneplan) {
       return {
-        title: "Zonneplan Powerplay & All-in-One",
-        subtitle: "Beste match voor jouw Zonneplan Dynamisch Contract",
-        badge: "Powerplay Match",
+        title: "Zonneplan Powerplay Steuring",
+        subtitle: "Hardware-opties voor jouw Zonneplan Dynamisch Contract",
+        badge: "Zonneplan Opties",
         colorClass: "border-blue-200 bg-gradient-to-br from-blue-50/40 to-emerald-50/10",
         iconColor: "text-blue-500",
-        recommendation: "Omdat je een Zonneplan dynamisch contract gebruikt, is de **Zonneplan Thuisbatterij** (all-in-one) de meest logische en best renderende keuze. Hun geautomatiseerde sturing op de onbalansmarkt (Powerplay) haalt bewezen de hoogste opbrengsten per kWh (€85 - €100 per jaar). Hiermee is de relatief hogere aanschafprijs (€500-700/kWh) ruimschoots te verantwoorden en verdien je de accu in circa 6-7 jaar terug.",
+        recommendation: "Bij een Zonneplan dynamisch contract stuurt het algoritme de thuisbatterij aan op de onbalansmarkt (Powerplay). Hardware zoals de **Zonneplan Thuisbatterij** (all-in-one) of modulaire systemen met geschikte omvormers kunnen hiervoor worden ingezet op basis van jouw persoonlijke voorkeur.",
         alternatives: [
-          { brand: "BYD Battery-Box", reason: "Indien je liever een modulair systeem wilt met een eigen hybride omvormer en eventueel later wilt overstappen." },
-          { brand: "Pylontech Force H2", reason: "Uitstekend modulair alternatief met de allerbeste verhouding tussen prijs en A-merk kwaliteit." }
+          { brand: "BYD Battery-Box", reason: "Modulair systeem met eigen hybride omvormer." },
+          { brand: "Pylontech Force H2", reason: "Uitstekend modulair alternatief met een scherpe prijs-kwaliteitverhouding." }
         ]
       };
     }
 
     if (isTibber) {
       return {
-        title: "Pylontech of Victron met open API",
-        subtitle: "Beste match voor jouw Tibber Smart Home setup",
-        badge: "Smart Home Match",
+        title: "Tibber Smart Home Integratie",
+        subtitle: "Hardware-opties voor jouw Tibber Smart Home setup",
+        badge: "Tibber Opties",
         colorClass: "border-emerald-200 bg-gradient-to-br from-emerald-50/30 to-blue-50/15",
         iconColor: "text-emerald-500",
-        recommendation: "Omdat je Tibber gebruikt, heb je de ultieme vrijheid om te sturen met slimme software. Voor installateur-geplaatste systemen is de **Pylontech Force H2 / US5000** de absolute prijs-kwaliteitkampioen (€300-500/kWh). Wil je extreem flexibel off-grid gaan of doe-het-zelven, kies dan **Victron Energy ESS**. Voor makkelijke, stekkerklare plug-and-play-toepassingen zijn de **Zendure SolarFlow** of **Anker SOLIX Solarbank** absolute aanraders.",
+        recommendation: "Met Tibber stuur je de batterij aan via hun open API of eigen slimme domotica (zoals Home Assistant). Voor vaste installaties wordt **Pylontech Force H2 / US5000** veel toegepast (€300-500/kWh). Voor flexibel doe-het-zelven is **Victron Energy ESS** populair, en voor plug-and-play zijn **Zendure** of **Anker** opties.",
         alternatives: [
-          { brand: "Zendure / Anker", reason: "Beste stekkerklare plug-in opties met een sterke app-koppeling voor Tibber-gebruikers." },
+          { brand: "Zendure / Anker", reason: "Stekkerklare plug-in opties met een app-koppeling voor Tibber-gebruikers." },
           { brand: "Deye / Growatt", reason: "Scherpe modulaire budgetmerken die uitstekend communiceren met Tibber en Home Assistant." }
         ]
       };
@@ -614,14 +614,14 @@ export default function BatteryMarketOverview({
     if (isFrank) {
       return {
         title: "Frank Energie Slim Handelen",
-        subtitle: "Beste match voor EPEX-arbitrage",
-        badge: "EPEX Match",
+        subtitle: "Hardware-opties voor jouw Frank Energie EPEX-contract",
+        badge: "Frank Energie Opties",
         colorClass: "border-purple-200 bg-gradient-to-br from-purple-50/30 to-emerald-50/15",
         iconColor: "text-purple-500",
-        recommendation: "Frank Energie stuurt je batterij via hun 'Slim Handelen' algoritme automatisch aan op de EPEX spotmarkt. De **Deye SE-F16-C** en **SolaX Triple Power** sluiten hier perfect op aan dankzij hun geïntegreerde slimme communicatiemodules. Je profiteert van lage hardwareprijzen (€300-450/kWh) en slimme laadcycli.",
+        recommendation: "Frank Energie stuurt je batterij via hun 'Slim Handelen' algoritme automatisch aan op de EPEX spotmarkt. Merkcombinaties zoals **Deye SE-F16-C**, **SolaX Triple Power** of **Sessy** sluiten hierop aan dankzij hun ondersteunde communicatiemodules.",
         alternatives: [
-          { brand: "SolaX Triple Power", reason: "Geweldig rendement dankzij lage modulaire overheadkosten en prima wintervastheid." },
-          { brand: "Sessy", reason: "Nederlandse plug-and-play AC-accu met Frank Energie-sturing direct ingebouwd." }
+          { brand: "SolaX Triple Power", reason: "Rendement dankzij lage modulaire overheadkosten." },
+          { brand: "Sessy", reason: "Nederlandse plug-and-play AC-accu met Frank Energie-sturing ingebouwd." }
         ]
       };
     }
@@ -629,14 +629,14 @@ export default function BatteryMarketOverview({
     // Default or fixed/variable contract advice
     return {
       title: "Pylontech Force of Marstek (Plug-In)",
-      subtitle: "Beste prijs-kwaliteit bij een vast of variabel contract",
-      badge: "Prijs-Kwaliteit Match",
+      subtitle: "Hardware-opties bij een vast of variabel contract",
+      badge: "Vast/Variabel Opties",
       colorClass: "border-slate-200 bg-gradient-to-br from-slate-50 to-blue-50/10",
       iconColor: "text-indigo-500",
-      recommendation: "Indien je nog een vast of variabel contract hebt (waarop je tot 2027 nog 1:1 kunt salderen), is de financiële noodzaak voor een grote batterij kleiner. Wil je toch voorbereid zijn op de toekomst? Dan adviseren we:\n\n1. **Voor Plug-and-Play**: de **Marstek Venus E / Jupiter** of **Anker SOLIX**. Deze vereisen nul installatiekosten, plaats je simpelweg zelf en hebben een uiterst gunstige instapprijs.\n2. **Voor Modulaire Installatie**: de **Pylontech Force H2**. Deze biedt A-merk betrouwbaarheid voor een B-merk prijs (€300-500/kWh), waardoor je ook na afschaffing van de saldering uitstekend zit.",
+      recommendation: "Indien je een vast of variabel contract hebt (waarop je tot 2027 nog 1:1 kunt salderen), is de financiële noodzaak voor een grote batterij kleiner. Wil je toch voorbereid zijn op de toekomst? Dan zijn er keuzes tussen:\n\n1. **Plug-and-Play**: zoals de **Marstek Venus E / Jupiter** of **Anker SOLIX** met nul installatiekosten.\n2. **Modulaire Installatie**: zoals de **Pylontech Force H2** voor een vaste huisinstallatie.",
       alternatives: [
-        { brand: "Marstek Venus E", reason: "Lage instapdrempel vanaf ~€280/kWh, ideaal voor het afdekken van de kleine basisbehoeften." },
-        { brand: "BYD Battery-Box", reason: "De marktleider in Nederland, breed ondersteund door vrijwel alle Nederlandse installateurs." }
+        { brand: "Marstek Venus E", reason: "Lage instapdrempel vanaf ~€280/kWh, voor het afdekken van de basisbehoeften." },
+        { brand: "BYD Battery-Box", reason: "Modulair A-merk, breed ondersteund door installateurs." }
       ]
     };
   };
@@ -860,19 +860,12 @@ export default function BatteryMarketOverview({
           {displayedBatteries.map((b) => (
             <div 
               key={`${b.brand}-${b.model}`}
-              className={`border border-slate-100 rounded-2xl p-5 hover:shadow-md transition-all duration-300 flex flex-col justify-between bg-white relative ${
-                b.brand === 'Zonneplan' && dynamicProvider === 'Zonneplan' ? 'ring-2 ring-blue-500/20 border-blue-200' : ''
-              }`}
+              className="border border-slate-100 rounded-2xl p-5 hover:shadow-md transition-all duration-300 flex flex-col justify-between bg-white relative"
             >
               {b.isBestPriceKwh && (
                 <div className="absolute top-4 right-4 bg-amber-50 text-amber-700 text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-0.5">
                   <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
                   Beste prijs/kWh
-                </div>
-              )}
-              {b.brand === 'Zonneplan' && dynamicProvider === 'Zonneplan' && (
-                <div className="absolute top-4 right-4 bg-blue-50 text-blue-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                  Aanbevolen Match
                 </div>
               )}
 
