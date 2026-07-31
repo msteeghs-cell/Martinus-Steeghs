@@ -579,7 +579,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans" id="app-container">
+    <div className="min-h-screen bg-[#faf7f2] text-slate-800 flex flex-col font-sans" id="app-container">
       {/* Top Banner & Header */}
       <header className="bg-gradient-to-r from-emerald-800 to-teal-900 text-white py-6 px-4 md:px-8 shadow-md">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">

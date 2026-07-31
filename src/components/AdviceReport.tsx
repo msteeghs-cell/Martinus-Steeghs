@@ -114,7 +114,9 @@ export default function AdviceReport({
       chartBatteryCapacity || 10,
       calculation.tech.omzettingsverliezen || 10,
       calculation.solar.selfConsumptionBase || 30,
-      calculation.solar.absoluteSelfConsumptionBaseKwh || 0
+      calculation.solar.absoluteSelfConsumptionBaseKwh || 0,
+      calculation.tech.dynamicProvider || 'Zonneplan',
+      calculation.tech.batteryGridTrading
     );
   }, [
     calculation.solar.annualYieldKwh, 
@@ -122,7 +124,9 @@ export default function AdviceReport({
     chartBatteryCapacity, 
     calculation.tech.omzettingsverliezen, 
     calculation.solar.selfConsumptionBase, 
-    calculation.solar.absoluteSelfConsumptionBaseKwh
+    calculation.solar.absoluteSelfConsumptionBaseKwh,
+    calculation.tech.dynamicProvider,
+    calculation.tech.batteryGridTrading
   ]);
 
   // Compute monthly laadpaal simulation data points
@@ -1702,6 +1706,14 @@ Energieplanner Peel en Maas
               <p className="text-xs text-slate-500 mt-1">
                 Gepersonaliseerd advies gebaseerd op een jaaropbrengst van <strong>{Math.round(calculation.solar.annualYieldKwh)} kWh</strong> met <strong>{calculation.tech.aantalZonnepanelen} zonnepanelen</strong>, een oriëntatie van <strong>{calculation.tech.dakOrientatie}°</strong> en een hellingshoek van <strong>{calculation.tech.dakHellingshoek !== undefined ? calculation.tech.dakHellingshoek : 35}°</strong>.
               </p>
+              {calculation.tech.pvCurtailmentMode && (
+                <div className="mt-3 bg-amber-50 border border-amber-200/80 rounded-xl p-3 text-xs text-amber-900 flex items-center gap-2">
+                  <Sun className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    <strong>Zonnepanelen Sturing Mode (AAN):</strong> Je omvormer wordt automatisch teruggeregeld bij negatieve dynamische stroomprijzen om terugleverboetes aan het net te voorkomen.
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Grid statistics */}
@@ -1938,8 +1950,16 @@ Energieplanner Peel en Maas
                               Hierdoor hoeft deze stroom niet meer goedkoop te worden teruggeleverd.
                             </p>
                             {calculation.tech.typeContract === 'Dynamisch' && (
-                              <p className="text-[10px] text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded-md inline-block mt-1">
-                                🔗 <strong>Arbitrage Trading:</strong> Dankzij uw dynamische contract en slimme EMS-batterijsturing koopt u stroom in op goedkope of negatieve uren en levert u terug op dure piekuren. Dit levert u circa <strong>€ {Math.round(batteryOpt ? (batteryOpt.capacityKwh * (calculation.tech.dynamicProvider === 'Zonneplan' ? 85 : calculation.tech.dynamicProvider === 'Frank' ? 70 : calculation.tech.dynamicProvider === 'Tibber' ? 65 : 60)) : 650).toLocaleString('nl-NL')} per jaar</strong> aan additioneel handelsvoordeel op!
+                              <p className={`text-[10px] font-semibold px-2 py-1 rounded-md inline-block mt-1 ${
+                                calculation.tech.batteryGridTrading 
+                                  ? 'text-blue-600 bg-blue-50' 
+                                  : 'text-amber-800 bg-amber-50'
+                              }`}>
+                                {calculation.tech.batteryGridTrading ? (
+                                  <span>🔗 <strong>Arbitrage Trading Actief:</strong> Dankzij uw dynamische contract en slimme EMS-batterijsturing koopt u stroom in op goedkope of negatieve uren en levert u terug op dure piekuren. Dit levert u circa <strong>€ {Math.round(batteryOpt ? (batteryOpt.capacityKwh * (calculation.tech.dynamicProvider === 'Zonneplan' ? 85 : calculation.tech.dynamicProvider === 'Frank' ? 70 : calculation.tech.dynamicProvider === 'Tibber' ? 65 : 60)) : 650).toLocaleString('nl-NL')} per jaar</strong> aan additioneel handelsvoordeel op!</span>
+                                ) : (
+                                  <span>☀️ <strong>100% Zonne-focus Actief:</strong> Accu slaat uitsluitend eigen zonnestroom op. Er vindt geen nethandel op dynamische tarieven plaats (€0/jaar pure arbitrage).</span>
+                                )}
                               </p>
                             )}
                           </div>

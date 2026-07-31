@@ -628,7 +628,7 @@ export function calculateAll(
     } else if (provider === 'Anwb') {
       arbitragePerKwh = 60; // EV Slim laden & basis arbitrage
     }
-    const arbitrageYield = cap * arbitragePerKwh;
+    const arbitrageYield = tech.batteryGridTrading ? cap * arbitragePerKwh : 0;
     const optSavingsDynamischWithBattery = (optAbsSelfConsumptionKwh * updatedHouse.elektraPrijs) + (optGridFeedKwh * returnRateDynamisch);
     const optContractSavingsDynamisch = Math.max(0, optSavingsDynamischWithBattery - savingsDynamischBase);
     const optDynamischTotalSavings = optContractSavingsDynamisch + arbitrageYield;
@@ -997,7 +997,8 @@ export function getBatterySimulationData(
   omzettingsverliezen: number,
   selfConsumptionBase: number,
   absoluteSelfConsumptionBaseKwh: number,
-  dynamicProvider?: string
+  dynamicProvider?: string,
+  batteryGridTrading?: boolean
 ) {
   const months = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
   const solarDistribution = [1.2, 4.6, 8.0, 12.0, 14.5, 16.0, 15.5, 12.5, 9.0, 4.5, 1.1, 1.1];
@@ -1126,14 +1127,14 @@ export function getBatterySimulationData(
 
     if (capacity > 0) {
       if (isWinter) {
-        pureArbitrageEuro = Math.round(105 * capacityRatio * providerFactor);
+        pureArbitrageEuro = batteryGridTrading ? Math.round(105 * capacityRatio * providerFactor) : 0;
         eigenZonEvEuro = Math.round(30 * capacityRatio);
       } else if (isSpringAutumn) {
-        pureArbitrageEuro = Math.round(85 * capacityRatio * providerFactor);
+        pureArbitrageEuro = batteryGridTrading ? Math.round(85 * capacityRatio * providerFactor) : 0;
         eigenZonEvEuro = Math.round(100 * capacityRatio);
       } else {
         // Summer (Mei, Jun, Jul, Aug)
-        pureArbitrageEuro = Math.round(75 * capacityRatio * providerFactor);
+        pureArbitrageEuro = batteryGridTrading ? Math.round(75 * capacityRatio * providerFactor) : 0;
         eigenZonEvEuro = Math.round(140 * capacityRatio);
       }
     }

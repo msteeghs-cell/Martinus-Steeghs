@@ -233,9 +233,11 @@ export default function LaadpaalSolarChart({
       chartBatteryCapacity,
       tech.omzettingsverliezen || 10,
       calcResult.solar.selfConsumptionBase || 30,
-      calcResult.solar.absoluteSelfConsumptionBaseKwh || 0
+      calcResult.solar.absoluteSelfConsumptionBaseKwh || 0,
+      tech.dynamicProvider || 'Zonneplan',
+      tech.batteryGridTrading
     );
-  }, [finalAnnualSolar, house.verbruikKwh, chartBatteryCapacity, tech.omzettingsverliezen, calcResult.solar.selfConsumptionBase, calcResult.solar.absoluteSelfConsumptionBaseKwh]);
+  }, [finalAnnualSolar, house.verbruikKwh, chartBatteryCapacity, tech.omzettingsverliezen, calcResult.solar.selfConsumptionBase, calcResult.solar.absoluteSelfConsumptionBaseKwh, tech.dynamicProvider, tech.batteryGridTrading]);
 
   // Compute monthly laadpaal simulation data points
   const laadpaalChartData = useMemo(() => {
@@ -440,28 +442,52 @@ export default function LaadpaalSolarChart({
           </div>
 
           {/* Extra toggle for Slim EMS */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-200/60 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="font-extrabold text-slate-700">Laadpaal Sturing Mode:</span>
-              <button
-                type="button"
-                onClick={() => {
-                  if (setTech) setTech(prev => ({ ...prev, slimEmsOnlySolar: !prev.slimEmsOnlySolar }));
-                }}
-                className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer text-xs ${
-                  tech.slimEmsOnlySolar 
-                    ? 'bg-amber-500 text-white shadow-xs hover:bg-amber-600' 
-                    : 'bg-indigo-600 text-white shadow-xs hover:bg-indigo-700'
-                }`}
-              >
-                <Zap className="w-3.5 h-3.5" />
-                {tech.slimEmsOnlySolar ? 'Slim EMS: Alleen Laden op Zonnestroom (100% Zonne-focus)' : 'Standaard Laden (Netstroom Aanvullen)'}
-              </button>
+          <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-3.5 space-y-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={tech.slimEmsOnlySolar || false}
+                    onChange={(e) => {
+                      if (setTech) setTech(prev => ({ ...prev, slimEmsOnlySolar: e.target.checked }));
+                    }}
+                    className="w-4 h-4 accent-amber-500 rounded border-slate-300 cursor-pointer shrink-0"
+                  />
+                  <span className="font-extrabold text-slate-800 text-xs">Laadpaal Sturing Mode:</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (setTech) setTech(prev => ({ ...prev, slimEmsOnlySolar: !prev.slimEmsOnlySolar }));
+                  }}
+                  className={`px-3 py-1 rounded-full font-bold transition flex items-center gap-1.5 cursor-pointer text-[11px] ${
+                    tech.slimEmsOnlySolar 
+                      ? 'bg-amber-500 text-white shadow-xs hover:bg-amber-600' 
+                      : 'bg-indigo-600 text-white shadow-xs hover:bg-indigo-700'
+                  }`}
+                >
+                  <Zap className="w-3 h-3" />
+                  {tech.slimEmsOnlySolar ? 'Slim EMS: Alleen Laden op Zonnestroom (100% Zonne-focus)' : 'Standaard Laden (Netstroom Aanvullen)'}
+                </button>
+              </div>
+              
+              <span className="text-[11px] text-slate-500 font-medium shrink-0">
+                Totaal thuis berekende laadvraag: <strong className="text-indigo-700 font-mono font-bold text-xs">{Math.round(evAnnualDemand).toLocaleString('nl-NL')} kWh/jaar</strong>
+              </span>
             </div>
-            
-            <span className="text-[11px] text-slate-500 font-medium">
-              Totaal thuis berekende laadvraag: <strong className="text-indigo-700 font-mono font-bold text-xs">{Math.round(evAnnualDemand).toLocaleString('nl-NL')} kWh/jaar</strong>
-            </span>
+
+            <div className="text-[11px] text-slate-600 leading-relaxed bg-white/80 p-2.5 rounded-lg border border-slate-200/60 font-sans">
+              {tech.slimEmsOnlySolar ? (
+                <span>
+                  <strong className="text-amber-800">100% Zonne-focus (AAN):</strong> De laadpaal pauzeert automatisch als de zon niet genoeg schijnt en laadt de EV uitsluitend op eigen opgewekte zonnestroom. Tekorten worden niet via het net aangevuld maar extern/publiek geladen.
+                </span>
+              ) : (
+                <span>
+                  <strong className="text-indigo-800">Standaard Laden (UIT):</strong> De auto laadt altijd direct op wanneer hij is ingeplugd. Zonnestroom wordt primair gebruikt en als er te weinig zon is, wordt het restant automatisch aangevuld vanaf het stroomnet.
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

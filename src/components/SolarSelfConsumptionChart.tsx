@@ -260,6 +260,55 @@ export default function SolarSelfConsumptionChart({
           </div>
         </div>
 
+        {/* Zonnepanelen Sturing Mode Toggle Control */}
+        <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 space-y-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={tech.pvCurtailmentMode || false}
+                  onChange={(e) => {
+                    if (setTech) setTech(prev => ({ ...prev, pvCurtailmentMode: e.target.checked }));
+                  }}
+                  className="w-4 h-4 accent-amber-500 rounded border-slate-300 cursor-pointer shrink-0"
+                />
+                <span className="font-extrabold text-slate-800 text-xs">Zonnepanelen Sturing Mode:</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  if (setTech) setTech(prev => ({ ...prev, pvCurtailmentMode: !prev.pvCurtailmentMode }));
+                }}
+                className={`px-3 py-1 rounded-full font-bold transition flex items-center gap-1.5 cursor-pointer text-[11px] ${
+                  tech.pvCurtailmentMode 
+                    ? 'bg-amber-500 text-white shadow-xs hover:bg-amber-600' 
+                    : 'bg-indigo-600 text-white shadow-xs hover:bg-indigo-700'
+                }`}
+              >
+                <Sun className="w-3.5 h-3.5" />
+                {tech.pvCurtailmentMode ? 'Slim EMS: Omvormer Afschakelen bij Negatieve Prijzen (100% Zonne-focus)' : 'Standaard Omvormer (Altijd Terugleveren)'}
+              </button>
+            </div>
+            
+            <span className="text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider shrink-0 bg-slate-100 border border-slate-200 text-slate-700">
+              {tech.pvCurtailmentMode ? '✓ Slim Afschakelen Actief' : '✓ Altijd Terugleveren'}
+            </span>
+          </div>
+
+          <div className="text-[11px] text-slate-600 leading-relaxed bg-slate-50 p-2.5 rounded-lg border border-slate-200/60 font-sans">
+            {tech.pvCurtailmentMode ? (
+              <span>
+                <strong className="text-amber-800">100% Zonne-focus & Slim Afschakelen (AAN):</strong> Het intelligente EMS stelt de omvormer zo in dat er uitsluitend zonnestroom wordt opgewekt voor eigen verbruik/accu en omvormer-capaciteit automatisch wordt teruggeregeld/uitgeschakeld tijdens uren met negatieve dynamische stroomprijzen. Je voorkomt zo boetes en kosten voor terugleveren aan het net.
+              </span>
+            ) : (
+              <span>
+                <strong className="text-indigo-800">Standaard Omvormer (UIT):</strong> De zonnepanelen leveren altijd op volle capaciteit terug aan het net, ongeacht het actuele uur- of spottarief. Bij een dynamisch contract met negatieve uurprijzen kan dit op zonnige piekmomenten leiden tot een negatieve vergoeding (kosten om terug te leveren).
+              </span>
+            )}
+          </div>
+        </div>
+
         {/* Warmtepomp & EV Model Quick Toggle Bar */}
         <div className="border-t border-slate-200/80 pt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
           {/* Warmtepomp Selectie */}

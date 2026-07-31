@@ -575,80 +575,12 @@ export default function BatteryMarketOverview({
 
   const displayedBatteries = showAll ? filteredBatteries : filteredBatteries.slice(0, 8);
 
-  // Determine personalized hardware advice based on user's chosen contract setup
-  const getSubstantiatedAdvice = () => {
-    const isZonneplan = dynamicProvider === 'Zonneplan' && typeContract === 'Dynamisch';
-    const isTibber = dynamicProvider === 'Tibber' && typeContract === 'Dynamisch';
-    const isFrank = dynamicProvider === 'Frank' && typeContract === 'Dynamisch';
-
-    if (isZonneplan) {
-      return {
-        title: "Zonneplan Powerplay Steuring",
-        subtitle: "Hardware-opties voor jouw Zonneplan Dynamisch Contract",
-        badge: "Zonneplan Opties",
-        colorClass: "border-blue-200 bg-gradient-to-br from-blue-50/40 to-emerald-50/10",
-        iconColor: "text-blue-500",
-        recommendation: "Bij een Zonneplan dynamisch contract stuurt het algoritme de thuisbatterij aan op de onbalansmarkt (Powerplay). Hardware zoals de **Zonneplan Thuisbatterij** (all-in-one) of modulaire systemen met geschikte omvormers kunnen hiervoor worden ingezet op basis van jouw persoonlijke voorkeur.",
-        alternatives: [
-          { brand: "BYD Battery-Box", reason: "Modulair systeem met eigen hybride omvormer." },
-          { brand: "Pylontech Force H2", reason: "Uitstekend modulair alternatief met een scherpe prijs-kwaliteitverhouding." }
-        ]
-      };
-    }
-
-    if (isTibber) {
-      return {
-        title: "Tibber Smart Home Integratie",
-        subtitle: "Hardware-opties voor jouw Tibber Smart Home setup",
-        badge: "Tibber Opties",
-        colorClass: "border-emerald-200 bg-gradient-to-br from-emerald-50/30 to-blue-50/15",
-        iconColor: "text-emerald-500",
-        recommendation: "Met Tibber stuur je de batterij aan via hun open API of eigen slimme domotica (zoals Home Assistant). Voor vaste installaties wordt **Pylontech Force H2 / US5000** veel toegepast (€300-500/kWh). Voor flexibel doe-het-zelven is **Victron Energy ESS** populair, en voor plug-and-play zijn **Zendure** of **Anker** opties.",
-        alternatives: [
-          { brand: "Zendure / Anker", reason: "Stekkerklare plug-in opties met een app-koppeling voor Tibber-gebruikers." },
-          { brand: "Deye / Growatt", reason: "Scherpe modulaire budgetmerken die uitstekend communiceren met Tibber en Home Assistant." }
-        ]
-      };
-    }
-
-    if (isFrank) {
-      return {
-        title: "Frank Energie Slim Handelen",
-        subtitle: "Hardware-opties voor jouw Frank Energie EPEX-contract",
-        badge: "Frank Energie Opties",
-        colorClass: "border-purple-200 bg-gradient-to-br from-purple-50/30 to-emerald-50/15",
-        iconColor: "text-purple-500",
-        recommendation: "Frank Energie stuurt je batterij via hun 'Slim Handelen' algoritme automatisch aan op de EPEX spotmarkt. Merkcombinaties zoals **Deye SE-F16-C**, **SolaX Triple Power** of **Sessy** sluiten hierop aan dankzij hun ondersteunde communicatiemodules.",
-        alternatives: [
-          { brand: "SolaX Triple Power", reason: "Rendement dankzij lage modulaire overheadkosten." },
-          { brand: "Sessy", reason: "Nederlandse plug-and-play AC-accu met Frank Energie-sturing ingebouwd." }
-        ]
-      };
-    }
-
-    // Default or fixed/variable contract advice
-    return {
-      title: "Pylontech Force of Marstek (Plug-In)",
-      subtitle: "Hardware-opties bij een vast of variabel contract",
-      badge: "Vast/Variabel Opties",
-      colorClass: "border-slate-200 bg-gradient-to-br from-slate-50 to-blue-50/10",
-      iconColor: "text-indigo-500",
-      recommendation: "Indien je een vast of variabel contract hebt (waarop je tot 2027 nog 1:1 kunt salderen), is de financiële noodzaak voor een grote batterij kleiner. Wil je toch voorbereid zijn op de toekomst? Dan zijn er keuzes tussen:\n\n1. **Plug-and-Play**: zoals de **Marstek Venus E / Jupiter** of **Anker SOLIX** met nul installatiekosten.\n2. **Modulaire Installatie**: zoals de **Pylontech Force H2** voor een vaste huisinstallatie.",
-      alternatives: [
-        { brand: "Marstek Venus E", reason: "Lage instapdrempel vanaf ~€280/kWh, voor het afdekken van de basisbehoeften." },
-        { brand: "BYD Battery-Box", reason: "Modulair A-merk, breed ondersteund door installateurs." }
-      ]
-    };
-  };
-
-  const advice = getSubstantiatedAdvice();
-
   return (
     <div className="bg-white border border-slate-100 rounded-3xl p-6 md:p-8 space-y-8 shadow-sm mt-8" id="battery-market-overview-card">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100">
         <div>
           <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full uppercase tracking-wider inline-block mb-2">
-            Marktvergelijking &amp; Advies
+            Marktvergelijking
           </span>
           <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-2">
             <Battery className="w-5 h-5 text-blue-500" />
@@ -672,40 +604,6 @@ export default function BatteryMarketOverview({
           >
             Uitgebreide kaarten
           </button>
-        </div>
-      </div>
-
-      {/* Underpinned Advice Section */}
-      <div className={`border rounded-2xl p-6 ${advice.colorClass} relative transition-all duration-300`}>
-        <div className="absolute top-4 right-6 bg-white/80 backdrop-blur-sm shadow-sm border border-slate-100 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1">
-          <Sparkles className="w-3 h-3 text-amber-500 animate-pulse" />
-          {advice.badge}
-        </div>
-
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">{advice.subtitle}</span>
-            <h4 className="text-base font-extrabold text-slate-800 flex items-center gap-1.5">
-              <CheckCircle2 className={`w-5 h-5 ${advice.iconColor}`} />
-              Onderbouwd Keuze-Advies: <span className="text-blue-700">{advice.title}</span>
-            </h4>
-          </div>
-
-          <div className="text-xs text-slate-700 leading-relaxed max-w-4xl space-y-2 whitespace-pre-line">
-            {advice.recommendation}
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-4 pt-4 border-t border-slate-200/50">
-            {advice.alternatives.map((alt, i) => (
-              <div key={alt.brand} className="bg-white/60 rounded-xl p-3 border border-slate-100 space-y-1">
-                <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
-                  <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400 shrink-0" />
-                  Alternatief {i + 1}: {alt.brand}
-                </span>
-                <p className="text-[11px] text-slate-600 leading-normal">{alt.reason}</p>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
 

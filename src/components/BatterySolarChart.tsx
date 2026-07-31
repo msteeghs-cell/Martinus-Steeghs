@@ -173,7 +173,8 @@ export default function BatterySolarChart({
       calcResult.tech.omzettingsverliezen || 10,
       calcResult.solar.selfConsumptionBase || 30,
       calcResult.solar.absoluteSelfConsumptionBaseKwh || 0,
-      tech.dynamicProvider || 'Zonneplan'
+      tech.dynamicProvider || 'Zonneplan',
+      tech.batteryGridTrading
     );
   }, [
     calcResult.solar.annualYieldKwh, 
@@ -182,7 +183,8 @@ export default function BatterySolarChart({
     calcResult.tech.omzettingsverliezen, 
     calcResult.solar.selfConsumptionBase, 
     calcResult.solar.absoluteSelfConsumptionBaseKwh,
-    tech.dynamicProvider
+    tech.dynamicProvider,
+    tech.batteryGridTrading
   ]);
 
   const totalExtraBatteryKwh = useMemo(() => {
@@ -272,24 +274,83 @@ export default function BatterySolarChart({
         </div>
       </div>
 
+      {/* Thuisaccu Sturing Mode Toggle Control */}
+      <div className="bg-slate-50/90 border border-slate-200/80 rounded-2xl p-4 space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={tech.batteryGridTrading || false}
+                onChange={(e) => {
+                  if (setTech) setTech(prev => ({ ...prev, batteryGridTrading: e.target.checked }));
+                }}
+                className="w-4 h-4 accent-purple-600 rounded border-slate-300 cursor-pointer shrink-0"
+              />
+              <span className="font-extrabold text-slate-800 text-xs">Thuisaccu Sturing Mode:</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                if (setTech) setTech(prev => ({ ...prev, batteryGridTrading: !prev.batteryGridTrading }));
+              }}
+              className={`px-3 py-1 rounded-full font-bold transition flex items-center gap-1.5 cursor-pointer text-[11px] ${
+                tech.batteryGridTrading 
+                  ? 'bg-purple-600 text-white shadow-xs hover:bg-purple-700' 
+                  : 'bg-amber-500 text-white shadow-xs hover:bg-amber-600'
+              }`}
+            >
+              <Battery className="w-3.5 h-3.5" />
+              {tech.batteryGridTrading ? 'Slim EMS + Nethandel / Arbitrage (EPEX & Onbalans)' : '100% Zonne-focus (Alleen Zonnestroom Opslaan)'}
+            </button>
+          </div>
+          
+          <span className="text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider shrink-0 bg-white border border-slate-200 text-slate-700">
+            {tech.batteryGridTrading ? '✓ Nethandel Actief' : '✓ 100% Zonnestroom Opslag'}
+          </span>
+        </div>
+
+        <div className="text-[11px] text-slate-600 leading-relaxed bg-white/80 p-2.5 rounded-lg border border-slate-200/60 font-sans">
+          {tech.batteryGridTrading ? (
+            <span>
+              <strong className="text-purple-800">Slim EMS + Nethandel (AAN):</strong> De accu slaat zonnestroom op én handelt volautomatisch op goedkope/negatieve dynamische uurprijzen ({tech.dynamicProvider || 'Zonneplan'}). Dit levert extra handelsinkomsten op (pure arbitrage-opbrengst).
+            </span>
+          ) : (
+            <span>
+              <strong className="text-amber-800">100% Zonne-focus (UIT):</strong> De accu slaat uitsluitend eigen overtollige zonnestroom op voor eigen gebruik. Er vindt <strong className="text-rose-700">geen handel op de energiemarkt plaats (€0/jaar pure arbitrage)</strong>.
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Dynamic Smart EMS banner for all battery capacities */}
       {chartBatteryCapacity > 0 && (
-        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/80 rounded-2xl p-4 flex gap-3 items-start text-xs text-emerald-950 shadow-xs">
+        <div className={`border rounded-2xl p-4 flex gap-3 items-start text-xs shadow-xs transition-colors ${
+          tech.batteryGridTrading 
+            ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-200/80 text-emerald-950'
+            : 'bg-gradient-to-r from-amber-50 to-orange-50/60 border-amber-200/90 text-amber-950'
+        }`}>
           <span className="flex h-2.5 w-2.5 relative shrink-0 mt-1">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${tech.batteryGridTrading ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+            <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${tech.batteryGridTrading ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
           </span>
           <div className="space-y-1">
-            <span className="font-extrabold text-emerald-800 block text-xs flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600 fill-emerald-100" />
-              Smart EMS &amp; Arbitrage Simulatie ({chartBatteryCapacity} kWh)
+            <span className={`font-extrabold block text-xs flex items-center gap-1.5 ${tech.batteryGridTrading ? 'text-emerald-800' : 'text-amber-900'}`}>
+              <Sparkles className="w-3.5 h-3.5" />
+              {tech.batteryGridTrading ? `Smart EMS & Arbitrage Simulatie (${chartBatteryCapacity} kWh Accu)` : `100% Zonne-focus Simulatie (${chartBatteryCapacity} kWh Accu)`}
             </span>
-            <p className="text-[11px] text-emerald-700/95 leading-relaxed font-semibold">
-              Voor jouw <strong>{chartBatteryCapacity} kWh</strong> opstelling simuleren we een intelligent home-automatisatiesysteem (EMS) met <strong>actieve energie-arbitrage &amp; dynamic load shifting</strong> (nul-op-de-meter).
+            <p className="text-[11px] leading-relaxed font-semibold">
+              {tech.batteryGridTrading ? (
+                <>Voor jouw <strong>{chartBatteryCapacity} kWh</strong> opstelling simuleren we een intelligent home-automatisatiesysteem (EMS) met <strong>actieve energie-arbitrage &amp; dynamic load shifting</strong> (nul-op-de-meter).</>
+              ) : (
+                <>Voor jouw <strong>{chartBatteryCapacity} kWh</strong> opstelling simuleren we een <strong>100% zonne-focus</strong>. De batterij slaat alleen zonne-overschotten op. Er worden geen batterijladingen vanaf het net gedaan voor arbitrage-handel op de energiemarkt.</>
+              )}
             </p>
-            <p className="text-[10px] text-emerald-800/80 leading-relaxed font-medium">
-              In de wintermaanden en bij overcapaciteit past het model actieve net-arbitrage toe (laden bij dal- of negatieve tarieven, ontladen bij pieken) voor maximale besparing!
-            </p>
+            {tech.batteryGridTrading && (
+              <p className="text-[10px] text-emerald-800/80 leading-relaxed font-medium">
+                In de wintermaanden en bij overcapaciteit past het model actieve net-arbitrage toe (laden bij dal- of negatieve tarieven, ontladen bij pieken) voor maximale besparing!
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -507,13 +568,21 @@ export default function BatterySolarChart({
                     Winter (Nov – Feb)
                   </td>
                   <td className="p-3 font-mono text-purple-900">
-                    € {Math.round(90 * capRatio * pFactor)} – € {Math.round(120 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(105 * capRatio * pFactor)})</span>
+                    {tech.batteryGridTrading ? (
+                      <>€ {Math.round(90 * capRatio * pFactor)} – € {Math.round(120 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(105 * capRatio * pFactor)})</span></>
+                    ) : (
+                      <span className="text-slate-400 font-sans italic">€ 0 (Nethandel Uit)</span>
+                    )}
                   </td>
                   <td className="p-3 font-mono text-emerald-800">
                     € {Math.round(20 * capRatio)} – € {Math.round(40 * capRatio)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(30 * capRatio)})</span>
                   </td>
                   <td className="p-3 font-mono font-bold text-slate-900 text-right">
-                    € {Math.round(110 * capRatio * pFactor)} – € {Math.round(160 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span>
+                    {tech.batteryGridTrading ? (
+                      <>€ {Math.round(110 * capRatio * pFactor)} – € {Math.round(160 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
+                    ) : (
+                      <>€ {Math.round(20 * capRatio)} – € {Math.round(40 * capRatio)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
+                    )}
                   </td>
                 </tr>
 
@@ -522,13 +591,21 @@ export default function BatterySolarChart({
                     Lente / Herfst (Mrt, Apr, Sep, Okt)
                   </td>
                   <td className="p-3 font-mono text-purple-900">
-                    € {Math.round(70 * capRatio * pFactor)} – € {Math.round(100 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(85 * capRatio * pFactor)})</span>
+                    {tech.batteryGridTrading ? (
+                      <>€ {Math.round(70 * capRatio * pFactor)} – € {Math.round(100 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(85 * capRatio * pFactor)})</span></>
+                    ) : (
+                      <span className="text-slate-400 font-sans italic">€ 0 (Nethandel Uit)</span>
+                    )}
                   </td>
                   <td className="p-3 font-mono text-emerald-800">
                     € {Math.round(80 * capRatio)} – € {Math.round(120 * capRatio)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(100 * capRatio)})</span>
                   </td>
                   <td className="p-3 font-mono font-bold text-slate-900 text-right">
-                    € {Math.round(150 * capRatio * pFactor)} – € {Math.round(220 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span>
+                    {tech.batteryGridTrading ? (
+                      <>€ {Math.round(150 * capRatio * pFactor)} – € {Math.round(220 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
+                    ) : (
+                      <>€ {Math.round(80 * capRatio)} – € {Math.round(120 * capRatio)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
+                    )}
                   </td>
                 </tr>
 
@@ -537,21 +614,33 @@ export default function BatterySolarChart({
                     Zomer (Mei – Aug)
                   </td>
                   <td className="p-3 font-mono text-purple-900">
-                    € {Math.round(60 * capRatio * pFactor)} – € {Math.round(90 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(75 * capRatio * pFactor)})</span>
+                    {tech.batteryGridTrading ? (
+                      <>€ {Math.round(60 * capRatio * pFactor)} – € {Math.round(90 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(75 * capRatio * pFactor)})</span></>
+                    ) : (
+                      <span className="text-slate-400 font-sans italic">€ 0 (Nethandel Uit)</span>
+                    )}
                   </td>
                   <td className="p-3 font-mono text-emerald-800">
                     € {Math.round(120 * capRatio)} – € {Math.round(160 * capRatio)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(140 * capRatio)})</span>
                   </td>
                   <td className="p-3 font-mono font-bold text-slate-900 text-right">
-                    € {Math.round(180 * capRatio * pFactor)} – € {Math.round(250 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span>
+                    {tech.batteryGridTrading ? (
+                      <>€ {Math.round(180 * capRatio * pFactor)} – € {Math.round(250 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
+                    ) : (
+                      <>€ {Math.round(120 * capRatio)} – € {Math.round(160 * capRatio)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
+                    )}
                   </td>
                 </tr>
 
                 <tr className="bg-slate-100/80 text-slate-900 font-bold text-xs border-t border-slate-200">
                   <td className="p-3 uppercase tracking-wider text-slate-700">Gemiddeld per maand</td>
-                  <td className="p-3 font-mono text-purple-900">~ € {Math.round(85 * capRatio * pFactor)},- <span className="text-[10px] text-slate-500 font-normal">/ mnd</span></td>
+                  <td className="p-3 font-mono text-purple-900">
+                    {tech.batteryGridTrading ? `~ € ${Math.round(85 * capRatio * pFactor)},-` : '~ € 0,-'} <span className="text-[10px] text-slate-500 font-normal">/ mnd</span>
+                  </td>
                   <td className="p-3 font-mono text-emerald-800">~ € {Math.round(95 * capRatio)},- <span className="text-[10px] text-slate-500 font-normal">/ mnd</span></td>
-                  <td className="p-3 font-mono text-slate-900 text-right font-black">~ € {Math.round(180 * capRatio * pFactor)},- <span className="text-[10px] text-slate-500 font-normal">/ mnd</span></td>
+                  <td className="p-3 font-mono text-slate-900 text-right font-black">
+                    {tech.batteryGridTrading ? `~ € ${Math.round(180 * capRatio * pFactor)},-` : `~ € ${Math.round(95 * capRatio)},-`} <span className="text-[10px] text-slate-500 font-normal">/ mnd</span>
+                  </td>
                 </tr>
               </tbody>
             </table>

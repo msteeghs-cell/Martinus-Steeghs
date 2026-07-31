@@ -84,6 +84,8 @@ export interface TechData {
   userAnnualWp?: number; // Custom user override for annual heat pump consumption
   userAnnualLp?: number; // Custom user override for annual EV laadpaal consumption
   slimEmsOnlySolar?: boolean; // Smart EMS: charge EV only on surplus solar energy
+  batteryGridTrading?: boolean; // Smart EMS: active grid trading / arbitrage on EPEX & imbalance markets
+  pvCurtailmentMode?: boolean; // Smart EMS: automatically curtail solar inverter on negative electricity prices
 }
 
 export interface CalculatedMeasure {

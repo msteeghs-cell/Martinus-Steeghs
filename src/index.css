@@ -6,6 +6,11 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+body {
+  background-color: #faf7f2;
+  color: #1e293b;
+}
+
 /* Custom Markdown Prose Styling to avoid needing tailwind/typography plugin */
 .prose h1 {
   font-size: 1.5rem;
