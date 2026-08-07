@@ -58,7 +58,21 @@ export default function AdviceReport({
   const [emailStatusMessage, setEmailStatusMessage] = React.useState('');
 
   // Use a local state for the active tab inside AdviceReport
-  const [localActiveTab, setLocalActiveTab] = React.useState<'graph' | 'solar' | 'battery' | 'heatpump' | 'laadpaal' | 'text'>('graph');
+  const [localActiveTab, setLocalActiveTab] = React.useState<'graph' | 'solar' | 'saldering' | 'battery' | 'heatpump' | 'laadpaal' | 'text' | null>('graph');
+
+  const toggleTab = (tab: 'graph' | 'solar' | 'saldering' | 'battery' | 'heatpump' | 'laadpaal' | 'text') => {
+    if (localActiveTab === tab) {
+      setLocalActiveTab(null);
+    } else {
+      setLocalActiveTab(tab);
+      if (tab === 'graph') setActiveTab('isolatie');
+      else if (tab === 'solar') { setActiveTab('zon'); setShowSalderingDetail(false); }
+      else if (tab === 'saldering') { setActiveTab('saldering'); setShowSalderingDetail(true); }
+      else if (tab === 'battery') setActiveTab('accu');
+      else if (tab === 'heatpump') setActiveTab('warmtepomp');
+      else if (tab === 'laadpaal') setActiveTab('laadpaal');
+    }
+  };
 
   // Synchronize targetEmail from calculation when it loads/changes
   React.useEffect(() => {
@@ -112,7 +126,7 @@ export default function AdviceReport({
       calculation.solar.annualYieldKwh || 0,
       calculation.house.verbruikKwh || 3500,
       chartBatteryCapacity || 10,
-      calculation.tech.omzettingsverliezen || 10,
+      calculation.tech.omzettingsverliezen || 20,
       calculation.solar.selfConsumptionBase || 30,
       calculation.solar.absoluteSelfConsumptionBaseKwh || 0,
       calculation.tech.dynamicProvider || 'Zonneplan',
@@ -800,74 +814,74 @@ Energieplanner Peel en Maas
   const totalCombinedTvt = totalCombinedTvtNum > 0 && totalCombinedTvtNum < 99 ? `${totalCombinedTvtNum.toFixed(1)} jaar` : 'N.v.t.';
 
   return (
-    <div className="space-y-6" id="advice-report-section">
+    <div className="space-y-3.5" id="advice-report-section">
       {/* Interactieve KPI Kaarten */}
       {outerTab === 'isolatie' && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
           <button
             type="button"
             onClick={() => setShowGasModal(true)}
-            className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3 hover:border-emerald-300 hover:shadow-md transition-all text-left cursor-pointer group relative overflow-hidden"
+            className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-2.5 hover:border-emerald-300 hover:shadow-md transition-all text-left cursor-pointer group relative overflow-hidden"
             title="Klik voor gedetailleerde berekening en opbouw van de gasbesparing"
           >
             <div className="p-2 bg-emerald-50 rounded-xl text-emerald-600 group-hover:bg-emerald-100 transition-colors">
-              <TrendingDown className="w-5 h-5" />
+              <TrendingDown className="w-4 h-4" />
             </div>
             <div className="flex-1">
               <div className="flex items-center justify-between gap-1">
-                <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Besparing</span>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 group-hover:bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1 transition-colors">
-                  <Info className="w-3 h-3 text-emerald-600" /> Opbouw
+                <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Besparing</span>
+                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 group-hover:bg-emerald-100 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 transition-colors">
+                  <Info className="w-2.5 h-2.5 text-emerald-600" /> Opbouw
                 </span>
               </div>
               <div className="flex items-baseline gap-1 mt-0.5">
-                <span className="text-lg font-bold text-slate-800">
+                <span className="text-base font-extrabold text-slate-800">
                   €{Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}
                 </span>
-                <span className="text-xs text-emerald-600 font-semibold">/ jaar</span>
+                <span className="text-[11px] text-emerald-600 font-semibold">/ jaar</span>
               </div>
-              <span className="block text-[11px] text-slate-500 font-medium">
+              <span className="block text-[10px] text-slate-500 font-medium">
                 ({Math.round(calculation.measures.reduce((sum, m) => sum + m.savingM3, 0))} m³ gas)
               </span>
             </div>
           </button>
 
-          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-2.5">
             <div className="p-2 bg-orange-50 rounded-xl text-orange-600">
-              <Zap className="w-5 h-5" />
+              <Zap className="w-4 h-4" />
             </div>
             <div>
-              <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Eigen Bijdrage</span>
-              <span className="text-lg font-bold text-slate-800">
+              <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Eigen Bijdrage</span>
+              <span className="text-base font-extrabold text-slate-800">
                 €{Math.round(calculation.totals.net).toLocaleString('nl-NL')}
               </span>
               <span className="block text-[10px] text-orange-600">Netto kosten</span>
             </div>
           </div>
 
-          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-2.5">
             <div className="p-2 bg-blue-50 rounded-xl text-blue-600">
-              <Award className="w-5 h-5" />
+              <Award className="w-4 h-4" />
             </div>
             <div>
-              <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Subsidies</span>
-              <span className="text-lg font-bold text-slate-800">
+              <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Subsidies</span>
+              <span className="text-base font-extrabold text-slate-800">
                 €{Math.round(calculation.totals.isde + calculation.totals.nip).toLocaleString('nl-NL')}
               </span>
               <span className="block text-[10px] text-blue-600">ISDE + NIP</span>
             </div>
           </div>
 
-          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-2.5">
             <div className="p-2 bg-amber-50 rounded-xl text-amber-600">
-              <Zap className="w-5 h-5" />
+              <Zap className="w-4 h-4" />
             </div>
             <div>
-              <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Zonnestroom</span>
-              <span className="text-lg font-bold text-slate-800">
+              <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Zonnestroom</span>
+              <span className="text-base font-extrabold text-slate-800">
                 {Math.round(calculation.solar.annualYieldKwh)} kWh
               </span>
-              <span className="block text-[10px] text-amber-700 font-medium">
+              <span className="block text-[10px] text-amber-700 font-medium truncate">
                 {solarPanelsCount > 0
                   ? `Inv: €${Math.round(solarNetInvestment).toLocaleString('nl-NL')} • TVT: ${solarTvt > 0 ? `${solarTvt} jr` : 'N.v.t.'}`
                   : 'Geen zonnepanelen'}
@@ -880,22 +894,22 @@ Energieplanner Peel en Maas
       {/* NIP Subsidie alert panel */}
       {outerTab === 'isolatie' && (
         calculation.eligibleNip ? (
-          <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex gap-3 items-start">
-            <Award className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+          <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3 flex gap-2.5 items-start">
+            <Award className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
             <div>
-              <h4 className="text-sm font-bold text-emerald-800">NIP-Subsidie €2.900 Beschikbaar!</h4>
-              <p className="text-xs text-emerald-700/90 mt-0.5">
+              <h4 className="text-xs font-bold text-emerald-800">NIP-Subsidie €2.900 Beschikbaar!</h4>
+              <p className="text-[11px] text-emerald-700/90 mt-0.5 leading-snug">
                 Fantastisch nieuws! Je voldoet aan de criteria voor het gemeentelijke Nationaal Isolatieprogramma (NIP). 
                 De €2.900 is in de berekening hiernaast reeds in mindering gebracht op de netto eigen bijdrage.
               </p>
             </div>
           </div>
         ) : (
-          <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex gap-3 items-start">
-            <ShieldAlert className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+          <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3 flex gap-2.5 items-start">
+            <ShieldAlert className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
             <div>
-              <h4 className="text-sm font-bold text-slate-700">Geen NIP-Subsidie (€2.900) mogelijk</h4>
-              <p className="text-xs text-slate-600 mt-0.5">
+              <h4 className="text-xs font-bold text-slate-700">Geen NIP-Subsidie (€2.900) mogelijk</h4>
+              <p className="text-[11px] text-slate-600 mt-0.5 leading-snug">
                 {calculation.nipExplanation}
               </p>
             </div>
@@ -906,486 +920,331 @@ Energieplanner Peel en Maas
       {/* Advies rapportage container */}
       <div className="bg-white rounded-3xl border border-slate-100 shadow-md overflow-hidden print:border-0 print:shadow-none">
         
-        {/* Rapporthoofd: Registratiecode, Introductie & Compact Overzichtsraster */}
-        <div className="bg-slate-50 border-b border-slate-100 p-6 space-y-4">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        {/* Rapporthoofd: Registratiecode, Introductie & Acties */}
+        <div className="bg-slate-50 border-b border-slate-200/80 p-4 sm:p-5 space-y-3">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-full uppercase tracking-wider font-mono">
+                <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-100 px-2.5 py-0.5 rounded-full uppercase tracking-wider font-mono">
                   Registratiecode: {calculation.resident.registratiecode || "PM-CONCEPT"}
                 </span>
-                <span className="text-[11px] font-semibold text-slate-500 bg-white border border-slate-200 px-2.5 py-1 rounded-full">
+                <span className="text-[10px] font-semibold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full">
                   {calculation.resident.datum || new Date().toLocaleDateString('nl-NL')}
                 </span>
               </div>
-              <h2 className="text-lg font-black text-slate-800 tracking-tight mt-1.5">
+              <h2 className="text-base sm:text-lg font-black text-slate-800 tracking-tight">
                 Energieplanner Peel en Maas Adviesrapport
               </h2>
-              <p className="text-xs text-slate-600 leading-relaxed max-w-3xl">
-                Beste {calculation.resident.aanhef || ''} {calculation.resident.voorletters || ''} {calculation.resident.achternaam || ''}, bedankt voor het invullen van de Energieplanner Peel en Maas. Hierbij ontvang je jouw persoonlijke, onafhankelijke verduurzamingsadvies. Hieronder zie je de belangrijkste kerncijfers per thema in één compact overzicht:
+              <p className="text-xs text-slate-600 leading-snug max-w-3xl">
+                Beste {calculation.resident.aanhef || ''} {calculation.resident.voorletters || ''} {calculation.resident.achternaam || ''}, bedankt voor het invullen van de Energieplanner Peel en Maas. Hieronder vind je het totaalvoorstel. Klik op een thema om de details te openen.
               </p>
-            </div>
-          </div>
-
-          {/* Compact Overzichtsraster per tabblad */}
-          <div className="space-y-2.5">
-            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 px-1 print:hidden">Klik op een categorie hieronder om de gedetailleerde planner en adviezen per thema te openen:</span>
-            <div className="grid grid-cols-1 gap-2">
-              {/* 🏠 Isolatie & Financiën */}
-              <button 
-                type="button"
-                onClick={() => {
-                  setLocalActiveTab('graph');
-                  setActiveTab('isolatie');
-                }}
-                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
-                  activeTab === 'graph'
-                    ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-500/15 shadow-sm shadow-emerald-50/80'
-                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 shrink-0">
-                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">🏠</span>
-                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Isolatie &amp; Financiën</span>
-                  {activeTab === 'graph' && (
-                    <span className="bg-emerald-600 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      Actief
-                    </span>
-                  )}
-                </div>
-                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-                  <span className="leading-normal">
-                    {isoCount > 0 ? (
-                      <>
-                        <strong className="text-slate-900 font-bold">{isoCount} {isoCount === 1 ? 'maatregel' : 'maatregelen'}</strong>,{' '}
-                        <strong className="text-emerald-700 font-extrabold">€{Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}/jr</strong> ({isoSavingsM3} m³ gas),{' '}
-                        netto eigen bijdrage:{' '}
-                        <strong className="text-slate-900 font-bold">€{isoNetCosts.toLocaleString('nl-NL')}</strong>,{' '}
-                        TVT: <strong className="text-amber-600 font-bold">{isoTvt}</strong>
-                      </>
-                    ) : (
-                      <span className="text-slate-400 italic font-normal">Geen isolatiemaatregelen geselecteerd</span>
-                    )}
+              {/* Interactive Theme Status Badges */}
+              <div className="flex flex-wrap items-center gap-2 pt-1.5 print:hidden">
+                {/* 🏠 Isolatie */}
+                <button
+                  type="button"
+                  onClick={() => toggleTab('graph')}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
+                    activeTab === 'graph'
+                      ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-500/20'
+                      : 'bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100/80'
+                  }`}
+                >
+                  <span>🏠 Isolatie:</span>
+                  <span className="font-semibold">
+                    {isoCount > 0 
+                      ? `${isoCount} ${isoCount === 1 ? 'maatregel' : 'maatregelen'} (€${Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}/jr)`
+                      : '0 maatregelen'}
                   </span>
-                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'graph' ? 'rotate-45 text-emerald-600' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
-                </div>
-              </button>
+                  {activeTab === 'graph' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
+                </button>
 
-              {/* ☀️ Zonnepanelen */}
-              <button 
-                type="button"
-                onClick={() => {
-                  setLocalActiveTab('solar');
-                  setActiveTab('zon');
-                }}
-                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
-                  activeTab === 'solar' && outerTab === 'zon'
-                    ? 'bg-amber-50/70 border-amber-500 ring-2 ring-amber-500/15 shadow-sm shadow-amber-50/80'
-                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 shrink-0">
-                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">☀️</span>
-                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Zonnepanelen</span>
-                  {activeTab === 'solar' && outerTab === 'zon' && (
-                    <span className="bg-amber-500 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      Actief
-                    </span>
-                  )}
-                </div>
-                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-                  <span className="leading-normal">
-                    {solarPanels > 0 ? (
-                      <>
-                        <strong className="text-slate-900 font-bold">{solarPanels} panelen</strong> ({solarKwp} kWp),{' '}
-                        investering: <strong className="text-slate-900 font-bold">€{solarNetInvestment.toLocaleString('nl-NL')}</strong>,{' '}
-                        opbrengst: <strong className="text-amber-600 font-bold">{solarYield.toLocaleString('nl-NL')} kWh/jr</strong>,{' '}
-                        TVT: <strong className="text-amber-600 font-bold">{solarTvt > 0 && solarTvt < 99 ? `${solarTvt.toFixed(1)} jaar` : 'N.v.t.'}</strong>
-                      </>
-                    ) : (
-                      <span className="text-slate-400 italic font-normal">Geen zonnepanelen ingevoerd</span>
-                    )}
+                {/* ☀️ Zonnepanelen */}
+                <button
+                  type="button"
+                  onClick={() => toggleTab('solar')}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
+                    activeTab === 'solar'
+                      ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-500/20'
+                      : solarPanels > 0 
+                        ? 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100/80'
+                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200/60'
+                  }`}
+                >
+                  <span>☀️ Zonnepanelen:</span>
+                  <span className="font-semibold">
+                    {solarPanels > 0 
+                      ? `${solarPanels} panelen / ${solarKwp} kWp (${solarYield.toLocaleString('nl-NL')} kWh/jr)`
+                      : 'Geen zonnepanelen'}
                   </span>
-                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'solar' && outerTab === 'zon' ? 'rotate-45 text-amber-500' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
-                </div>
-              </button>
+                  {activeTab === 'solar' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
+                </button>
 
-              {/* 🔋 Thuisbatterij */}
-              <button 
-                type="button"
-                onClick={() => {
-                  setLocalActiveTab('battery');
-                  setActiveTab('accu');
-                }}
-                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
-                  activeTab === 'battery'
-                    ? 'bg-blue-50/70 border-blue-500 ring-2 ring-blue-500/15 shadow-sm shadow-blue-50/80'
-                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 shrink-0">
-                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">🔋</span>
-                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Thuisbatterij</span>
-                  {activeTab === 'battery' && (
-                    <span className="bg-blue-600 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      Actief
-                    </span>
-                  )}
-                </div>
-                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-                  <span className="leading-normal">
-                    capaciteit: <strong className="text-slate-900 font-semibold">{batCapacity > 0 ? `${batCapacity} kWh` : (batteryOpt ? `${batteryOpt.capacityKwh} kWh` : '10 kWh')}</strong>,{' '}
-                    investering: <strong className="text-blue-600 font-bold">€{Math.round(batteryNetInvestment).toLocaleString('nl-NL')}</strong>,{' '}
-                    jaarbesparing: <strong className="text-emerald-700 font-bold">€{batSavings.toLocaleString('nl-NL')}</strong>,{' '}
-                    TVT: <strong className="text-blue-600 font-bold">{batTvt}</strong>
+                {/* 🔋 Thuisbatterij */}
+                <button
+                  type="button"
+                  onClick={() => toggleTab('battery')}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
+                    activeTab === 'battery'
+                      ? 'bg-blue-600 text-white border-blue-700 shadow-xs ring-2 ring-blue-500/20'
+                      : batCapacity > 0
+                        ? 'bg-blue-50 text-blue-900 border-blue-200 hover:bg-blue-100/80'
+                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200/60'
+                  }`}
+                >
+                  <span>🔋 Thuisbatterij:</span>
+                  <span className="font-semibold">
+                    {batCapacity > 0 
+                      ? `${batCapacity} kWh (€${batSavings.toLocaleString('nl-NL')}/jr)`
+                      : 'Geen thuisbatterij'}
                   </span>
-                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'battery' ? 'rotate-45 text-blue-500' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
-                </div>
-              </button>
+                  {activeTab === 'battery' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
+                </button>
 
-              {/* ⚖️ Saldering */}
-              <button 
-                type="button"
-                onClick={() => {
-                  setLocalActiveTab('solar');
-                  setActiveTab('saldering');
-                }}
-                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
-                  activeTab === 'solar' && outerTab === 'saldering'
-                    ? 'bg-teal-50/70 border-teal-500 ring-2 ring-teal-500/15 shadow-sm shadow-teal-50/80'
-                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 shrink-0">
-                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">⚖️</span>
-                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Saldering</span>
-                  {activeTab === 'solar' && outerTab === 'saldering' && (
-                    <span className="bg-teal-600 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      Actief
-                    </span>
-                  )}
-                </div>
-                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-                  <span className="leading-normal">
-                    contractvorm: <strong className="text-slate-900 font-semibold">{salderingContract}</strong>,{' '}
-                    effect afschaffing saldering: <strong className="text-rose-600 font-bold">€{salderingLoss.toLocaleString('nl-NL')} / jr extra kosten</strong>
+                {/* ♨️ Warmtepomp */}
+                <button
+                  type="button"
+                  onClick={() => toggleTab('heatpump')}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
+                    activeTab === 'heatpump'
+                      ? 'bg-orange-600 text-white border-orange-700 shadow-xs ring-2 ring-orange-500/20'
+                      : calculation.house?.verwarming !== 'CV-ketel' && calculation.house?.verwarming !== 'Geen / Overig'
+                        ? 'bg-orange-50 text-orange-900 border-orange-200 hover:bg-orange-100/80'
+                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200/60'
+                  }`}
+                >
+                  <span>♨️ Warmtepomp:</span>
+                  <span className="font-semibold">
+                    {calculation.house?.verwarming === 'CV-ketel' || calculation.house?.verwarming === 'Geen / Overig' 
+                      ? 'CV-ketel'
+                      : `${wpType} (${wpSize})`}
                   </span>
-                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'solar' && outerTab === 'saldering' ? 'rotate-45 text-teal-600' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
-                </div>
-              </button>
+                  {activeTab === 'heatpump' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
+                </button>
 
-              {/* ♨️ Warmtepomp */}
-              <button 
-                type="button"
-                onClick={() => {
-                  setLocalActiveTab('heatpump');
-                  setActiveTab('warmtepomp');
-                }}
-                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
-                  activeTab === 'heatpump'
-                    ? 'bg-orange-50/70 border-orange-500 ring-2 ring-orange-500/15 shadow-sm shadow-orange-50/80'
-                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 shrink-0">
-                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">♨️</span>
-                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Warmtepomp</span>
-                  {activeTab === 'heatpump' && (
-                    <span className="bg-orange-500 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      Actief
-                    </span>
-                  )}
-                </div>
-                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-                  <span className="leading-normal">
-                    type: <strong className="text-slate-900 font-semibold">{wpType} ({wpSize})</strong>,{' '}
-                    investering: <strong className="text-orange-600 font-bold">€{Math.round(chosenOpt?.netInvestment || 0).toLocaleString('nl-NL')}</strong>,{' '}
-                    advies: <strong className={`${wpAdvice === 'Zinvol / Geadviseerd' ? 'text-emerald-600' : wpAdvice === 'Eerst isoleren' ? 'text-amber-600' : 'text-slate-600'} font-semibold`}>{wpAdvice}</strong>,{' '}
-                    TVT: <strong className="text-orange-600 font-bold">{wpTvt}</strong>
+                {/* 🚗 EV / Laadpaal */}
+                <button
+                  type="button"
+                  onClick={() => toggleTab('laadpaal')}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
+                    activeTab === 'laadpaal'
+                      ? 'bg-purple-600 text-white border-purple-700 shadow-xs ring-2 ring-purple-500/20'
+                      : calculation.tech?.evKilometers
+                        ? 'bg-purple-50 text-purple-900 border-purple-200 hover:bg-purple-100/80'
+                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200/60'
+                  }`}
+                >
+                  <span>🚗 EV / Laadpaal:</span>
+                  <span className="font-semibold">
+                    {calculation.tech?.evKilometers 
+                      ? `${calculation.tech.evKilometers.toLocaleString('nl-NL')} km/jr`
+                      : 'Geen EV'}
                   </span>
-                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'heatpump' ? 'rotate-45 text-orange-500' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
-                </div>
-              </button>
+                  {activeTab === 'laadpaal' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
+                </button>
 
-              {/* 🚗 Laadpaal */}
-              <button 
-                type="button"
-                onClick={() => {
-                  setLocalActiveTab('laadpaal');
-                  setActiveTab('laadpaal');
-                }}
-                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
-                  activeTab === 'laadpaal'
-                    ? 'bg-emerald-50/70 border-emerald-600 ring-2 ring-emerald-600/15 shadow-sm shadow-emerald-50/80'
-                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 shrink-0">
-                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">🚗</span>
-                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Eigen Laadpaal</span>
-                  {activeTab === 'laadpaal' && (
-                    <span className="bg-emerald-700 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      Actief
-                    </span>
-                  )}
-                </div>
-                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-                  <span className="leading-normal">
-                    {calculation.tech.evKilometers ? (
-                      <>
-                        investering: <strong className="text-slate-900 font-bold">€{(calculation.laadpaal?.netInvestmentEuro ?? 1200).toLocaleString('nl-NL')}</strong>,{' '}
-                        voordeel: <strong className="text-emerald-600 font-bold">€{totalEvBenefit.toLocaleString('nl-NL')} / jr</strong> <span className="text-[10px] text-slate-400 font-normal">(incl. vergoeding €{(evVol * 0.12).toFixed(0)}/jr)</span>,{' '}
-                        TVT: <strong className="text-emerald-700 font-bold">{(calculation.laadpaal?.tvt ?? 1.8).toFixed(1)} jaar</strong>
-                      </>
-                    ) : (
-                      <span className="text-slate-400 italic font-normal">Geen elektrische auto ingevoerd</span>
-                    )}
-                  </span>
-                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'laadpaal' ? 'rotate-45 text-emerald-600' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
-                </div>
-              </button>
+                {/* ⚖️ Saldering */}
+                <button
+                  type="button"
+                  onClick={() => toggleTab('saldering')}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
+                    activeTab === 'saldering'
+                      ? 'bg-teal-600 text-white border-teal-700 shadow-xs ring-2 ring-teal-500/20'
+                      : 'bg-teal-50 text-teal-900 border-teal-200 hover:bg-teal-100/80'
+                  }`}
+                >
+                  <span>⚖️ Saldering:</span>
+                  <span className="font-semibold">{salderingContract}</span>
+                  {activeTab === 'saldering' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
+                </button>
 
-              {/* 🌟 Subtle & Compact Totaalvoorstel Alle Maatregelen Samen */}
-              <div className="bg-slate-50/90 border border-slate-200/90 rounded-xl p-3.5 space-y-2 shadow-2xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span className="font-extrabold text-xs text-slate-800 tracking-tight">Totaalvoorstel Verduurzaming</span>
-                    <span className="bg-emerald-100 text-emerald-800 text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      Alle Maatregelen Samen
-                    </span>
-                  </div>
-                  {totalCombinedSubsidies > 0 && (
-                    <span className="text-[11px] font-bold font-mono text-blue-700 bg-blue-50 border border-blue-200/80 px-2 py-0.5 rounded-md">
-                      € {totalCombinedSubsidies.toLocaleString('nl-NL')} Subsidie
-                    </span>
-                  )}
-                </div>
-
-                <div className="text-slate-600 font-medium text-xs leading-normal">
-                  investering: <strong className="text-slate-900 font-bold">€{totalCombinedNetInvestment.toLocaleString('nl-NL')}</strong>,{' '}
-                  totale jaarbesparing: <strong className="text-emerald-700 font-extrabold">€{totalCombinedSavingsPerYear.toLocaleString('nl-NL')}/jr</strong>,{' '}
-                  gemiddelde TVT: <strong className="text-amber-600 font-bold">{totalCombinedTvt}</strong>,{' '}
-                  rendement: <strong className="text-blue-600 font-bold">{totalCombinedNetInvestment > 0 ? `${((totalCombinedSavingsPerYear / totalCombinedNetInvestment) * 100).toFixed(1)}%` : '0%'}</strong>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] text-slate-500 border-t border-slate-200/80">
-                  {hasIso && (
-                    <span className="bg-white border border-emerald-200 text-emerald-800 px-2 py-0.5 rounded-md font-medium">
-                      🏠 Isolatie (€{isoNetCosts.toLocaleString('nl-NL')})
-                    </span>
-                  )}
-                  {hasSolar && (
-                    <span className="bg-white border border-amber-200 text-amber-800 px-2 py-0.5 rounded-md font-medium">
-                      ☀️ Zonnepanelen (€{solarNetInvestment.toLocaleString('nl-NL')})
-                    </span>
-                  )}
-                  {hasBat && (
-                    <span className="bg-white border border-blue-200 text-blue-800 px-2 py-0.5 rounded-md font-medium">
-                      🔋 Thuisbatterij (€{batteryNetInvestment.toLocaleString('nl-NL')})
-                    </span>
-                  )}
-                  {hasWp && (
-                    <span className="bg-white border border-orange-200 text-orange-800 px-2 py-0.5 rounded-md font-medium">
-                      ♨️ Warmtepomp (€{Math.round(chosenOpt?.netInvestment || 0).toLocaleString('nl-NL')})
-                    </span>
-                  )}
-                  {hasEv && (
-                    <span className="bg-white border border-purple-200 text-purple-800 px-2 py-0.5 rounded-md font-medium">
-                      🚗 Laadpaal (€{(calculation.laadpaal?.netInvestmentEuro ?? 1200).toLocaleString('nl-NL')})
-                    </span>
-                  )}
-                  {!hasIso && !hasSolar && !hasBat && !hasWp && !hasEv && (
-                    <span className="text-slate-400 italic">Selecteer maatregelen om te combineren</span>
-                  )}
-                </div>
+                {/* 📄 AI Adviesrapport */}
+                <button
+                  type="button"
+                  onClick={() => toggleTab('text')}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
+                    activeTab === 'text'
+                      ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs ring-2 ring-indigo-500/20'
+                      : 'bg-indigo-50 text-indigo-900 border-indigo-200 hover:bg-indigo-100/80'
+                  }`}
+                >
+                  <span>📄 AI Adviesrapport</span>
+                  {activeTab === 'text' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
+                </button>
               </div>
+            </div>
 
-              {/* 📄 Advies Rapport (AI) */}
-              <button 
-                type="button"
-                onClick={() => {
-                  setLocalActiveTab('text');
-                }}
-                className={`w-full text-left p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 group ${
-                  activeTab === 'text'
-                    ? 'bg-indigo-50/70 border-indigo-500 ring-2 ring-indigo-500/15 shadow-sm shadow-indigo-50/80'
-                    : 'bg-white border-slate-200/80 hover:bg-slate-50/60 hover:border-slate-300'
-                }`}
+            {/* Print, Email, Copy action buttons */}
+            <div className="flex flex-wrap items-center gap-2 print:hidden shrink-0">
+              <button
+                onClick={handlePrint}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 active:bg-slate-100 transition shadow-xs cursor-pointer"
+                id="print-report-btn"
               >
-                <div className="flex items-center gap-2.5 shrink-0">
-                  <span className="text-base shrink-0 group-hover:scale-110 transition duration-150">📄</span>
-                  <span className="font-extrabold text-xs text-slate-800 tracking-tight">Gepersonaliseerd AI Adviesrapport</span>
-                  {activeTab === 'text' && (
-                    <span className="bg-indigo-600 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                      Actief
-                    </span>
-                  )}
-                </div>
-                <div className="text-slate-600 font-medium text-xs sm:text-right flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-                  <span className="leading-normal">
-                    {adviceMarkdown ? (
-                      <span className="text-emerald-600 font-semibold">✓ Rapport gegenereerd door AI</span>
-                    ) : (
-                      <span className="text-slate-400 italic font-normal">Rapport wordt geladen...</span>
-                    )}
-                  </span>
-                  <ArrowUpRight className={`w-4 h-4 shrink-0 transition-all duration-200 print:hidden ${activeTab === 'text' ? 'rotate-45 text-indigo-500' : 'text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5'}`} />
-                </div>
+                <Printer className="w-3.5 h-3.5" />
+                <span>Afdrukken / PDF</span>
               </button>
+
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setIsEmailModalOpen(!isEmailModalOpen);
+                    setEmailStatus('idle');
+                    setEmailStatusMessage('');
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition shadow-xs cursor-pointer ${
+                    isEmailModalOpen 
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-bold' 
+                      : 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50'
+                  }`}
+                  id="mail-report-btn"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>Mail Advies</span>
+                </button>
+
+                {isEmailModalOpen && (
+                  <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-150 rounded-2xl shadow-xl z-50 p-4 space-y-3 animate-fadeIn" id="email-popover" style={{ transformOrigin: 'top right' }}>
+                    <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                      <span className="text-xs font-bold text-slate-700">Adviesrapport mailen</span>
+                      <button 
+                        type="button"
+                        onClick={() => setIsEmailModalOpen(false)}
+                        className="text-slate-400 hover:text-slate-600 text-xs font-medium cursor-pointer"
+                      >
+                        Sluiten
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">E-mailadres van de klant</label>
+                      <input
+                        type="email"
+                        value={targetEmail}
+                        onChange={(e) => setTargetEmail(e.target.value)}
+                        placeholder="bijv. klant@example.nl"
+                        className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 font-medium bg-slate-50/50 focus:bg-white transition"
+                      />
+                    </div>
+
+                    {emailStatusMessage && (
+                      <div className={`p-2.5 rounded-xl text-[11px] leading-relaxed border ${
+                        emailStatus === 'success' 
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-100' 
+                          : 'bg-rose-50 text-rose-800 border-rose-100'
+                      }`}>
+                        {emailStatusMessage}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <button
+                        type="button"
+                        disabled={sendingEmail}
+                        onClick={handleSendEmail}
+                        className="flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:bg-slate-200 disabled:cursor-not-allowed text-white text-xs font-bold py-2 px-3 rounded-xl transition shadow-xs cursor-pointer"
+                      >
+                        {sendingEmail ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Mailing...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-3.5 h-3.5" />
+                            <span>Direct Mailen</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleMailto}
+                        className="flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition cursor-pointer"
+                        title="Open in je eigen e-mailprogramma"
+                      >
+                        <Mail className="w-3.5 h-3.5" />
+                        <span>Eigen Mailer</span>
+                      </button>
+                    </div>
+
+                    <p className="text-[9px] text-slate-400 leading-normal text-center">
+                      Stuurt direct een mail met de berekeningen en de AI samenvatting naar de klant.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Selected Tab Header & Action Bar */}
-        <div className="bg-slate-50/50 border-y border-slate-100 px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 print:hidden">
-          <div className="flex items-center gap-2">
-            <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${
-              activeTab === 'graph' ? 'bg-emerald-500' :
-              activeTab === 'solar' && outerTab === 'zon' ? 'bg-amber-500' :
-              activeTab === 'solar' && outerTab === 'saldering' ? 'bg-teal-500' :
-              activeTab === 'battery' ? 'bg-blue-500' :
-              activeTab === 'heatpump' ? 'bg-orange-500' :
-              activeTab === 'laadpaal' ? 'bg-emerald-600' :
-              'bg-indigo-500'
-            }`}></div>
-            <span className="text-xs font-black text-slate-700 uppercase tracking-wider font-sans">
-              Geselecteerd Detail: {
-                activeTab === 'graph' ? 'Isolatie & Financiële Planner' :
-                activeTab === 'solar' && outerTab === 'zon' ? 'Zonnepanelen' :
-                activeTab === 'solar' && outerTab === 'saldering' ? 'Saldering & Netto-teruglevering' :
-                activeTab === 'battery' ? 'Thuisbatterij & Arbitrage' :
-                activeTab === 'heatpump' ? 'Warmtepomp & Rendement' :
-                activeTab === 'laadpaal' ? 'Eigen Laadpaal & EV' :
-                'AI Adviesrapport'
-              }
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {activeTab === 'text' && adviceMarkdown && (
-              <button
-                onClick={handleCopy}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 active:bg-slate-100 transition shadow-sm cursor-pointer"
-                id="copy-report-btn"
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-500" />
-                    <span>Gekopieerd!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Kopiëren</span>
-                  </>
-                )}
-              </button>
-            )}
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 active:bg-slate-100 transition shadow-sm cursor-pointer"
-              id="print-report-btn"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Afdrukken / PDF</span>
-            </button>
-
-            {/* Email send widget */}
-            <div className="relative">
-              <button
-                onClick={() => {
-                  setIsEmailModalOpen(!isEmailModalOpen);
-                  setEmailStatus('idle');
-                  setEmailStatusMessage('');
-                }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition shadow-sm cursor-pointer ${
-                  isEmailModalOpen 
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-bold' 
-                    : 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50'
-                }`}
-                id="mail-report-btn"
-              >
-                <Mail className="w-3.5 h-3.5" />
-                <span>Mail Advies</span>
-              </button>
-
-              {isEmailModalOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-150 rounded-2xl shadow-xl z-50 p-4 space-y-3 animate-fadeIn" id="email-popover" style={{ transformOrigin: 'top right' }}>
-                  <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-                    <span className="text-xs font-bold text-slate-700">Adviesrapport mailen</span>
-                    <button 
-                      type="button"
-                      onClick={() => setIsEmailModalOpen(false)}
-                      className="text-slate-400 hover:text-slate-600 text-xs font-medium cursor-pointer"
-                    >
-                      Sluiten
-                    </button>
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">E-mailadres van de klant</label>
-                    <input
-                      type="email"
-                      value={targetEmail}
-                      onChange={(e) => setTargetEmail(e.target.value)}
-                      placeholder="bijv. klant@example.nl"
-                      className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 font-medium bg-slate-50/50 focus:bg-white transition"
-                    />
-                  </div>
-
-                  {emailStatusMessage && (
-                    <div className={`p-2.5 rounded-xl text-[11px] leading-relaxed border ${
-                      emailStatus === 'success' 
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-100' 
-                        : 'bg-rose-50 text-rose-800 border-rose-100'
-                    }`}>
-                      {emailStatusMessage}
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <button
-                      type="button"
-                      disabled={sendingEmail}
-                      onClick={handleSendEmail}
-                      className="flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:bg-slate-200 disabled:cursor-not-allowed text-white text-xs font-bold py-2 px-3 rounded-xl transition shadow-sm cursor-pointer"
-                    >
-                      {sendingEmail ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Mailing...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-3.5 h-3.5" />
-                          <span>Direct Mailen</span>
-                        </>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleMailto}
-                      className="flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition cursor-pointer"
-                      title="Open in je eigen e-mailprogramma"
-                    >
-                      <Mail className="w-3.5 h-3.5" />
-                      <span>Eigen Mailer</span>
-                    </button>
-                  </div>
-
-                  <p className="text-[9px] text-slate-400 leading-normal text-center">
-                    Stuurt direct een mail met de berekeningen en de AI samenvatting naar de klant.
-                  </p>
-                </div>
+          {/* Totaalvoorstel Verduurzaming Card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="font-extrabold text-sm text-slate-900 tracking-tight">Totaalvoorstel Verduurzaming</span>
+                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                  Alle Maatregelen Samen
+                </span>
+              </div>
+              {totalCombinedSubsidies > 0 && (
+                <span className="text-xs font-bold font-mono text-blue-700 bg-blue-50 border border-blue-200/80 px-2.5 py-0.5 rounded-md self-start sm:self-auto">
+                  € {totalCombinedSubsidies.toLocaleString('nl-NL')} Subsidie
+                </span>
               )}
             </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50/80 border border-slate-150 p-3 rounded-xl text-xs font-medium">
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Netto Investering</span>
+                <strong className="text-slate-900 font-extrabold text-sm">€{totalCombinedNetInvestment.toLocaleString('nl-NL')}</strong>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Totale Jaarbesparing</span>
+                <strong className="text-emerald-700 font-extrabold text-sm">€{totalCombinedSavingsPerYear.toLocaleString('nl-NL')}/jr</strong>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Gemiddelde TVT</span>
+                <strong className="text-amber-600 font-extrabold text-sm">{totalCombinedTvt}</strong>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Rendement</span>
+                <strong className="text-blue-600 font-extrabold text-sm">{totalCombinedNetInvestment > 0 ? `${((totalCombinedSavingsPerYear / totalCombinedNetInvestment) * 100).toFixed(1)}%` : '0%'}</strong>
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* Geopend detail indicator banner */}
+        {activeTab !== null && (
+          <div className="mx-4 sm:mx-5 mb-2 p-3 bg-slate-100/90 border border-slate-200 rounded-xl flex items-center justify-between text-xs font-bold text-slate-700 print:hidden">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>
+                Geopend detail: {
+                  activeTab === 'graph' ? '🏠 Isolatie & Financiële Planner' :
+                  activeTab === 'solar' ? '☀️ Zonnepanelen' :
+                  activeTab === 'saldering' ? '⚖️ Saldering & Netto-teruglevering' :
+                  activeTab === 'battery' ? '🔋 Thuisbatterij & Arbitrage' :
+                  activeTab === 'heatpump' ? '♨️ Warmtepomp & Rendement' :
+                  activeTab === 'laadpaal' ? '🚗 Eigen Laadpaal & EV' :
+                  '📄 AI Adviesrapport'
+                }
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLocalActiveTab(null)}
+              className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 transition cursor-pointer"
+            >
+              Details sluiten ✕
+            </button>
+          </div>
+        )}
 
         {/* Tab Content 1: Graphical Overview */}
         {activeTab === 'graph' && (
-          <div className="p-6 md:p-8 space-y-8 animate-fadeIn" id="graphical-dashboard">
+          <div className="p-4 sm:p-5 space-y-4 animate-fadeIn" id="graphical-dashboard">
             
             {/* Visual Intro explaining the financials */}
             <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-5 md:p-6 grid md:grid-cols-3 gap-6 items-center">
@@ -1697,7 +1556,7 @@ Energieplanner Peel en Maas
 
         {/* Tab Content 2: Zonnepanelen & Saldering */}
         {activeTab === 'solar' && (
-          <div className="p-6 md:p-8 space-y-8 animate-fadeIn" id="solar-dashboard">
+          <div className="p-4 sm:p-5 space-y-4 animate-fadeIn" id="solar-dashboard">
             <div className="border-b border-slate-100 pb-5">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <Sun className="w-5 h-5 text-amber-500" />
@@ -2069,7 +1928,7 @@ Energieplanner Peel en Maas
 
         {/* Tab Content 3: Thuisbatterij */}
         {activeTab === 'battery' && (
-          <div className="p-6 md:p-8 space-y-8 animate-fadeIn" id="battery-dashboard">
+          <div className="p-4 sm:p-5 space-y-4 animate-fadeIn" id="battery-dashboard">
             <div className="border-b border-slate-100 pb-5">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <Battery className="w-5 h-5 text-blue-500" />
@@ -2085,7 +1944,7 @@ Energieplanner Peel en Maas
               <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex gap-3 items-start text-xs">
                 <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" id="battery-not-configured-alert" />
                 <div>
-                  <span className="font-bold text-amber-800 block">Geen actieve thuisaccu ingesteld</span>
+                  <span className="font-bold text-amber-800 block">Geen thuisbatterij ingesteld</span>
                   <p className="text-[11px] text-amber-700/90 mt-0.5 leading-relaxed">
                     Je hebt links bij de installatiegegevens momenteel 0 kWh ingesteld. Hieronder vind je de vergelijkingstabel en analyse van de verschillende capaciteiten, zodat je kunt zien welke optie het beste bij jouw woning in Peel en Maas past. Je kunt links altijd een capaciteit invullen om je hoofdrapport direct te updaten!
                   </p>
@@ -2338,7 +2197,7 @@ Energieplanner Peel en Maas
 
         {/* Tab Content 4: Warmtepomp */}
         {activeTab === 'heatpump' && (
-          <div className="p-6 md:p-8 space-y-8 animate-fadeIn" id="heatpump-dashboard">
+          <div className="p-4 sm:p-5 space-y-4 animate-fadeIn" id="heatpump-dashboard">
             <div className="border-b border-slate-100 pb-5">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <Flame className="w-5 h-5 text-orange-500" />
@@ -2348,6 +2207,29 @@ Energieplanner Peel en Maas
                 Gedetailleerde analyse van de financiële en technische haalbaarheid voor een <strong>Hybride</strong> of <strong>All-Electric</strong> warmtepomp op basis van je resterende gasverbruik van <strong>{Math.round(calculation.heatpump.remainingGasM3)} m³</strong>.
               </p>
             </div>
+
+            {/* Current Config Status Alert for Warmtepomp */}
+            {calculation.house?.verwarming === 'CV-ketel' || calculation.house?.verwarming === 'Geen / Overig' ? (
+              <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 flex gap-3 items-start text-xs shadow-2xs">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-amber-900 block">Geen warmtepomp ingevoerd</span>
+                  <p className="text-[11px] text-amber-800/90 mt-0.5 leading-relaxed">
+                    In je huidige instellingen staat de verwarming op een traditionele CV-ketel op gas. Hieronder vind je de doorberekening en vergelijking van een Hybride of All-Electric warmtepomp voor jouw woning in Peel en Maas, zodat je kunt zien hoeveel gas en geld je hiermee kunt besparen.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-emerald-50 border border-emerald-200/80 rounded-2xl p-4 flex gap-3 items-start text-xs shadow-2xs">
+                <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-emerald-900 block">Warmtepomp geconfigureerd: {calculation.house?.verwarming}</span>
+                  <p className="text-[11px] text-emerald-800/90 mt-0.5 leading-relaxed">
+                    Jouw woning is geconfigureerd met een {calculation.house?.verwarming}. Bekijk hieronder het verwachte rendement, de ISDE-subsidie en de vergelijking tussen hybride en all-electric.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* General Suitability Banner */}
             <div className="grid md:grid-cols-3 gap-6 items-stretch">
@@ -2617,7 +2499,7 @@ Energieplanner Peel en Maas
 
         {/* Tab Content 5: Dedicated Laadpaal results */}
         {activeTab === 'laadpaal' && (
-          <div className="p-8 print:p-0 space-y-6">
+          <div className="p-4 sm:p-5 print:p-0 space-y-4">
             <div className="bg-emerald-50/40 border border-emerald-100 rounded-3xl p-6 space-y-6 shadow-sm animate-fadeIn">
               <div className="flex items-center gap-2 pb-2 border-b border-emerald-100/60">
                 <Zap className="w-5 h-5 text-emerald-600 animate-pulse" />
@@ -2697,7 +2579,7 @@ Energieplanner Peel en Maas
 
         {/* Tab Content 6: Original Text-based advice markdown */}
         {activeTab === 'text' && (
-          <div className="p-8 print:p-0 space-y-6">
+          <div className="p-4 sm:p-5 print:p-0 space-y-4">
             {adviceMarkdown ? (
               <div className="prose prose-slate max-w-none prose-p:text-slate-600 prose-p:leading-relaxed prose-headings:font-bold prose-headings:text-slate-800 prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg" id="markdown-viewer">
                 <ReactMarkdown
@@ -2752,7 +2634,6 @@ Energieplanner Peel en Maas
             )}
           </div>
         )}
-
       </div>
 
       {/* Gasbesparing Opbouw Modal */}
@@ -2804,7 +2685,7 @@ Energieplanner Peel en Maas
                   € {Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}
                 </span>
                 <span className="text-[11px] text-slate-500 font-medium block">
-                  à € {(calculation.house.gasPrijs || 1.30).toFixed(2)} / m³
+                  à € {(calculation.house.gasPrijs || 1.50).toFixed(2)} / m³
                 </span>
               </div>
 
@@ -2855,7 +2736,7 @@ Energieplanner Peel en Maas
                               {Math.round(m.savingM3)} m³
                             </td>
                             <td className="p-3 text-right font-mono text-slate-500">
-                              € {(calculation.house.gasPrijs || 1.30).toFixed(2)}
+                              € {(calculation.house.gasPrijs || 1.50).toFixed(2)}
                             </td>
                             <td className="p-3 text-right font-mono font-bold text-emerald-600">
                               € {Math.round(m.savingEuro).toLocaleString('nl-NL')}
@@ -2879,7 +2760,7 @@ Energieplanner Peel en Maas
                           {Math.round(calculation.measures.reduce((sum, m) => sum + m.savingM3, 0))} m³
                         </td>
                         <td className="p-3 text-right font-mono text-slate-500 text-xs font-normal">
-                          € {(calculation.house.gasPrijs || 1.30).toFixed(2)}/m³
+                          € {(calculation.house.gasPrijs || 1.50).toFixed(2)}/m³
                         </td>
                         <td className="p-3 text-right font-mono text-emerald-700 text-sm">
                           € {Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}

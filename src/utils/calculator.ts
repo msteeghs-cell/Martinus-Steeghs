@@ -198,10 +198,11 @@ export function calculateAll(
   const { verbruikM3, woonoppervlakte, bouwjaar, stookgedragOverride, gasPrijs } = house;
 
   if (aantalPersonen > 0 && verbruikM3 > 0 && woonoppervlakte > 0 && bouwjaar > 0) {
-    let normFactor = 18;
-    if (bouwjaar >= 1975 && bouwjaar <= 1991) normFactor = 15;
-    else if (bouwjaar >= 1992 && bouwjaar <= 2005) normFactor = 12;
-    else if (bouwjaar > 2005) normFactor = 9;
+    let normFactor = 11;
+    if (bouwjaar >= 1975 && bouwjaar <= 1991) normFactor = 9;
+    else if (bouwjaar >= 1992 && bouwjaar <= 2005) normFactor = 6.5;
+    else if (bouwjaar >= 2006 && bouwjaar <= 2015) normFactor = 4.5;
+    else if (bouwjaar > 2015) normFactor = 2.5;
 
     const verwachtVerwarmingsGas = DeNormalizeOpp(woonoppervlakte) * normFactor;
     const tapwaterGas = aantalPersonen * 100;
@@ -617,16 +618,16 @@ export function calculateAll(
     const optContractSavingsVast = Math.max(0, optSavingsVastWithBattery - savingsVastBase);
 
     // Dynamisch contract (arbitrage trading on imbalances & peak shaving)
-    let arbitragePerKwh = 55;
+    let arbitragePerKwh = 55 * 0.45;
     const provider = tech.dynamicProvider || 'Zonneplan';
     if (provider === 'Zonneplan') {
-      arbitragePerKwh = 85; // Powerplay onbalansopbrengst per kWh accu
+      arbitragePerKwh = 85 * 0.45; // Powerplay onbalansopbrengst per kWh accu (45% van oorspronkelijk)
     } else if (provider === 'Frank') {
-      arbitragePerKwh = 70; // Slim Handelen EPEX-arbitrage
+      arbitragePerKwh = 70 * 0.45; // Slim Handelen EPEX-arbitrage
     } else if (provider === 'Tibber') {
-      arbitragePerKwh = 65; // Smart API arbitrage/Bliq/Home Assistant
+      arbitragePerKwh = 65 * 0.45; // Smart API arbitrage/Bliq/Home Assistant
     } else if (provider === 'Anwb') {
-      arbitragePerKwh = 60; // EV Slim laden & basis arbitrage
+      arbitragePerKwh = 60 * 0.45; // EV Slim laden & basis arbitrage
     }
     const arbitrageYield = tech.batteryGridTrading ? cap * arbitragePerKwh : 0;
     const optSavingsDynamischWithBattery = (optAbsSelfConsumptionKwh * updatedHouse.elektraPrijs) + (optGridFeedKwh * returnRateDynamisch);
@@ -1055,7 +1056,7 @@ export function getBatterySimulationData(
   if (capacity > 0 && annualSolar > 0) {
     const r = capacity / avgDailyProductionKwh;
     const rawIncrease = 40 * (1 - Math.exp(-0.7 * r));
-    efficiencyIncrease = rawIncrease * (1 - (omzettingsverliezen || 10) / 100);
+    efficiencyIncrease = rawIncrease * (1 - (omzettingsverliezen || 20) / 100);
   }
   const targetSelfConsumptionWithBattery = Math.min(100, (selfConsumptionBase || 30) + efficiencyIncrease);
   const targetDirectWithBatteryY = (annualSolar * targetSelfConsumptionWithBattery) / 100;
@@ -1064,13 +1065,15 @@ export function getBatterySimulationData(
   const sumBatteryAdditionM = rawMonthsData.reduce((acc, d) => acc + (d.directWithBatteryM - d.directBaseM), 0);
   const additionScale = sumBatteryAdditionM > 0 ? targetBatteryAdditionY / sumBatteryAdditionM : 1;
 
-  // Provider factor for dynamic contract trading yield
-  let providerFactor = 1.0;
-  if (dynamicProvider === 'Frank') providerFactor = 0.85;
-  else if (dynamicProvider === 'Tibber') providerFactor = 0.80;
-  else if (dynamicProvider === 'Anwb') providerFactor = 0.72;
+  // Provider rate per kWh capacity for dynamic contract trading yield
+  const provider = dynamicProvider || 'Zonneplan';
+  let ratePerKwh = 24.75;
+  if (provider === 'Zonneplan') ratePerKwh = 38.25;
+  else if (provider === 'Frank') ratePerKwh = 31.50;
+  else if (provider === 'Tibber') ratePerKwh = 29.25;
+  else if (provider === 'Anwb') ratePerKwh = 27.00;
 
-  const capacityRatio = capacity / 28;
+  const annualArbitrage = (batteryGridTrading !== false && capacity > 0) ? capacity * ratePerKwh : 0;
 
   // Calculate volumes first to compute total annual arbitrage volume
   const monthlyVolumes = rawMonthsData.map(d => {
@@ -1118,7 +1121,7 @@ export function getBatterySimulationData(
 
     const arbitrageVolume = monthlyVolumes[idx];
 
-    // Seasonal breakdown calibrated against 28 kWh benchmark (universal capacity scaling)
+    // Seasonal breakdown strictly matching annualArbitrage (capacity * ratePerKwh)
     const isWinter = ['Jan', 'Feb', 'Nov', 'Dec'].includes(d.month);
     const isSpringAutumn = ['Mrt', 'Apr', 'Sep', 'Okt'].includes(d.month);
 
@@ -1127,15 +1130,15 @@ export function getBatterySimulationData(
 
     if (capacity > 0) {
       if (isWinter) {
-        pureArbitrageEuro = batteryGridTrading ? Math.round(105 * capacityRatio * providerFactor) : 0;
-        eigenZonEvEuro = Math.round(30 * capacityRatio);
+        pureArbitrageEuro = Math.round((105.75 / 1071) * annualArbitrage);
+        eigenZonEvEuro = Math.round(finalAddition * 0.22);
       } else if (isSpringAutumn) {
-        pureArbitrageEuro = batteryGridTrading ? Math.round(85 * capacityRatio * providerFactor) : 0;
-        eigenZonEvEuro = Math.round(100 * capacityRatio);
+        pureArbitrageEuro = Math.round((85.50 / 1071) * annualArbitrage);
+        eigenZonEvEuro = Math.round(finalAddition * 0.22);
       } else {
         // Summer (Mei, Jun, Jul, Aug)
-        pureArbitrageEuro = batteryGridTrading ? Math.round(75 * capacityRatio * providerFactor) : 0;
-        eigenZonEvEuro = Math.round(140 * capacityRatio);
+        pureArbitrageEuro = Math.round((76.50 / 1071) * annualArbitrage);
+        eigenZonEvEuro = Math.round(finalAddition * 0.22);
       }
     }
 

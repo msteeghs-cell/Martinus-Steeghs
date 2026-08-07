@@ -170,7 +170,7 @@ export default function BatterySolarChart({
       calcResult.solar.annualYieldKwh || 0,
       calcResult.house.verbruikKwh || 3500,
       chartBatteryCapacity || 10,
-      calcResult.tech.omzettingsverliezen || 10,
+      calcResult.tech.omzettingsverliezen || 20,
       calcResult.solar.selfConsumptionBase || 30,
       calcResult.solar.absoluteSelfConsumptionBaseKwh || 0,
       tech.dynamicProvider || 'Zonneplan',
@@ -374,7 +374,7 @@ export default function BatterySolarChart({
         };
 
         const nightUse = getNightConsumption(house?.soortWoning, house?.woonoppervlakte);
-        const lossPctConfigured = tech?.omzettingsverliezen !== undefined ? tech.omzettingsverliezen : 10;
+        const lossPctConfigured = tech?.omzettingsverliezen !== undefined ? tech.omzettingsverliezen : 20;
         const lossKwh = Math.round((cap * (lossPctConfigured / 100)) * 10) / 10;
         const tradingOpt = Math.max(0, Math.round((cap - nightUse - lossKwh) * 10) / 10);
         const tradingPess = Math.max(0, Math.round((tradingOpt * 0.83) * 10) / 10);
@@ -529,124 +529,163 @@ export default function BatterySolarChart({
       </div>
 
       {/* Monthly & Seasonal Breakdown for Arbitrage Trading & Solar/EV Savings */}
-      {chartBatteryCapacity > 0 && (
-        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 sm:p-5 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
-            <div>
-              <h4 className="text-xs font-bold text-slate-800 flex items-center gap-2">
-                Seizoensgebonden Opbrengst- &amp; Trading Overzicht
-                <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-md">
-                  {chartBatteryCapacity} kWh Accu
+      {chartBatteryCapacity > 0 && (() => {
+        const winterMonths = batteryChartData.filter(d => ['Jan', 'Feb', 'Nov', 'Dec'].includes(d.name));
+        const springMonths = batteryChartData.filter(d => ['Mrt', 'Apr', 'Sep', 'Okt'].includes(d.name));
+        const summerMonths = batteryChartData.filter(d => ['Mei', 'Jun', 'Jul', 'Aug'].includes(d.name));
+
+        const getSeasonStats = (mList: typeof batteryChartData) => {
+          const pureArbVals = mList.map(d => Number(d['Pure Arbitrage Handel (€)'] || 0));
+          const solarEvVals = mList.map(d => Number(d['Eigen Zon & Slim Laden (€)'] || 0));
+          
+          const pureArbAvg = pureArbVals.length > 0 ? pureArbVals.reduce((a, b) => a + b, 0) / pureArbVals.length : 0;
+          const pureArbMin = pureArbVals.length > 0 ? Math.min(...pureArbVals) : 0;
+          const pureArbMax = pureArbVals.length > 0 ? Math.max(...pureArbVals) : 0;
+
+          const solarEvAvg = solarEvVals.length > 0 ? solarEvVals.reduce((a, b) => a + b, 0) / solarEvVals.length : 0;
+          const solarEvMin = solarEvVals.length > 0 ? Math.min(...solarEvVals) : 0;
+          const solarEvMax = solarEvVals.length > 0 ? Math.max(...solarEvVals) : 0;
+
+          const totalAvg = pureArbAvg + solarEvAvg;
+          const totalMin = pureArbMin + solarEvMin;
+          const totalMax = pureArbMax + solarEvMax;
+
+          return {
+            pureArbAvg: Math.round(pureArbAvg),
+            pureArbMin: Math.round(pureArbMin),
+            pureArbMax: Math.round(pureArbMax),
+            solarEvAvg: Math.round(solarEvAvg),
+            solarEvMin: Math.round(solarEvMin),
+            solarEvMax: Math.round(solarEvMax),
+            totalAvg: Math.round(totalAvg),
+            totalMin: Math.round(totalMin),
+            totalMax: Math.round(totalMax),
+          };
+        };
+
+        const winterStats = getSeasonStats(winterMonths);
+        const springStats = getSeasonStats(springMonths);
+        const summerStats = getSeasonStats(summerMonths);
+
+        return (
+          <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 sm:p-5 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+              <div>
+                <h4 className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                  Seizoensgebonden Opbrengst- &amp; Trading Overzicht
+                  <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-md">
+                    {chartBatteryCapacity} kWh Accu
+                  </span>
+                </h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Geschatte opbrengstverdeling op basis van ( Tarieven {tech.dynamicProvider || 'Zonneplan'} ).
+                </p>
+              </div>
+              <div className="bg-emerald-50 border border-emerald-200/80 px-3 py-1.5 rounded-xl self-start sm:self-center">
+                <span className="text-[9px] font-bold text-emerald-800 uppercase tracking-wider block">Totaal Geschat Jaarvoordeel</span>
+                <span className="text-sm font-bold font-mono text-emerald-700">
+                  +€ {totalMaandEurosSum.toLocaleString('nl-NL')},- <span className="text-[10px] text-slate-500 font-normal">/ jaar</span>
                 </span>
-              </h4>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                Geschatte opbrengstverdeling op basis van ( Tarieven {tech.dynamicProvider || 'Zonneplan'} ).
-              </p>
+              </div>
             </div>
-            <div className="bg-emerald-50 border border-emerald-200/80 px-3 py-1.5 rounded-xl self-start sm:self-center">
-              <span className="text-[9px] font-bold text-emerald-800 uppercase tracking-wider block">Totaal Geschat Jaarvoordeel</span>
-              <span className="text-sm font-bold font-mono text-emerald-700">
-                +€ {totalMaandEurosSum.toLocaleString('nl-NL')},- <span className="text-[10px] text-slate-500 font-normal">/ jaar</span>
-              </span>
+
+            {/* Table */}
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-100 text-slate-700 font-bold text-[11px] uppercase tracking-wider border-b border-slate-200">
+                  <tr>
+                    <th className="p-3">Seizoen / Periode</th>
+                    <th className="p-3 text-purple-900">1. Pure Arbitrage (EPEX Handel)</th>
+                    <th className="p-3 text-emerald-800">2. Eigen Zon-besparing &amp; Slim Laden EV</th>
+                    <th className="p-3 text-slate-800 text-right">Totaal Geschat Voordeel / mnd</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700 font-sans text-xs">
+                  <tr className="hover:bg-slate-50 transition-colors">
+                    <td className="p-3 font-semibold text-slate-800">
+                      Winter (Nov – Feb)
+                    </td>
+                    <td className="p-3 font-mono text-purple-900">
+                      {tech.batteryGridTrading ? (
+                        <>€ {winterStats.pureArbMin} – € {winterStats.pureArbMax} <span className="text-[10px] text-slate-400 font-sans">(gem. €{winterStats.pureArbAvg})</span></>
+                      ) : (
+                        <span className="text-slate-400 font-sans italic">€ 0 (Nethandel Uit)</span>
+                      )}
+                    </td>
+                    <td className="p-3 font-mono text-emerald-800">
+                      € {winterStats.solarEvMin} – € {winterStats.solarEvMax} <span className="text-[10px] text-slate-400 font-sans">(gem. €{winterStats.solarEvAvg})</span>
+                    </td>
+                    <td className="p-3 font-mono font-bold text-slate-900 text-right">
+                      {tech.batteryGridTrading ? (
+                        <>€ {winterStats.totalMin} – € {winterStats.totalMax} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
+                      ) : (
+                        <>€ {winterStats.solarEvMin} – € {winterStats.solarEvMax} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
+                      )}
+                    </td>
+                  </tr>
+
+                  <tr className="hover:bg-slate-50 transition-colors">
+                    <td className="p-3 font-semibold text-slate-800">
+                      Lente / Herfst (Mrt, Apr, Sep, Okt)
+                    </td>
+                    <td className="p-3 font-mono text-purple-900">
+                      {tech.batteryGridTrading ? (
+                        <>€ {springStats.pureArbMin} – € {springStats.pureArbMax} <span className="text-[10px] text-slate-400 font-sans">(gem. €{springStats.pureArbAvg})</span></>
+                      ) : (
+                        <span className="text-slate-400 font-sans italic">€ 0 (Nethandel Uit)</span>
+                      )}
+                    </td>
+                    <td className="p-3 font-mono text-emerald-800">
+                      € {springStats.solarEvMin} – € {springStats.solarEvMax} <span className="text-[10px] text-slate-400 font-sans">(gem. €{springStats.solarEvAvg})</span>
+                    </td>
+                    <td className="p-3 font-mono font-bold text-slate-900 text-right">
+                      {tech.batteryGridTrading ? (
+                        <>€ {springStats.totalMin} – € {springStats.totalMax} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
+                      ) : (
+                        <>€ {springStats.solarEvMin} – € {springStats.solarEvMax} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
+                      )}
+                    </td>
+                  </tr>
+
+                  <tr className="hover:bg-slate-50 transition-colors">
+                    <td className="p-3 font-semibold text-slate-800">
+                      Zomer (Mei – Aug)
+                    </td>
+                    <td className="p-3 font-mono text-purple-900">
+                      {tech.batteryGridTrading ? (
+                        <>€ {summerStats.pureArbMin} – € {summerStats.pureArbMax} <span className="text-[10px] text-slate-400 font-sans">(gem. €{summerStats.pureArbAvg})</span></>
+                      ) : (
+                        <span className="text-slate-400 font-sans italic">€ 0 (Nethandel Uit)</span>
+                      )}
+                    </td>
+                    <td className="p-3 font-mono text-emerald-800">
+                      € {summerStats.solarEvMin} – € {summerStats.solarEvMax} <span className="text-[10px] text-slate-400 font-sans">(gem. €{summerStats.solarEvAvg})</span>
+                    </td>
+                    <td className="p-3 font-mono font-bold text-slate-900 text-right">
+                      {tech.batteryGridTrading ? (
+                        <>€ {summerStats.totalMin} – € {summerStats.totalMax} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
+                      ) : (
+                        <>€ {summerStats.solarEvMin} – € {summerStats.solarEvMax} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
+                      )}
+                    </td>
+                  </tr>
+
+                  <tr className="bg-slate-100/80 text-slate-900 font-bold text-xs border-t border-slate-200">
+                    <td className="p-3 uppercase tracking-wider text-slate-700">Gemiddeld per maand</td>
+                    <td className="p-3 font-mono text-purple-900">
+                      {tech.batteryGridTrading ? `~ € ${Math.round(totalArbitrageEuros / 12)},-` : '~ € 0,-'} <span className="text-[10px] text-slate-500 font-normal">/ mnd</span>
+                    </td>
+                    <td className="p-3 font-mono text-emerald-800">~ € {Math.round(totalSolarEvEuros / 12)},- <span className="text-[10px] text-slate-500 font-normal">/ mnd</span></td>
+                    <td className="p-3 font-mono text-slate-900 text-right font-black">
+                      ~ € {Math.round(totalMaandEurosSum / 12)},- <span className="text-[10px] text-slate-500 font-normal">/ mnd</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
-
-          {/* Table */}
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-100 text-slate-700 font-bold text-[11px] uppercase tracking-wider border-b border-slate-200">
-                <tr>
-                  <th className="p-3">Seizoen / Periode</th>
-                  <th className="p-3 text-purple-900">1. Pure Arbitrage (EPEX Handel)</th>
-                  <th className="p-3 text-emerald-800">2. Eigen Zon-besparing &amp; Slim Laden EV</th>
-                  <th className="p-3 text-slate-800 text-right">Totaal Geschat Voordeel / mnd</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700 font-sans text-xs">
-                <tr className="hover:bg-slate-50 transition-colors">
-                  <td className="p-3 font-semibold text-slate-800">
-                    Winter (Nov – Feb)
-                  </td>
-                  <td className="p-3 font-mono text-purple-900">
-                    {tech.batteryGridTrading ? (
-                      <>€ {Math.round(90 * capRatio * pFactor)} – € {Math.round(120 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(105 * capRatio * pFactor)})</span></>
-                    ) : (
-                      <span className="text-slate-400 font-sans italic">€ 0 (Nethandel Uit)</span>
-                    )}
-                  </td>
-                  <td className="p-3 font-mono text-emerald-800">
-                    € {Math.round(20 * capRatio)} – € {Math.round(40 * capRatio)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(30 * capRatio)})</span>
-                  </td>
-                  <td className="p-3 font-mono font-bold text-slate-900 text-right">
-                    {tech.batteryGridTrading ? (
-                      <>€ {Math.round(110 * capRatio * pFactor)} – € {Math.round(160 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
-                    ) : (
-                      <>€ {Math.round(20 * capRatio)} – € {Math.round(40 * capRatio)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
-                    )}
-                  </td>
-                </tr>
-
-                <tr className="hover:bg-slate-50 transition-colors">
-                  <td className="p-3 font-semibold text-slate-800">
-                    Lente / Herfst (Mrt, Apr, Sep, Okt)
-                  </td>
-                  <td className="p-3 font-mono text-purple-900">
-                    {tech.batteryGridTrading ? (
-                      <>€ {Math.round(70 * capRatio * pFactor)} – € {Math.round(100 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(85 * capRatio * pFactor)})</span></>
-                    ) : (
-                      <span className="text-slate-400 font-sans italic">€ 0 (Nethandel Uit)</span>
-                    )}
-                  </td>
-                  <td className="p-3 font-mono text-emerald-800">
-                    € {Math.round(80 * capRatio)} – € {Math.round(120 * capRatio)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(100 * capRatio)})</span>
-                  </td>
-                  <td className="p-3 font-mono font-bold text-slate-900 text-right">
-                    {tech.batteryGridTrading ? (
-                      <>€ {Math.round(150 * capRatio * pFactor)} – € {Math.round(220 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
-                    ) : (
-                      <>€ {Math.round(80 * capRatio)} – € {Math.round(120 * capRatio)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
-                    )}
-                  </td>
-                </tr>
-
-                <tr className="hover:bg-slate-50 transition-colors">
-                  <td className="p-3 font-semibold text-slate-800">
-                    Zomer (Mei – Aug)
-                  </td>
-                  <td className="p-3 font-mono text-purple-900">
-                    {tech.batteryGridTrading ? (
-                      <>€ {Math.round(60 * capRatio * pFactor)} – € {Math.round(90 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(75 * capRatio * pFactor)})</span></>
-                    ) : (
-                      <span className="text-slate-400 font-sans italic">€ 0 (Nethandel Uit)</span>
-                    )}
-                  </td>
-                  <td className="p-3 font-mono text-emerald-800">
-                    € {Math.round(120 * capRatio)} – € {Math.round(160 * capRatio)} <span className="text-[10px] text-slate-400 font-sans">(gem. €{Math.round(140 * capRatio)})</span>
-                  </td>
-                  <td className="p-3 font-mono font-bold text-slate-900 text-right">
-                    {tech.batteryGridTrading ? (
-                      <>€ {Math.round(180 * capRatio * pFactor)} – € {Math.round(250 * capRatio * pFactor)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
-                    ) : (
-                      <>€ {Math.round(120 * capRatio)} – € {Math.round(160 * capRatio)} <span className="text-[10px] text-slate-400 font-normal">/ mnd</span></>
-                    )}
-                  </td>
-                </tr>
-
-                <tr className="bg-slate-100/80 text-slate-900 font-bold text-xs border-t border-slate-200">
-                  <td className="p-3 uppercase tracking-wider text-slate-700">Gemiddeld per maand</td>
-                  <td className="p-3 font-mono text-purple-900">
-                    {tech.batteryGridTrading ? `~ € ${Math.round(85 * capRatio * pFactor)},-` : '~ € 0,-'} <span className="text-[10px] text-slate-500 font-normal">/ mnd</span>
-                  </td>
-                  <td className="p-3 font-mono text-emerald-800">~ € {Math.round(95 * capRatio)},- <span className="text-[10px] text-slate-500 font-normal">/ mnd</span></td>
-                  <td className="p-3 font-mono text-slate-900 text-right font-black">
-                    {tech.batteryGridTrading ? `~ € ${Math.round(180 * capRatio * pFactor)},-` : `~ € ${Math.round(95 * capRatio)},-`} <span className="text-[10px] text-slate-500 font-normal">/ mnd</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Explanatory legend and key metrics of the active simulation */}
       <div className="grid md:grid-cols-4 gap-3 pt-4 border-t border-slate-100">

@@ -111,7 +111,12 @@ body {
     background-color: #fff !important;
     color: #000 !important;
   }
-  header, footer, #input-form, #copy-report-btn, #print-report-btn, .print\:hidden, #preset-70s-btn, #preset-90s-btn, #preset-modern-btn {
+  body.pdf-modal-open main,
+  body.pdf-modal-open header,
+  body.pdf-modal-open footer {
+    display: none !important;
+  }
+  header, footer, #copy-report-btn, #print-report-btn, .print\:hidden, #preset-70s-btn, #preset-90s-btn, #preset-modern-btn {
     display: none !important;
   }
   main {

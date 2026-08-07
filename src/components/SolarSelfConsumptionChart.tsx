@@ -34,7 +34,7 @@ export default function SolarSelfConsumptionChart({
 }: SolarSelfConsumptionChartProps) {
   // Local state for interactive post-saldering simulation parameters
   const [directSelfConsumptionPct, setDirectSelfConsumptionPct] = useState<number>(30); // default 30% without battery/EV
-  const [gridPurchasePrice, setGridPurchasePrice] = useState<number>(house.elektraPrijs || 0.28); // €/kWh
+  const [gridPurchasePrice, setGridPurchasePrice] = useState<number>(house.elektraPrijs || 0.35); // €/kWh
   const [feedInCompensation, setFeedInCompensation] = useState<number>(0.05); // €/kWh net feed-in return (or -0.03 for penalty)
 
   const calculation = useMemo(() => {

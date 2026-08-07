@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { ResidentData, HouseData, InsulationData, TechData } from '../types';
 import { 
   User, Home, Layers, Battery, Sun, HelpCircle, 
   Sparkles, RefreshCw, Calendar, CheckCircle2, Zap, Info,
-  TrendingDown, Gauge, AlertTriangle, Trash2, Download
+  TrendingDown, Gauge, AlertTriangle, Trash2, Download, Check, Sliders,
+  FileSpreadsheet, PiggyBank, FileText, RotateCcw
 } from 'lucide-react';
+import { EnergyCostPdfModal } from './EnergyCostPdfModal';
 import {
   ResponsiveContainer,
   BarChart,
@@ -97,6 +99,66 @@ export default function InputForm({
   const [bagSuccess, setBagSuccess] = useState<boolean | null>(null);
   const [smartCalcReason, setSmartCalcReason] = useState<string>('');
   const [simulatedSpotPrice, setSimulatedSpotPrice] = useState<number>(0.08);
+  const [activePreset, setActivePreset] = useState<'60s' | '70s' | '80s' | '90s' | '2000s' | 'modern' | null>(() => {
+    if (house.bouwjaar === 1965) return '60s';
+    if (house.bouwjaar === 1974) return '70s';
+    if (house.bouwjaar === 1984) return '80s';
+    if (house.bouwjaar === 1994) return '90s';
+    if (house.bouwjaar === 2005) return '2000s';
+    if (house.bouwjaar === 2010 || house.bouwjaar === 2023) return 'modern';
+    return null;
+  });
+
+  const [presetSnapshot, setPresetSnapshot] = useState<{ house: HouseData; tech: TechData } | null>(() => {
+    return { house: { ...house }, tech: { ...tech } };
+  });
+
+  const [showSimExplanation, setShowSimExplanation] = useState<boolean>(false);
+  const [showEnergyPdfModal, setShowEnergyPdfModal] = useState<boolean>(false);
+
+  const isPresetModified = useMemo(() => {
+    if (!activePreset || !presetSnapshot) return false;
+    return (
+      house.verwarming !== presetSnapshot.house.verwarming ||
+      house.zonnepanelenPresent !== presetSnapshot.house.zonnepanelenPresent ||
+      tech.aantalZonnepanelen !== presetSnapshot.tech.aantalZonnepanelen ||
+      tech.capaciteitAccu !== presetSnapshot.tech.capaciteitAccu ||
+      tech.evKilometers !== presetSnapshot.tech.evKilometers ||
+      house.verbruikM3 !== presetSnapshot.house.verbruikM3 ||
+      house.verbruikKwh !== presetSnapshot.house.verbruikKwh ||
+      house.bouwjaar !== presetSnapshot.house.bouwjaar ||
+      house.woonoppervlakte !== presetSnapshot.house.woonoppervlakte ||
+      house.energielabel !== presetSnapshot.house.energielabel
+    );
+  }, [activePreset, presetSnapshot, house, tech]);
+
+  const isNulmeting = useMemo(() => {
+    return (
+      tech.aantalZonnepanelen === 0 &&
+      tech.capaciteitAccu === 0 &&
+      (house.verwarming === 'CV-ketel' || !house.verwarming) &&
+      (tech.evKilometers || 0) === 0
+    );
+  }, [tech.aantalZonnepanelen, tech.capaciteitAccu, tech.evKilometers, house.verwarming]);
+
+  const handleSetNulmeting = () => {
+    setTech(prev => ({
+      ...prev,
+      aantalZonnepanelen: 0,
+      capaciteitAccu: 0,
+      evKilometers: 0,
+      evThuisLaden: 0,
+      laadvermogen: 0,
+      batteryGridTrading: false,
+      pvCurtailmentMode: false,
+    }));
+    setHouse(prev => ({
+      ...prev,
+      verwarming: 'CV-ketel',
+      tapwater: 'CV-ketel',
+      zonnepanelenPresent: 'Nee',
+    }));
+  };
 
   // Helper to update resident data and auto-update datum to today
   const updateResident = (updater: Partial<ResidentData> | ((prev: ResidentData) => Partial<ResidentData>)) => {
@@ -140,26 +202,12 @@ export default function InputForm({
     }));
   }, [resident.postcode, resident.huisnummer, resident.toevoeging]);
 
-  // Automatically calculate feed-in (teruglevering) based on solar yield and direct self-consumption percentage when solar parameters change
-  useEffect(() => {
-    if (tech.aantalZonnepanelen === 0) {
-      if ((house.elektraTeruglevering || 0) > 0) {
-        setHouse(prev => ({ ...prev, elektraTeruglevering: 0 }));
-      }
-    } else if (localAnnualYieldKwh > 0) {
-      const calculatedTeruglevering = Math.max(0, Math.round(localAnnualYieldKwh * (1 - tech.huidigDirectVerbruik / 100)));
-      if (house.elektraTeruglevering !== calculatedTeruglevering) {
-        setHouse(prev => ({ ...prev, elektraTeruglevering: calculatedTeruglevering }));
-      }
-    }
-  }, [localAnnualYieldKwh, tech.aantalZonnepanelen]);
-
   // Handle change in number of solar panels
   const handleAantalZonnepanelenChange = (newVal: number) => {
     if (tech.aantalZonnepanelen === newVal) return;
 
     // Estimate yield for newVal panels to calculate new direct self-consumption default
-    const singlePanelYield = 400 * 0.90; // approx Wp yield factor
+    const singlePanelYield = (tech.vermogenPerPaneel || 400) * 0.90; // approx Wp yield factor
     const newYield = newVal * singlePanelYield;
     const verbruik = house.verbruikKwh || 3500;
     const ratio = newYield > 0 ? verbruik / newYield : 1;
@@ -199,7 +247,7 @@ export default function InputForm({
     const avgDaily = localAnnualYieldKwh / 365;
     const ratio = cap / avgDaily;
     const rawIncrease = 40 * (1 - Math.exp(-0.7 * ratio));
-    const omzettingsverliezen = tech.omzettingsverliezen !== undefined ? tech.omzettingsverliezen : 10;
+    const omzettingsverliezen = tech.omzettingsverliezen !== undefined ? tech.omzettingsverliezen : 20;
     const effIncrease = rawIncrease * (1 - omzettingsverliezen / 100);
     const optSelfConsumption = Math.min(100, tech.huidigDirectVerbruik + effIncrease);
     
@@ -209,18 +257,18 @@ export default function InputForm({
     // Direct savings on increased self-consumption: replacing grid purchase (house.elektraPrijs) instead of feeding back (assumed 0.06 return rate)
     const directSavings = (optSelfConsumptionKwh - baseSelfConsumptionKwh) * (house.elektraPrijs - 0.06);
 
-    // Arbitrage trading based on provider
-    let arbitragePerKwh = 55;
+    // Arbitrage trading based on provider (rate in € per kWh capacity per year)
+    let arbitragePerKwh = 24.75;
     if (prov === 'Zonneplan') {
-      arbitragePerKwh = 85;
+      arbitragePerKwh = 38.25;
     } else if (prov === 'Frank') {
-      arbitragePerKwh = 70;
+      arbitragePerKwh = 31.5;
     } else if (prov === 'Tibber') {
-      arbitragePerKwh = 65;
+      arbitragePerKwh = 29.25;
     } else if (prov === 'Anwb') {
-      arbitragePerKwh = 60;
+      arbitragePerKwh = 27.00;
     }
-    const arbitrageYield = cap * arbitragePerKwh;
+    const arbitrageYield = tech.batteryGridTrading ? cap * arbitragePerKwh : 0;
     const totalSavings = directSavings + arbitrageYield;
 
     // Investment estimation (with VAT reclamation: net = bruto * 100/121)
@@ -410,8 +458,12 @@ export default function InputForm({
   };
 
   // Presets
-  const applyPreset = (type: '60s' | '70s' | '80s' | '90s' | 'modern') => {
+  const applyPreset = (type: '60s' | '70s' | '80s' | '90s' | '2000s' | 'modern') => {
+    setActivePreset(type);
     const todayStr = new Date().toISOString().split('T')[0];
+    let nextHouse: HouseData;
+    let nextTech: TechData;
+
     if (type === '60s') {
       setResident({
         naam: 'Piet Berends',
@@ -432,7 +484,7 @@ export default function InputForm({
         email: 'piet@berends.nl',
         akkoord: true
       });
-      setHouse({
+      nextHouse = {
         wozWaarde: 295000,
         energielabel: 'F',
         verbruikKwh: 2900,
@@ -446,9 +498,9 @@ export default function InputForm({
         koken: 'Gas',
         ventilatie: 'Natuurlijk (Type A)',
         zonnepanelenPresent: 'Nee',
-        elektraPrijs: 0.30,
+        elektraPrijs: 0.35,
         elektraTeruglevering: 0,
-        gasPrijs: 1.30,
+        gasPrijs: 1.50,
         stookgedragOverride: 'auto',
         stookgedragBerekend: 'Normaal (1.0x)',
         stookgedragFactor: 1.0,
@@ -459,7 +511,8 @@ export default function InputForm({
         isoVloer: 'slecht',
         isoKieren: 'Nee, onderhoud nodig',
         inkomenCheck: true
-      });
+      };
+      setHouse(nextHouse);
       setInsulation({
         vloer: 45,
         bodem: 0,
@@ -471,18 +524,19 @@ export default function InputForm({
         glasDubbelHR: 0,
         glasTripleHout: 0,
       });
-      setTech({
+      nextTech = {
         aantalZonnepanelen: 0,
         dakOrientatie: 0,
         huidigDirectVerbruik: 30,
         capaciteitAccu: 0,
-        omzettingsverliezen: 10,
+        omzettingsverliezen: 20,
         typeContract: 'Vast',
         evKilometers: 0,
         evVerbruik: 18,
         evThuisLaden: 0,
         laadvermogen: 0,
-      });
+      };
+      setTech(nextTech);
     } else if (type === '70s') {
       setResident({
         naam: 'Jan Janssen',
@@ -503,7 +557,7 @@ export default function InputForm({
         email: 'jan@janssen.nl',
         akkoord: true
       });
-      setHouse({
+      nextHouse = {
         wozWaarde: 325000,
         energielabel: 'E',
         verbruikKwh: 3200,
@@ -517,9 +571,9 @@ export default function InputForm({
         koken: 'Gas',
         ventilatie: 'Natuurlijk (Type A)',
         zonnepanelenPresent: 'Nee',
-        elektraPrijs: 0.30,
+        elektraPrijs: 0.35,
         elektraTeruglevering: 0,
-        gasPrijs: 1.30,
+        gasPrijs: 1.50,
         stookgedragOverride: 'auto',
         stookgedragBerekend: 'Normaal (1.0x)',
         stookgedragFactor: 1.0,
@@ -530,7 +584,8 @@ export default function InputForm({
         isoVloer: 'slecht',
         isoKieren: 'Nee, onderhoud nodig',
         inkomenCheck: true
-      });
+      };
+      setHouse(nextHouse);
       setInsulation({
         vloer: 0,
         bodem: 0,
@@ -542,18 +597,19 @@ export default function InputForm({
         glasDubbelHR: 0,
         glasTripleHout: 0,
       });
-      setTech({
+      nextTech = {
         aantalZonnepanelen: 4,
         dakOrientatie: 45, // South-West
         huidigDirectVerbruik: 30,
         capaciteitAccu: 0,
-        omzettingsverliezen: 10,
+        omzettingsverliezen: 20,
         typeContract: 'Vast',
         evKilometers: 0,
         evVerbruik: 18,
         evThuisLaden: 0,
         laadvermogen: 0,
-      });
+      };
+      setTech(nextTech);
     } else if (type === '80s') {
       setResident({
         naam: 'Karel Visser',
@@ -574,7 +630,7 @@ export default function InputForm({
         email: 'karel@visser.nl',
         akkoord: true
       });
-      setHouse({
+      nextHouse = {
         wozWaarde: 365000,
         energielabel: 'D',
         verbruikKwh: 3100,
@@ -587,10 +643,10 @@ export default function InputForm({
         tapwater: 'CV-ketel',
         koken: 'Gas',
         ventilatie: 'Mechanisch (Type C)',
-        zonnepanelenPresent: 'Ja',
-        elektraPrijs: 0.28,
+        zonnepanelenPresent: 'Nee',
+        elektraPrijs: 0.35,
         elektraTeruglevering: 0,
-        gasPrijs: 1.30,
+        gasPrijs: 1.50,
         stookgedragOverride: 'auto',
         stookgedragBerekend: 'Normaal (1.0x)',
         stookgedragFactor: 1.0,
@@ -601,7 +657,8 @@ export default function InputForm({
         isoVloer: 'matig',
         isoKieren: 'Nee, onderhoud nodig',
         inkomenCheck: true
-      });
+      };
+      setHouse(nextHouse);
       setInsulation({
         vloer: 45,
         bodem: 0,
@@ -613,18 +670,19 @@ export default function InputForm({
         glasDubbelHR: 14,
         glasTripleHout: 0,
       });
-      setTech({
-        aantalZonnepanelen: 12,
+      nextTech = {
+        aantalZonnepanelen: 0,
         dakOrientatie: 0,
         huidigDirectVerbruik: 30,
         capaciteitAccu: 0,
-        omzettingsverliezen: 10,
+        omzettingsverliezen: 20,
         typeContract: 'Vast',
         evKilometers: 0,
         evVerbruik: 18,
         evThuisLaden: 0,
         laadvermogen: 0,
-      });
+      };
+      setTech(nextTech);
     } else if (type === '90s') {
       setResident({
         naam: 'Familie Smeets',
@@ -645,7 +703,7 @@ export default function InputForm({
         email: 'info@smeets.nl',
         akkoord: true
       });
-      setHouse({
+      nextHouse = {
         wozWaarde: 410000,
         energielabel: 'D',
         verbruikKwh: 3800,
@@ -659,9 +717,9 @@ export default function InputForm({
         koken: 'Inductie',
         ventilatie: 'Mechanisch (Type C)',
         zonnepanelenPresent: 'Ja',
-        elektraPrijs: 0.28,
+        elektraPrijs: 0.35,
         elektraTeruglevering: 1500,
-        gasPrijs: 1.30,
+        gasPrijs: 1.50,
         stookgedragOverride: 'auto',
         stookgedragBerekend: 'Normaal (1.0x)',
         stookgedragFactor: 1.0,
@@ -672,7 +730,8 @@ export default function InputForm({
         isoVloer: 'slecht',
         isoKieren: 'Ja, in orde',
         inkomenCheck: false
-      });
+      };
+      setHouse(nextHouse);
       setInsulation({
         vloer: 50,
         bodem: 0,
@@ -684,23 +743,98 @@ export default function InputForm({
         glasDubbelHR: 15,
         glasTripleHout: 0,
       });
-      setTech({
+      nextTech = {
         aantalZonnepanelen: 10,
         dakOrientatie: 0, // South
         huidigDirectVerbruik: 35,
         capaciteitAccu: 5,
-        omzettingsverliezen: 8,
+        omzettingsverliezen: 20,
         typeContract: 'Dynamisch',
         evKilometers: 10000,
         evVerbruik: 18,
         evThuisLaden: 60,
         laadvermogen: 11,
+      };
+      setTech(nextTech);
+    } else if (type === '2000s') {
+      setResident({
+        naam: 'Familie Hendriks',
+        registratiecode: 'PM-05VW-28',
+        brutoGezinsinkomen: 85000,
+        coach: 'Online Zelfscan',
+        datum: todayStr,
+        aanhef: 'De heer en mevrouw',
+        voorletters: 'M. & K.',
+        achternaam: 'Hendriks',
+        straat: 'Bosrand',
+        huisnummer: '28',
+        toevoeging: '',
+        postcode: '5981NE',
+        plaats: 'Panningen',
+        aantalPersonen: 4,
+        telefoon: '0698765432',
+        email: 'info@hendriks-bosrand.nl',
+        akkoord: true
       });
+      nextHouse = {
+        wozWaarde: 440000,
+        energielabel: 'A - B - C',
+        verbruikKwh: 3500,
+        verbruikM3: 1350,
+        soortWoning: 'Twee onder een kap',
+        bouwjaar: 2005,
+        woonoppervlakte: 145,
+        verwarming: 'CV-ketel',
+        afgiftesysteem: 'Vloerverwarming',
+        tapwater: 'CV-ketel',
+        koken: 'Inductie',
+        ventilatie: 'Mechanisch (Type C)',
+        zonnepanelenPresent: 'Ja',
+        elektraPrijs: 0.35,
+        elektraTeruglevering: 1500,
+        gasPrijs: 1.50,
+        stookgedragOverride: 'auto',
+        stookgedragBerekend: 'Normaal (1.0x)',
+        stookgedragFactor: 1.0,
+        isoDak: 'goed',
+        isoGevel: 'goed',
+        isoGlasBg: 'goed',
+        isoGlasVd: 'goed',
+        isoVloer: 'goed',
+        isoKieren: 'Ja, in orde',
+        inkomenCheck: false
+      };
+      setHouse(nextHouse);
+      setInsulation({
+        vloer: 0,
+        bodem: 0,
+        spouw: 0,
+        zolderVliering: 0,
+        dakBinnenzijde: 0,
+        gevelBuitenzijde: 0,
+        glasEnkelHR: 0,
+        glasDubbelHR: 20,
+        glasTripleHout: 0,
+      });
+      nextTech = {
+        aantalZonnepanelen: 10,
+        dakOrientatie: 0, // South
+        huidigDirectVerbruik: 35,
+        capaciteitAccu: 0,
+        omzettingsverliezen: 20,
+        typeContract: 'Vast',
+        batteryGridTrading: false,
+        evKilometers: 0,
+        evVerbruik: 18,
+        evThuisLaden: 0,
+        laadvermogen: 0,
+      };
+      setTech(nextTech);
     } else if (type === 'modern') {
       setResident({
         naam: 'Anouk de Vries',
-        registratiecode: 'PM-23AV-11',
-        brutoGezinsinkomen: 68000,
+        registratiecode: 'PM-10AV-11',
+        brutoGezinsinkomen: 78000,
         coach: 'Online Zelfscan',
         datum: todayStr,
         aanhef: 'Mevrouw',
@@ -711,31 +845,31 @@ export default function InputForm({
         toevoeging: '',
         postcode: '5995XH',
         plaats: 'Kessel',
-        aantalPersonen: 3,
+        aantalPersonen: 4,
         telefoon: '0655443322',
         email: 'anouk@devries.nl',
         akkoord: true
       });
-      setHouse({
-        wozWaarde: 520000,
+      nextHouse = {
+        wozWaarde: 580000,
         energielabel: 'A - B - C',
-        verbruikKwh: 3400,
-        verbruikM3: 350,
-        soortWoning: 'Hoekwoning',
-        bouwjaar: 2023,
-        woonoppervlakte: 135,
-        verwarming: 'Hybride warmtepomp',
+        verbruikKwh: 4200,
+        verbruikM3: 1700,
+        soortWoning: 'Vrijstaand',
+        bouwjaar: 2010,
+        woonoppervlakte: 250,
+        verwarming: 'CV-ketel',
         afgiftesysteem: 'Vloerverwarming',
-        tapwater: 'Warmtepompboiler',
+        tapwater: 'CV-ketel',
         koken: 'Inductie',
-        ventilatie: 'Balans (Type D/WTW)',
+        ventilatie: 'Mechanisch (Type C)',
         zonnepanelenPresent: 'Ja',
-        elektraPrijs: 0.25,
-        elektraTeruglevering: 3500,
-        gasPrijs: 1.30,
+        elektraPrijs: 0.35,
+        elektraTeruglevering: 2000,
+        gasPrijs: 1.50,
         stookgedragOverride: 'auto',
-        stookgedragBerekend: 'Zuinig (0.7x)',
-        stookgedragFactor: 0.7,
+        stookgedragBerekend: 'Normaal (1.0x)',
+        stookgedragFactor: 1.0,
         isoDak: 'goed',
         isoGevel: 'goed',
         isoGlasBg: 'goed',
@@ -743,7 +877,8 @@ export default function InputForm({
         isoVloer: 'goed',
         isoKieren: 'Ja, in orde',
         inkomenCheck: false
-      });
+      };
+      setHouse(nextHouse);
       setInsulation({
         vloer: 0,
         bodem: 0,
@@ -752,22 +887,24 @@ export default function InputForm({
         dakBinnenzijde: 0,
         gevelBuitenzijde: 0,
         glasEnkelHR: 0,
-        glasDubbelHR: 0,
+        glasDubbelHR: 25,
         glasTripleHout: 0,
       });
-      setTech({
+      nextTech = {
         aantalZonnepanelen: 12,
         dakOrientatie: 0, // South
-        huidigDirectVerbruik: 40,
+        huidigDirectVerbruik: 35,
         capaciteitAccu: 0,
-        omzettingsverliezen: 5,
-        typeContract: 'Dynamisch',
-        evKilometers: 15000,
-        evVerbruik: 17,
-        evThuisLaden: 75,
-        laadvermogen: 11,
-      });
+        omzettingsverliezen: 20,
+        typeContract: 'Vast',
+        evKilometers: 0,
+        evVerbruik: 18,
+        evThuisLaden: 0,
+        laadvermogen: 0,
+      };
+      setTech(nextTech);
     }
+    setPresetSnapshot({ house: nextHouse!, tech: nextTech! });
   };
 
   // Quick lookup links
@@ -872,52 +1009,1089 @@ export default function InputForm({
         <div className="space-y-6 animate-fadeIn">
           {/* Snelkoppelingen Presets */}
           <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-emerald-500" />
-              Snel Woning-profiel Laden
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-              <button
-                onClick={() => applyPreset('60s')}
-                className="flex flex-col items-center justify-center p-2.5 text-xs font-medium border border-rose-100 bg-rose-50/40 text-rose-800 rounded-xl hover:bg-rose-50 transition"
-                id="preset-60s-btn"
-              >
-                <span className="font-bold">Jaren &apos;60</span>
-                <span className="text-[10px] text-rose-600/85">Label F • NIP Subsidie</span>
-              </button>
-              <button
-                onClick={() => applyPreset('70s')}
-                className="flex flex-col items-center justify-center p-2.5 text-xs font-medium border border-orange-100 bg-orange-50/40 text-orange-800 rounded-xl hover:bg-orange-50 transition"
-                id="preset-70s-btn"
-              >
-                <span className="font-bold">Jaren &apos;70</span>
-                <span className="text-[10px] text-orange-600/85">Label E • Matig</span>
-              </button>
-              <button
-                onClick={() => applyPreset('80s')}
-                className="flex flex-col items-center justify-center p-2.5 text-xs font-medium border border-amber-100 bg-amber-50/40 text-amber-800 rounded-xl hover:bg-amber-50 transition"
-                id="preset-80s-btn"
-              >
-                <span className="font-bold">Jaren &apos;80</span>
-                <span className="text-[10px] text-amber-700/85">Label C/D • Redelijk</span>
-              </button>
-              <button
-                onClick={() => applyPreset('90s')}
-                className="flex flex-col items-center justify-center p-2.5 text-xs font-medium border border-yellow-100 bg-yellow-50/40 text-yellow-800 rounded-xl hover:bg-yellow-50 transition"
-                id="preset-90s-btn"
-              >
-                <span className="font-bold">Jaren &apos;90</span>
-                <span className="text-[10px] text-yellow-700/85">Label C • Gemiddeld</span>
-              </button>
-              <button
-                onClick={() => applyPreset('modern')}
-                className="flex flex-col items-center justify-center p-2.5 text-xs font-medium border border-emerald-100 bg-emerald-50/40 text-emerald-800 rounded-xl hover:bg-emerald-50 transition col-span-2 sm:col-span-1"
-                id="preset-modern-btn"
-              >
-                <span className="font-bold">2022+</span>
-                <span className="text-[10px] text-emerald-600/85">Label A • Zon &amp; LP</span>
-              </button>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-500" />
+                Snel woning-profiel Laden
+              </h3>
+              {activePreset && (
+                <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                  <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
+                  Gekozen profiel actief
+                  {isPresetModified && (
+                    <span className="text-amber-700 font-extrabold bg-amber-100/90 border border-amber-300/60 px-1.5 py-0.2 rounded-md text-[10px] ml-0.5">
+                      (Aangepast)
+                    </span>
+                  )}
+                </span>
+              )}
             </div>
+            <p className="text-[11px] text-slate-500 mb-2.5">
+              Pas details aan in het overeenkomstige Tabblad.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+              {[
+                {
+                  id: '60s' as const,
+                  title: "Jaren '60",
+                  subtitle: 'Tussenwoning • 110 m² • Label F',
+                  activeStyle: 'bg-rose-600 text-white border-rose-600 ring-2 ring-rose-400 shadow-md scale-[1.03]',
+                  inactiveStyle: 'border-rose-200 bg-rose-50/40 text-rose-800 hover:bg-rose-100/70',
+                },
+                {
+                  id: '70s' as const,
+                  title: "Jaren '70",
+                  subtitle: '2-onder-1-kap • 130 m² • Label E',
+                  activeStyle: 'bg-orange-600 text-white border-orange-600 ring-2 ring-orange-400 shadow-md scale-[1.03]',
+                  inactiveStyle: 'border-orange-200 bg-orange-50/40 text-orange-800 hover:bg-orange-100/70',
+                },
+                {
+                  id: '80s' as const,
+                  title: "Jaren '80",
+                  subtitle: 'Hoekwoning • 125 m² • Label D',
+                  activeStyle: 'bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400 shadow-md scale-[1.03]',
+                  inactiveStyle: 'border-amber-200 bg-amber-50/40 text-amber-800 hover:bg-amber-100/70',
+                },
+                {
+                  id: '90s' as const,
+                  title: "Jaren '90",
+                  subtitle: 'Vrijstaand • 160 m² • Label C',
+                  activeStyle: 'bg-yellow-600 text-white border-yellow-600 ring-2 ring-yellow-400 shadow-md scale-[1.03]',
+                  inactiveStyle: 'border-yellow-200 bg-yellow-50/40 text-yellow-800 hover:bg-yellow-100/70',
+                },
+                {
+                  id: '2000s' as const,
+                  title: '2000 - 2010',
+                  subtitle: '2-onder-1-kap • 145 m² • Label B',
+                  activeStyle: 'bg-sky-600 text-white border-sky-600 ring-2 ring-sky-400 shadow-md scale-[1.03]',
+                  inactiveStyle: 'border-sky-200 bg-sky-50/40 text-sky-800 hover:bg-sky-100/70',
+                },
+                {
+                  id: 'modern' as const,
+                  title: 'Woning 2010',
+                  subtitle: 'Vrijstaand • 250 m² • Label A',
+                  activeStyle: 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-400 shadow-md scale-[1.03]',
+                  inactiveStyle: 'border-emerald-200 bg-emerald-50/40 text-emerald-800 hover:bg-emerald-100/70',
+                },
+              ].map((preset) => {
+                const isActive = activePreset === preset.id;
+                
+                const liveType = house.soortWoning === 'Twee onder een kap' ? '2-onder-1-kap' : (house.soortWoning || '');
+                const liveArea = house.woonoppervlakte ? `${house.woonoppervlakte} m²` : '';
+                const rawLabel = house.energielabel || '';
+                const liveLabel = rawLabel ? (rawLabel.startsWith('Label') ? rawLabel : `Label ${rawLabel}`) : '';
+                const liveSubtitle = [liveType, liveArea, liveLabel].filter(Boolean).join(' • ');
+                const displaySubtitle = (isActive && liveSubtitle) ? liveSubtitle : preset.subtitle;
+
+                return (
+                  <button
+                    key={preset.id}
+                    onClick={() => applyPreset(preset.id)}
+                    type="button"
+                    className={`relative flex flex-col items-center justify-center p-2.5 text-xs font-medium border rounded-xl transition duration-150 ${
+                      isActive ? preset.activeStyle : preset.inactiveStyle
+                    }`}
+                    id={`preset-${preset.id}-btn`}
+                  >
+                    {isActive && (
+                      <span className="absolute -top-2 -right-1 bg-white text-emerald-800 font-extrabold text-[9px] px-1.5 py-0.5 rounded-full border border-emerald-300 shadow-xs flex items-center gap-0.5 whitespace-nowrap">
+                        <Check className="w-2.5 h-2.5 text-emerald-600 stroke-[3]" /> Gekozen {isPresetModified ? <span className="text-amber-600 font-black ml-0.5">(Aangepast)</span> : ''}
+                      </span>
+                    )}
+                    <span className="font-extrabold">{preset.title}</span>
+                    <span className={`text-[10px] ${isActive ? 'text-white/90 font-medium' : 'text-slate-600'}`}>
+                      {displaySubtitle}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Quick Profile Modifiers */}
+            <div className="mt-4 pt-4 border-t border-slate-100 bg-slate-50/70 -mx-5 -mb-5 p-4 rounded-b-2xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Sliders className="w-4 h-4 text-emerald-600" />
+                  <span className="text-xs font-bold text-slate-800">
+                    Snel Profiel Aanpassen
+                  </span>
+                  {isPresetModified && (
+                    <span className="text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-300/80 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      (Aangepast)
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSetNulmeting}
+                    title="Zet alle installaties/techniek op 0 voor een schone nulmeting"
+                    className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-lg flex items-center gap-1 border transition cursor-pointer ml-1 ${
+                      isNulmeting
+                        ? 'bg-slate-800 text-white border-slate-800 shadow-2xs'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 shadow-2xs'
+                    }`}
+                  >
+                    <RotateCcw className={`w-3 h-3 ${isNulmeting ? 'text-emerald-400' : 'text-slate-500'}`} />
+                    <span>{isNulmeting ? 'Nulmeting (0 techniek)' : 'Zet als Nulmeting (0 techniek)'}</span>
+                  </button>
+                </div>
+                <span className="text-[11px] text-slate-500">
+                  Pas warmtepomp, zonnepanelen, accu of EV direct aan
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+                {/* 1. Warmtepomp / Verwarming */}
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                    <span className="flex items-center gap-1">
+                      <Zap className="w-3.5 h-3.5 text-amber-500" /> Verwarming / WP
+                    </span>
+                    {(() => {
+                      const wpCapStr = tech.selectedWarmtepompModel === 'Middelgroot 8kW' ? '6-8 kW'
+                        : tech.selectedWarmtepompModel === 'Groot 12kW' ? '10-12 kW'
+                        : tech.selectedWarmtepompModel === 'LuchtLucht' ? 'Airco'
+                        : tech.selectedWarmtepompModel === 'Standard' ? '4-5 kW' : '';
+                      return (
+                        <span className="font-semibold text-emerald-700 text-[10px] truncate max-w-[110px]" title={house.verwarming}>
+                          {house.verwarming === 'Hybride warmtepomp'
+                            ? `Hybride${wpCapStr ? ` (${wpCapStr})` : ''}`
+                            : (house.verwarming === 'Volledige warmtepomp' || house.verwarming === 'Full electric')
+                            ? `Volledig${wpCapStr ? ` (${wpCapStr})` : ''}`
+                            : house.verwarming}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHouse(prev => ({ ...prev, verwarming: 'CV-ketel', tapwater: 'CV-ketel' }));
+                        setTech(prev => ({ ...prev, selectedWarmtepompType: undefined, selectedWarmtepompModel: undefined }));
+                      }}
+                      className={`py-1 px-1 text-[10px] font-medium rounded-lg border text-center transition ${
+                        house.verwarming === 'CV-ketel'
+                          ? 'bg-slate-800 text-white border-slate-800 font-bold shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      CV-ketel
+                    </button>
+                    {(() => {
+                      const wpCapStr = tech.selectedWarmtepompModel === 'Middelgroot 8kW' ? '6-8 kW'
+                        : tech.selectedWarmtepompModel === 'Groot 12kW' ? '10-12 kW'
+                        : tech.selectedWarmtepompModel === 'LuchtLucht' ? 'Airco'
+                        : tech.selectedWarmtepompModel === 'Standard' ? '4-5 kW' : '';
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHouse(prev => ({ ...prev, verwarming: 'Hybride warmtepomp' }));
+                            setTech(prev => {
+                              let nextModel = prev.selectedWarmtepompModel || 'Standard';
+                              if (house.verwarming === 'Hybride warmtepomp') {
+                                if (nextModel === 'Standard') nextModel = 'Middelgroot 8kW';
+                                else if (nextModel === 'Middelgroot 8kW') nextModel = 'Groot 12kW';
+                                else if (nextModel === 'Groot 12kW') nextModel = 'LuchtLucht';
+                                else nextModel = 'Standard';
+                              }
+                              return { ...prev, selectedWarmtepompType: 'Hybride', selectedWarmtepompModel: nextModel };
+                            });
+                          }}
+                          className={`py-1 px-1 text-[9.5px] leading-tight font-medium rounded-lg border text-center transition ${
+                            house.verwarming === 'Hybride warmtepomp'
+                              ? 'bg-emerald-600 text-white border-emerald-600 font-bold shadow-xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {house.verwarming === 'Hybride warmtepomp' && wpCapStr
+                            ? `Hybride (${wpCapStr})`
+                            : 'Hybride WP'}
+                        </button>
+                      );
+                    })()}
+                    {(() => {
+                      const wpCapStr = tech.selectedWarmtepompModel === 'Middelgroot 8kW' ? '6-8 kW'
+                        : tech.selectedWarmtepompModel === 'Groot 12kW' ? '10-12 kW'
+                        : tech.selectedWarmtepompModel === 'LuchtLucht' ? 'Airco'
+                        : tech.selectedWarmtepompModel === 'Standard' ? '4-5 kW' : '';
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHouse(prev => ({ ...prev, verwarming: 'Volledige warmtepomp', tapwater: 'Warmtepompboiler' }));
+                            setTech(prev => {
+                              let nextModel = prev.selectedWarmtepompModel || 'Standard';
+                              if (house.verwarming === 'Volledige warmtepomp' || house.verwarming === 'Full electric') {
+                                if (nextModel === 'Standard') nextModel = 'Middelgroot 8kW';
+                                else if (nextModel === 'Middelgroot 8kW') nextModel = 'Groot 12kW';
+                                else if (nextModel === 'Groot 12kW') nextModel = 'LuchtLucht';
+                                else nextModel = 'Standard';
+                              }
+                              return { ...prev, selectedWarmtepompType: 'All-Electric', selectedWarmtepompModel: nextModel };
+                            });
+                          }}
+                          className={`py-1 px-1 text-[9.5px] leading-tight font-medium rounded-lg border text-center transition ${
+                            house.verwarming === 'Volledige warmtepomp' || house.verwarming === 'Full electric'
+                              ? 'bg-emerald-700 text-white border-emerald-700 font-bold shadow-xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {(house.verwarming === 'Volledige warmtepomp' || house.verwarming === 'Full electric') && wpCapStr
+                            ? `Volledig WP (${wpCapStr})`
+                            : 'Volledig WP'}
+                        </button>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* 2. Zonnepanelen */}
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                    <span className="flex items-center gap-1.5">
+                      <Sun className="w-3.5 h-3.5 text-amber-500" /> Zonnepanelen
+                      <button
+                        type="button"
+                        onClick={() => setTech(prev => ({ ...prev, pvCurtailmentMode: !prev.pvCurtailmentMode }))}
+                        title="Klik om Slim EMS Omvormer Afschakelen bij negatieve stroomprijzen in of uit te schakelen"
+                        className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-md border font-sans whitespace-nowrap transition cursor-pointer ${
+                          tech.pvCurtailmentMode
+                            ? 'text-emerald-700 bg-emerald-50 border-emerald-200/80 hover:bg-emerald-100'
+                            : 'text-amber-800 bg-amber-50 border-amber-200/80 hover:bg-amber-100'
+                        }`}
+                      >
+                        Slim EMS {tech.pvCurtailmentMode ? 'aan' : 'uit'}
+                      </button>
+                    </span>
+                    <span className="font-semibold text-emerald-700 text-[10px]">
+                      {tech.aantalZonnepanelen > 0
+                        ? `${tech.aantalZonnepanelen} panelen`
+                        : 'Geen PV'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHouse(prev => ({ ...prev, zonnepanelenPresent: 'Nee' }));
+                        setTech(prev => ({ ...prev, aantalZonnepanelen: 0 }));
+                      }}
+                      className={`py-1 px-1 text-[10px] font-medium rounded-lg border text-center transition ${
+                        tech.aantalZonnepanelen === 0
+                          ? 'bg-slate-800 text-white border-slate-800 font-bold shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      0
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHouse(prev => ({ ...prev, zonnepanelenPresent: 'Ja' }));
+                        setTech(prev => ({ ...prev, aantalZonnepanelen: 6 }));
+                      }}
+                      className={`py-1 px-1 text-[10px] font-medium rounded-lg border text-center transition ${
+                        tech.aantalZonnepanelen === 6
+                          ? 'bg-amber-500 text-white border-amber-500 font-bold shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      6 st
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHouse(prev => ({ ...prev, zonnepanelenPresent: 'Ja' }));
+                        setTech(prev => ({ ...prev, aantalZonnepanelen: 10 }));
+                      }}
+                      className={`py-1 px-1 text-[10px] font-medium rounded-lg border text-center transition ${
+                        tech.aantalZonnepanelen === 10
+                          ? 'bg-amber-500 text-white border-amber-500 font-bold shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      10 st
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        let nextVal = 16;
+                        if (![0, 6, 10].includes(tech.aantalZonnepanelen)) {
+                          if (tech.aantalZonnepanelen >= 40) {
+                            nextVal = 16;
+                          } else {
+                            nextVal = tech.aantalZonnepanelen + 2;
+                          }
+                        }
+                        handleAantalZonnepanelenChange(nextVal);
+                      }}
+                      className={`py-1 px-1 text-[10px] font-medium rounded-lg border text-center transition ${
+                        tech.aantalZonnepanelen > 0 && tech.aantalZonnepanelen !== 6 && tech.aantalZonnepanelen !== 10
+                          ? 'bg-amber-500 text-white border-amber-500 font-bold shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                      title="Klik om het aantal zonnepanelen te verhogen (+2)"
+                    >
+                      {[0, 6, 10].includes(tech.aantalZonnepanelen) ? '16 st' : `${tech.aantalZonnepanelen} st`}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. Thuisaccu */}
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                    <span className="flex items-center gap-1.5">
+                      <Battery className="w-3.5 h-3.5 text-sky-500" /> Thuisaccu
+                      <button
+                        type="button"
+                        onClick={() => setTech(prev => ({ ...prev, batteryGridTrading: prev.batteryGridTrading === false ? true : false }))}
+                        title="Klik om Slim EMS sturing (Nethandel & Arbitrage) in of uit te schakelen"
+                        className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-md border font-sans whitespace-nowrap transition cursor-pointer ${
+                          tech.batteryGridTrading !== false
+                            ? 'text-emerald-700 bg-emerald-50 border-emerald-200/80 hover:bg-emerald-100'
+                            : 'text-amber-800 bg-amber-50 border-amber-200/80 hover:bg-amber-100'
+                        }`}
+                      >
+                        Slim EMS {tech.batteryGridTrading !== false ? 'aan' : 'uit'}
+                      </button>
+                    </span>
+                    <span className="font-semibold text-sky-700 text-[10px]">
+                      {tech.capaciteitAccu > 0 ? `${tech.capaciteitAccu} kWh` : 'Geen'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setTech(prev => ({ ...prev, capaciteitAccu: 0 }))}
+                      className={`py-1 px-1 text-[10px] font-medium rounded-lg border text-center transition ${
+                        tech.capaciteitAccu === 0
+                          ? 'bg-slate-800 text-white border-slate-800 font-bold shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      0
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTech(prev => ({ ...prev, capaciteitAccu: 5 }))}
+                      className={`py-1 px-1 text-[10px] font-medium rounded-lg border text-center transition ${
+                        tech.capaciteitAccu === 5
+                          ? 'bg-sky-600 text-white border-sky-600 font-bold shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      5 kWh
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTech(prev => ({ ...prev, capaciteitAccu: 10 }))}
+                      className={`py-1 px-1 text-[10px] font-medium rounded-lg border text-center transition ${
+                        tech.capaciteitAccu === 10
+                          ? 'bg-sky-600 text-white border-sky-600 font-bold shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      10 kWh
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        let nextVal = 15;
+                        if (![0, 5, 10].includes(tech.capaciteitAccu)) {
+                          if (tech.capaciteitAccu >= 50) {
+                            nextVal = 15;
+                          } else {
+                            nextVal = Math.floor(tech.capaciteitAccu / 5) * 5 + 5;
+                          }
+                        }
+                        setTech(prev => ({ ...prev, capaciteitAccu: nextVal }));
+                      }}
+                      className={`py-1 px-1 text-[10px] font-medium rounded-lg border text-center transition ${
+                        tech.capaciteitAccu > 0 && tech.capaciteitAccu !== 5 && tech.capaciteitAccu !== 10
+                          ? 'bg-sky-600 text-white border-sky-600 font-bold shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                      title="Klik om de accucapaciteit te verhogen (+5 kWh)"
+                    >
+                      {[0, 5, 10].includes(tech.capaciteitAccu) ? '15 kWh' : `${tech.capaciteitAccu} kWh`}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 4. Elektrische Auto / EV */}
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                    <span className="flex items-center gap-1">
+                      <Zap className="w-3.5 h-3.5 text-indigo-500" /> Auto (EV)
+                    </span>
+                    <span className="font-semibold text-indigo-700 text-[10px]">
+                      {(tech.evKilometers || 0) > 0
+                        ? `${((tech.evKilometers || 0) / 1000).toFixed((tech.evKilometers || 0) % 1000 === 0 ? 0 : 1)}k km`
+                        : 'Geen EV'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setTech(prev => ({ ...prev, evKilometers: 0, evThuisLaden: 0 }))}
+                      className={`py-1 px-1 text-[10px] font-medium rounded-lg border text-center transition ${
+                        (tech.evKilometers || 0) === 0
+                          ? 'bg-slate-800 text-white border-slate-800 font-bold shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      Geen EV
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTech(prev => {
+                          const currentKm = prev.evKilometers || 0;
+                          let nextKm = 12000;
+                          if (currentKm > 0) {
+                            if (currentKm < 12000) nextKm = 12000;
+                            else if (currentKm >= 50000) nextKm = 12000;
+                            else if (currentKm < 15000) nextKm = 15000;
+                            else nextKm = Math.floor(currentKm / 5000) * 5000 + 5000;
+                          }
+                          return {
+                            ...prev,
+                            evKilometers: nextKm,
+                            evVerbruik: prev.evVerbruik || 18,
+                            evThuisLaden: prev.evThuisLaden || 60,
+                            laadvermogen: prev.laadvermogen || 11
+                          };
+                        });
+                      }}
+                      className={`py-1 px-1 text-[10px] font-medium rounded-lg border text-center transition ${
+                        (tech.evKilometers || 0) > 0
+                          ? 'bg-indigo-600 text-white border-indigo-600 font-bold shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                      title="Klik om het aantal EV kilometers stapsgewijs te verhogen (+5.000 km)"
+                    >
+                      {(tech.evKilometers || 0) > 0
+                        ? `Met EV (${((tech.evKilometers || 0) / 1000).toFixed((tech.evKilometers || 0) % 1000 === 0 ? 0 : 1)}k km)`
+                        : 'Met EV'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Realtime Math Spreadsheet (Direct feedback direct onder snel profiel aanpassen) */}
+          <div className="bg-white rounded-2xl p-3.5 border border-slate-200/90 shadow-sm space-y-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 pb-1.5 border-b border-slate-100">
+              <h3 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                Live Rekenoverzicht
+              </h3>
+              <div className="flex items-center gap-2 flex-wrap text-[10px]">
+                <span className="font-medium text-slate-600 bg-slate-100/80 px-2 py-0.5 rounded-full border border-slate-200/70 flex items-center gap-1">
+                  <span>Stookfactor:</span>
+                  <strong className="font-mono text-emerald-700 font-bold">{(liveCalcResult?.house?.stookgedragFactor ?? 1.0).toFixed(1)}x</strong>
+                  <span className="text-[9px] text-slate-500">({liveCalcResult?.house?.stookgedragBerekend || 'Normaal'})</span>
+                </span>
+                <span className="text-slate-500 font-mono">Gasprijs €{(house.gasPrijs ?? 1.50).toFixed(2)}/m³</span>
+              </div>
+            </div>
+
+            {liveCalcResult.measures.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-[11px] border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200/80 text-slate-500 text-[10px] uppercase tracking-tight">
+                      <th className="py-1 px-1 font-bold">Maatregel</th>
+                      <th className="py-1 px-1 font-bold text-center">m²</th>
+                      <th className="py-1 px-1 font-bold text-right">Bruto</th>
+                      <th className="py-1 px-1 font-bold text-right">ISDE</th>
+                      <th className="py-1 px-1 font-bold text-right">NIP</th>
+                      <th className="py-1 px-1 font-bold text-right">Netto</th>
+                      <th className="py-1 px-1 font-bold text-right">TVT</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-sans">
+                    {liveCalcResult.measures.map((m) => (
+                      <tr key={m.id} className="hover:bg-slate-50/60 transition-colors text-slate-700">
+                        <td className="py-1 px-1 font-medium text-slate-800">{m.name}</td>
+                        <td className="py-1 px-1 text-center font-mono">{m.area}</td>
+                        <td className="py-1 px-1 text-right font-mono">€{m.brutoCosts}</td>
+                        <td className="py-1 px-1 text-right font-mono text-emerald-600">
+                          {m.isdeSubsidy > 0 ? `€${Math.round(m.isdeSubsidy)}` : '€0'}
+                        </td>
+                        <td className="py-1 px-1 text-right font-mono text-blue-600">
+                          {m.nipSubsidy > 0 ? `€${Math.round(m.nipSubsidy)}` : '€0'}
+                        </td>
+                        <td className="py-1 px-1 text-right font-mono font-semibold text-slate-800">€{Math.round(m.netCosts)}</td>
+                        <td className="py-1 px-1 text-right font-mono text-slate-600">{m.tvt > 0 ? `${(m.tvt ?? 0).toFixed(1)}j` : '0j'}</td>
+                      </tr>
+                    ))}
+                    {/* Totale sommen */}
+                    <tr className="bg-slate-50 font-bold border-t border-slate-200 text-slate-900">
+                      <td className="py-1.5 px-1 text-slate-800">Totaal</td>
+                      <td className="py-1.5 px-1 text-center font-mono">{liveCalcResult.measures.reduce((sum, m) => sum + (m.area || 0), 0)} m²</td>
+                      <td className="py-1.5 px-1 text-right font-mono">€{liveCalcResult.totals.bruto}</td>
+                      <td className="py-1.5 px-1 text-right font-mono text-emerald-600">€{Math.round(liveCalcResult.totals.isde)}</td>
+                      <td className="py-1.5 px-1 text-right font-mono text-blue-600">€{Math.round(liveCalcResult.totals.nip)}</td>
+                      <td className="py-1.5 px-1 text-right font-mono text-slate-900">€{Math.round(liveCalcResult.totals.net)}</td>
+                      <td className="py-1.5 px-1 text-right font-mono">{(liveCalcResult.totals.tvt ?? 0).toFixed(1)}j</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-4 text-slate-500 text-xs italic bg-slate-50/50 rounded-lg border border-dashed border-slate-200 p-3">
+                Kies een snelprofiel hierboven of voer isolatiemaatregelen in het onderstaande paneel in om live berekeningen van investeringen en subsidies te starten.
+              </div>
+            )}
+
+            {/* Energiekosten Jouw Woning (Gas & Elektra) */}
+            {liveCalcResult && (() => {
+              const gPrice = liveCalcResult.house?.gasPrijs || 1.50;
+              const ePrice = liveCalcResult.house?.elektraPrijs || 0.35;
+
+              // Gas costs
+              const currentGasM3 = liveCalcResult.house?.verbruikM3 || 0;
+              const currentGasYr = Math.round(currentGasM3 * gPrice);
+              const currentGasMth = Math.round(currentGasYr / 12);
+
+              const houseKwh = liveCalcResult.house?.verbruikKwh || 0;
+              const solarKwh = liveCalcResult.solar?.annualYieldKwh || 0;
+              const batteryCap = liveCalcResult.tech?.capaciteitAccu || 0;
+
+              // Self consumption percentage (with battery vs base)
+              const rawSelfConsPct = batteryCap > 0
+                ? (liveCalcResult.solar?.selfConsumptionWithBattery || 65)
+                : (liveCalcResult.solar?.selfConsumptionBase || 35);
+              const selfConsPct = Math.round(rawSelfConsPct * 100) / 100;
+
+              // Huidige Situatie (Nulmeting): basisverbruik zoals opgegeven bij woning (zonder nieuwe verduurzamingsmaatregelen)
+              // Indien in de nulmeting al zonnepanelen aanwezig zijn (house.zonnepanelenPresent === 'Ja'), kan men dat meenemen,
+              // maar bij het simuleren/toevoegen van zonnepanelen, accu of warmtepomp in de verduurzamingsmaatregelen blijft de Nulmeting de uitgangssituatie.
+              const baselineSolarPresent = liveCalcResult.house?.zonnepanelenPresent === 'Ja';
+              const baselineSolarKwh = baselineSolarPresent ? solarKwh : 0;
+              const baselineDirectSelfKwh = baselineSolarPresent ? Math.min(houseKwh, (solarKwh * 35) / 100) : 0;
+              const baselineFeedInKwh = baselineSolarPresent ? Math.max(0, solarKwh - baselineDirectSelfKwh) : 0;
+              const baselineGridImportKwh = Math.max(0, houseKwh - baselineDirectSelfKwh);
+
+              const currentElektraYr = Math.round((baselineGridImportKwh * ePrice) - (baselineFeedInKwh * 0.05));
+              const currentElektraMth = Math.round(currentElektraYr / 12);
+
+              const currentTotalYr = currentGasYr + currentElektraYr;
+              const currentTotalMth = Math.round(currentTotalYr / 12);
+
+              // Na Verduurzaming
+              const totalGasSavingsM3 = liveCalcResult.measures.reduce((s, m) => s + m.savingM3, 0);
+              const remainingGasAfterInsulation = Math.max(0, currentGasM3 - totalGasSavingsM3);
+
+              // Heat pump status & selection
+              const activeType = liveCalcResult.tech?.selectedWarmtepompType;
+              const houseWpType = liveCalcResult.house?.verwarming || 'CV-ketel';
+
+              const isWpActiveInHouse = houseWpType !== 'CV-ketel' && houseWpType !== 'Geen / Overig' && houseWpType !== 'Andere' && houseWpType !== 'CV-ketel op gas';
+              const isVolledigWp = isWpActiveInHouse && (houseWpType === 'Volledige warmtepomp' || houseWpType === 'Full electric' || activeType === 'All-Electric');
+              const isHybrideWp = isWpActiveInHouse && (houseWpType === 'Hybride warmtepomp' || activeType === 'Hybride');
+
+              let postGasM3 = remainingGasAfterInsulation;
+              let postAddElektraKwh = 0;
+
+              if (isVolledigWp) {
+                postGasM3 = 0; // Gasloos! Volledige warmtepomp vervangt al het gas.
+                const aeOption = liveCalcResult.heatpump?.options?.find(o => o.type === 'All-Electric');
+                postAddElektraKwh = (liveCalcResult.tech?.userAnnualWp && liveCalcResult.tech.userAnnualWp > 0)
+                  ? liveCalcResult.tech.userAnnualWp
+                  : (aeOption ? Math.round(aeOption.elecIncreaseKwh) : Math.round(remainingGasAfterInsulation * 2.2));
+              } else if (isHybrideWp) {
+                const isAirco = liveCalcResult.tech?.selectedWarmtepompModel === 'LuchtLucht';
+                const hybridRatio = isAirco ? 0.55 : 0.75;
+                postGasM3 = Math.max(0, Math.round(remainingGasAfterInsulation * (1 - hybridRatio)));
+
+                const hybridOption = liveCalcResult.heatpump?.options?.find(o => o.type.includes('Hybride') || o.type.includes('Lucht'));
+                postAddElektraKwh = (liveCalcResult.tech?.userAnnualWp && liveCalcResult.tech.userAnnualWp > 0)
+                  ? liveCalcResult.tech.userAnnualWp
+                  : (hybridOption ? Math.round(hybridOption.elecIncreaseKwh) : Math.round(remainingGasAfterInsulation * hybridRatio * 2.2));
+              } else {
+                postGasM3 = remainingGasAfterInsulation;
+                postAddElektraKwh = 0;
+              }
+
+              const postGasYr = Math.round(postGasM3 * gPrice);
+              const postGasMth = Math.round(postGasYr / 12);
+
+              const postHouseKwh = houseKwh + postAddElektraKwh;
+              const postDirectSelfKwh = Math.min(postHouseKwh, (solarKwh * selfConsPct) / 100);
+              const postFeedInKwh = Math.max(0, solarKwh - postDirectSelfKwh);
+              const postGridImportKwh = Math.max(0, postHouseKwh - postDirectSelfKwh);
+
+              // Grid trading or arbitrage yield if enabled
+              let batteryTradingYield = 0;
+              if (batteryCap > 0 && liveCalcResult.tech?.batteryGridTrading) {
+                const provider = liveCalcResult.tech.dynamicProvider || 'Zonneplan';
+                const ratePerKwh = provider === 'Zonneplan' ? 38.25 : provider === 'Frank' ? 31.5 : provider === 'Tibber' ? 29.25 : provider === 'Anwb' ? 27.00 : 24.75;
+                batteryTradingYield = batteryCap * ratePerKwh;
+              }
+
+              const postElektraYr = Math.round((postGridImportKwh * ePrice) - (postFeedInKwh * 0.05) - batteryTradingYield);
+              const postElektraMth = Math.round(postElektraYr / 12);
+
+              const postTotalYr = postGasYr + postElektraYr;
+              const postTotalMth = Math.round(postTotalYr / 12);
+
+              const wpElecSharePct = postHouseKwh > 0 ? Math.round((postAddElektraKwh / postHouseKwh) * 100) : 0;
+              const wpElecCostYr = Math.round(postAddElektraKwh * ePrice);
+              const wpElecCostMth = Math.round(wpElecCostYr / 12);
+
+              // Investeringskosten per technologie / maatregel
+              const solarInv = (solarKwh > 0 || (liveCalcResult.tech?.aantalZonnepanelen && liveCalcResult.tech.aantalZonnepanelen > 0)) 
+                ? (liveCalcResult.tech?.customZonnepanelenPrijs || getSolarInvestmentEstimate(liveCalcResult.tech?.aantalZonnepanelen || 0)) 
+                : 0;
+
+              const batteryInv = (batteryCap > 0 || (liveCalcResult.tech?.capaciteitAccu && liveCalcResult.tech.capaciteitAccu > 0)) 
+                ? (liveCalcResult.tech?.customAccuPrijs || getBatteryInvestmentEstimate(batteryCap || 0)) 
+                : 0;
+
+              let wpInv = 0;
+              if (isVolledigWp) {
+                const aeOption = liveCalcResult.heatpump?.options?.find(o => o.type === 'All-Electric');
+                wpInv = aeOption ? aeOption.netInvestment : 0;
+              } else if (isHybrideWp) {
+                const hybridOption = liveCalcResult.heatpump?.options?.find(o => o.type.includes('Hybride') || o.type.includes('Lucht'));
+                wpInv = hybridOption ? hybridOption.netInvestment : 0;
+              }
+
+              const wpModelId = liveCalcResult.tech?.selectedWarmtepompModel || 'Standard';
+              const wpCapacityStr = wpModelId === 'Middelgroot 8kW' ? '6-8 kW' : wpModelId === 'Groot 12kW' ? '10-12 kW' : wpModelId === 'LuchtLucht' ? 'Airco multi-split' : '4-5 kW';
+
+              const insulationInv = liveCalcResult.totals?.net || 0;
+              const totalInsulationM2 = liveCalcResult.measures.reduce((s, m) => s + (m.area || 0), 0);
+              const totalInvestmentInv = solarInv + batteryInv + wpInv + insulationInv;
+
+              // Componenten van Totale Jaarbesparing (Afgerond op hele euro's)
+              const isoSavingsCalculated = Math.round(liveCalcResult.totals?.savingsEuro || 0);
+              const solarPanelsCount = liveCalcResult.tech?.aantalZonnepanelen || 0;
+              const solarSavingsCalculated = Math.round(solarKwh * (ePrice - 0.05));
+              const batterySavingsCalculated = Math.round(batteryTradingYield);
+              const chosenWpOpt = liveCalcResult.heatpump?.options?.find(o => isVolledigWp ? o.type === 'All-Electric' : (o.type.includes('Hybride') || o.type.includes('Lucht')));
+              const hasWp = (isVolledigWp || isHybrideWp) && Boolean(chosenWpOpt || wpInv > 0);
+              const wpSavingsCalculated = Math.round(hasWp && chosenWpOpt ? chosenWpOpt.netSavingsEuro : Math.max(0, (currentGasYr - postGasYr) - wpElecCostYr));
+              const evKm = liveCalcResult.tech?.evKilometers || 0;
+              const hasEv = evKm > 0;
+              const evSavingsCalculated = Math.round(hasEv ? (liveCalcResult.laadpaal?.totalSavingsEuro ?? 0) : 0);
+              const totalJaarbesparingCalculated = Math.round(currentTotalYr - postTotalYr);
+
+              return (
+                <div className="bg-slate-50/80 border border-slate-200/80 rounded-lg p-2 space-y-1.5 mt-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
+                      <PiggyBank className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Energiekosten Jouw Woning (Gas &amp; Elektra)
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setShowEnergyPdfModal(true)}
+                        className="text-[9.5px] text-white bg-emerald-600 hover:bg-emerald-700 border border-emerald-600 px-2.5 py-0.5 rounded-full font-bold transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
+                      >
+                        <FileText className="w-3 h-3 text-white" />
+                        <span>PDF Berekening Rapport</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowSimExplanation(!showSimExplanation)}
+                        className="text-[9px] text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100/90 border border-emerald-200/90 px-2 py-0.5 rounded-full font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                      >
+                        <HelpCircle className="w-3 h-3 text-emerald-600" />
+                        <span>{showSimExplanation ? 'Verberg uitleg' : 'Uitleg & Simuleren'}</span>
+                      </button>
+                      <span className="text-[9px] text-slate-500 font-mono hidden sm:inline">
+                        Gas €{gPrice.toFixed(2)}/m³ • Elektra €{ePrice.toFixed(2)}/kWh
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Uitleg & Simulatietips Card */}
+                  {showSimExplanation && (
+                    <div className="bg-slate-50/90 border border-slate-200/90 rounded-lg p-2.5 text-[10.5px] space-y-2 font-sans text-slate-700 shadow-2xs">
+                      <div className="flex items-center justify-between border-b border-slate-200/80 pb-1.5">
+                        <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          Verschil tussen Huidige Situatie &amp; Na Verduurzaming
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowSimExplanation(false)}
+                          className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1 cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      {/* Uitgebreide Uitleg Totale Jaarbesparing Card - Gelijk aan Punt 1 Stijl */}
+                      <div className="bg-white p-2.5 rounded-lg border border-slate-200/80 space-y-2 text-[10px]">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                          <span className="font-bold text-slate-800 flex items-center gap-1.5 text-[11px]">
+                            <PiggyBank className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            Totale Jaarbesparing: Hoe komt € {totalJaarbesparingCalculated.toLocaleString('nl-NL')} / jr tot stand?
+                          </span>
+                          <span className="bg-emerald-50 text-emerald-800 border border-emerald-100 text-[9px] font-bold px-2 py-0.5 rounded-full">
+                            Afgerond op hele euro's
+                          </span>
+                        </div>
+
+                        <p className="text-slate-600 leading-relaxed">
+                          De <strong>Totale Jaarbesparing</strong> bedraagt exact <strong className="text-emerald-700 font-extrabold font-mono text-[11px]">€ {totalJaarbesparingCalculated.toLocaleString('nl-NL')} / jaar</strong>. Dit is het netto verschil tussen wat je per jaar betaalt in je <strong>Huidige Situatie (€ {currentTotalYr.toLocaleString('nl-NL')})</strong> en je verwachte jaarkosten <strong>Na Verduurzaming ({postTotalYr < 0 ? `-€ ${Math.abs(postTotalYr).toLocaleString('nl-NL')} (netto opbrengst)` : `€ ${postTotalYr.toLocaleString('nl-NL')}`})</strong>.
+                        </p>
+
+                        <div className="bg-emerald-50/50 p-2 rounded border border-emerald-100/80 space-y-1 text-slate-800">
+                          <p className="font-bold flex items-center gap-1 text-[10px] text-emerald-900">
+                            💡 <strong>Directe Rekenformule:</strong>
+                          </p>
+                          <p className="text-slate-700 leading-snug">
+                            Huidige jaarkosten (€ {currentTotalYr.toLocaleString('nl-NL')}) - Nieuwe jaarkosten ({postTotalYr < 0 ? `-€ ${Math.abs(postTotalYr).toLocaleString('nl-NL')}` : `€ ${postTotalYr.toLocaleString('nl-NL')}`}) = <strong className="text-emerald-700 font-mono text-[10.5px]">€ {totalJaarbesparingCalculated.toLocaleString('nl-NL')} / jaar</strong>
+                          </p>
+                        </div>
+
+                        <div className="space-y-1 pt-1">
+                          <span className="font-bold text-slate-800 block text-[10px]">
+                            Opbouw van de besparing per maatregel:
+                          </span>
+                          <ul className="list-disc list-inside space-y-1 text-slate-700 text-[10px] pl-0.5">
+                            <li>
+                              <strong>🏠 Isolatiebesparing:</strong> <span className="font-bold font-mono text-emerald-700">€ {isoSavingsCalculated.toLocaleString('nl-NL')} / jr</span>
+                              {totalGasSavingsM3 > 0 ? ` (${Math.round(totalGasSavingsM3)} m³ gasbesparing × € ${gPrice.toFixed(2)}/m³)` : ' (Geen isolatie geselecteerd)'}
+                            </li>
+                            <li>
+                              <strong>☀️ Zonnestroom Opbrengst:</strong> <span className="font-bold font-mono text-emerald-700">€ {solarSavingsCalculated.toLocaleString('nl-NL')} / jr</span>
+                              {solarPanelsCount > 0 ? ` (${solarPanelsCount} panelen, ca. ${Math.round(solarKwh)} kWh/jr opbrengst)` : ' (Geen extra zonnepanelen)'}
+                            </li>
+                            <li>
+                              <strong>🔋 Thuisbatterij Output:</strong> <span className="font-bold font-mono text-emerald-700">€ {batterySavingsCalculated.toLocaleString('nl-NL')} / jr</span>
+                              {batteryCap > 0 ? ` (${batteryCap} kWh accu: verhoogt eigenverbruik naar ${selfConsPct}% + handelsrendement)` : ' (Geen thuisbatterij)'}
+                            </li>
+                            <li>
+                              <strong>♨️ Warmtepomp Rendement:</strong> <span className="font-bold font-mono text-emerald-700">€ {wpSavingsCalculated.toLocaleString('nl-NL')} / jr</span>
+                              {hasWp ? ` (Netto effect van uitgespaard gas minus extra stroomverbruik)` : ' (Geen actieve warmtepomp)'}
+                            </li>
+                            <li>
+                              <strong>🚗 Brandstofverplaatsing (EV / Laadpaal):</strong> <span className="font-bold font-mono text-emerald-700">€ {evSavingsCalculated.toLocaleString('nl-NL')} / jr</span>
+                              {hasEv ? ` (Besparing benzine/diesel t.o.v. stroom bij ${evKm.toLocaleString('nl-NL')} km/jr)` : ' (Geen EV / laadpaal)'}
+                            </li>
+                          </ul>
+                        </div>
+
+                        <p className="text-[9px] text-slate-500 italic pt-0.5">
+                          * Alle tussentijdse en eindbedragen zijn consequent afgerond op hele euro's (zonder decimalen).
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <div className="bg-white p-2.5 rounded border border-slate-200/80 space-y-1">
+                          <span className="font-bold text-slate-800 flex items-center gap-1 text-[11px]">
+                            <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                            1. Huidige Situatie (Nulmeting)
+                          </span>
+                          <p className="text-slate-600 text-[10px] leading-relaxed">
+                            Dit zijn je kosten op basis van je <strong>oorspronkelijke of werkelijke jaarverbruik</strong> ({currentGasM3} m³ gas &amp; {houseKwh} kWh stroom) en huidige installaties (CV-ketel/warmtepomp).
+                          </p>
+                          <div className="bg-amber-50/40 p-2 rounded border border-amber-100/80 space-y-1 text-[9.5px] text-amber-950 mt-1">
+                            <p className="font-bold flex items-center gap-1 text-[10px] text-amber-900">
+                              💡 <strong>Wil je je Nulmeting aanpassen aan de exacte huidige stand van je woning?</strong>
+                            </p>
+                            <ul className="list-disc list-inside space-y-1 text-slate-700 leading-snug pl-0.5">
+                              <li>
+                                <strong>Adres &amp; Jaarverbruik:</strong> Vul je adres in (BAG API haalt bouwjaar/m² op) of pas je werkelijke jaarnota (m³ gas &amp; kWh stroom) aan bij <em>Woning &amp; Verbruik</em>.
+                              </li>
+                              <li>
+                                <strong>Bestaande zonnepanelen (bijv. &gt;16 panelen):</strong> Heb je al een flinke zonne-installatie op het dak liggen (bijv. 16, 20 of meer panelen)? Vul je aantal panelen in bij <em>Zonnepanelen &amp; Accu</em> om de actuele opbrengst en teruglevering direct mee te nemen in je nulmeting.
+                              </li>
+                              <li>
+                                <strong>Slim EMS &amp; Dynamisch contract:</strong> Beschik je over een slim energiebeheersysteem (Smart EMS) of een dynamisch tarief (bijv. Zonneplan, Tibber, Frank Energie)? Schakel bij <em>Tarief &amp; Leverancier</em> en <em>Thuisaccu</em> sturing op de EPEX- en onbalansmarkt in voor een realistisch opbrengstbeeld.
+                              </li>
+                            </ul>
+                          </div>
+                        </div>
+
+                        <div className="bg-white p-2.5 rounded border border-slate-200/80 space-y-1 flex flex-col justify-between">
+                          <div className="space-y-1">
+                            <span className="font-bold text-slate-800 flex items-center gap-1 text-[11px]">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                              2. Na Verduurzaming (Het resultaat)
+                            </span>
+                            <p className="text-slate-600 text-[10px] leading-relaxed">
+                              Dit zijn je nieuwe netto energiekosten <strong>ná verwerking van isolatiebesparing, een warmtepomp, uitbreiding van zonnestroom en/of slimme thuisbatterij-opslag</strong>.
+                            </p>
+                          </div>
+                          <div className="bg-emerald-50/40 p-2 rounded border border-emerald-100/80 text-[9.5px] text-emerald-950 space-y-1 mt-1">
+                            <p className="font-bold text-[10px] text-emerald-900">🎯 Resultaat &amp; Terugverdieneffect</p>
+                            <p className="text-slate-700 leading-snug">
+                              Door 'Huidige Situatie' te vergelijken met 'Na Verduurzaming' zie je in één oogopslag je maandelijkse en jaarlijkse nettobesparing én de terugverdientijd van je totale investering.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-white p-2.5 rounded border border-slate-200/80 space-y-1">
+                        <span className="font-bold text-slate-800 flex items-center gap-1 text-[11px]">
+                          <Sliders className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                          Hoe simuleer je het beste aantal zonnepanelen &amp; accu voor jouw huis?
+                        </span>
+                        <ul className="list-disc list-inside space-y-1 text-slate-700 text-[10px] pl-0.5">
+                          <li>
+                            <strong>☀️ Zonnepanelen (Aantal bepalen):</strong> Heb je nu nog geen zonnepanelen? Vul bij <em>Snel profiel</em> of onderaan bij <em>Zonnepanelen &amp; Accu</em> bijv. <strong>8, 10 of 12 zonnepanelen</strong> in. Kijk hoe de stroomkosten bij 'Na Verduurzaming' direct dalen!
+                          </li>
+                          <li>
+                            <strong>🔋 Thuisbatterij (Capaciteit bepalen):</strong> Voeg een accu toe (bijv. <strong>10 kWh</strong>). Zonder accu gebruik je maar ~35% van je zonnestroom direct. Met accu stijgt dit naar <strong>65% eigenverbruik</strong>, waardoor je in 'Na Verduurzaming' aanzienlijk minder dure netstroom koopt.
+                          </li>
+                          <li>
+                            <strong>♨️ Warmtepomp &amp; Isolatie:</strong> Vink isolatiemaatregelen aan of kies een warmtepomp om te zien hoeveel gas je bespaart en wat dit doet met je nettobedrag onderaan de streep.
+                          </li>
+                          <li>
+                            <strong>🚗 Laadpaal &amp; EV (Brandstofverplaatsing):</strong> Een elektrische auto verhoogt je elektraverbruik (~2.500 tot 3.500 kWh/jaar). Dit betreft mobiliteit en staat los van woningisolatie, maar <strong>vervangt wel je tankstationkosten (benzine/diesel)</strong>. Je energierekening stijgt hierdoor wel, maar je bespaart netto honderden euro's aan brandstof (zeker i.c.m. zonnepanelen of slim laden op daluren).
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+                    <table className="w-full text-left border-collapse text-[10px]">
+                      <thead>
+                        <tr className="bg-slate-100/90 text-slate-600 font-bold border-b border-slate-200 text-[9px] uppercase tracking-wider">
+                          <th className="py-1 px-2">Situatie</th>
+                          <th className="py-1 px-1.5 text-right text-amber-900 bg-amber-50/50">Gas / mnd</th>
+                          <th className="py-1 px-1.5 text-right text-amber-950 bg-amber-50/50">Gas / jaar</th>
+                          <th className="py-1 px-1.5 text-right text-sky-900 bg-sky-50/50">Elektra / mnd</th>
+                          <th className="py-1 px-1.5 text-right text-sky-950 bg-sky-50/50">Elektra / jaar</th>
+                          <th className="py-1 px-1.5 text-right text-emerald-950 bg-emerald-50/70 font-black">Totaal / mnd</th>
+                          <th className="py-1 px-1.5 text-right text-emerald-950 bg-emerald-50/70 font-black">Totaal / jaar</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-150 font-mono text-[10px]">
+                        <tr className="bg-amber-50/20">
+                          <td className="py-1 px-2 font-sans font-medium text-slate-800 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+                            Huidige Situatie (Nulmeting)
+                          </td>
+                          <td className="py-1 px-1.5 text-right text-amber-900">€ {currentGasMth.toLocaleString('nl-NL')}</td>
+                          <td className="py-1 px-1.5 text-right text-amber-950 font-bold">€ {currentGasYr.toLocaleString('nl-NL')}</td>
+                          <td className="py-1 px-1.5 text-right text-sky-900">
+                            {currentElektraMth < 0 ? `-€ ${Math.abs(currentElektraMth).toLocaleString('nl-NL')}` : `€ ${currentElektraMth.toLocaleString('nl-NL')}`}
+                          </td>
+                          <td className="py-1 px-1.5 text-right text-sky-950 font-bold">
+                            {currentElektraYr < 0 ? `-€ ${Math.abs(currentElektraYr).toLocaleString('nl-NL')}` : `€ ${currentElektraYr.toLocaleString('nl-NL')}`}
+                          </td>
+                          <td className="py-1 px-1.5 text-right bg-amber-100/40 text-slate-900 font-bold">
+                            {currentTotalMth < 0 ? `-€ ${Math.abs(currentTotalMth).toLocaleString('nl-NL')}` : `€ ${currentTotalMth.toLocaleString('nl-NL')}`}
+                          </td>
+                          <td className="py-1 px-1.5 text-right bg-amber-100/40 text-slate-950 font-black">
+                            {currentTotalYr < 0 ? `-€ ${Math.abs(currentTotalYr).toLocaleString('nl-NL')}` : `€ ${currentTotalYr.toLocaleString('nl-NL')}`}
+                          </td>
+                        </tr>
+                        <tr className="bg-emerald-50/30 font-bold">
+                          <td className="py-1 px-2 font-sans font-bold text-emerald-950 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                            Na Verduurzaming
+                          </td>
+                          <td className="py-1 px-1.5 text-right text-amber-900">
+                            {postGasM3 === 0 ? <span className="text-emerald-700 font-extrabold bg-emerald-100/90 px-1 py-0.5 rounded text-[9px]">€ 0 (Gasloos)</span> : `€ ${postGasMth.toLocaleString('nl-NL')}`}
+                          </td>
+                          <td className="py-1 px-1.5 text-right text-amber-950 font-bold">
+                            {postGasM3 === 0 ? <span className="text-emerald-700 font-extrabold bg-emerald-100/90 px-1 py-0.5 rounded text-[9px]">€ 0 (0 m³)</span> : `€ ${postGasYr.toLocaleString('nl-NL')}`}
+                          </td>
+                          <td className="py-1 px-1.5 text-right text-sky-900">
+                            {postElektraMth < 0 ? <span className="text-emerald-700 font-extrabold">-€ {Math.abs(postElektraMth).toLocaleString('nl-NL')}</span> : `€ ${postElektraMth.toLocaleString('nl-NL')}`}
+                          </td>
+                          <td className="py-1 px-1.5 text-right text-sky-950 font-bold">
+                            {postElektraYr < 0 ? <span className="text-emerald-700 font-extrabold">-€ {Math.abs(postElektraYr).toLocaleString('nl-NL')}</span> : `€ ${postElektraYr.toLocaleString('nl-NL')}`}
+                          </td>
+                          <td className="py-1 px-1.5 text-right bg-emerald-100/50 text-emerald-950 font-extrabold">
+                            {postTotalMth < 0 ? <span className="text-emerald-700 font-extrabold">-€ {Math.abs(postTotalMth).toLocaleString('nl-NL')}</span> : `€ ${postTotalMth.toLocaleString('nl-NL')}`}
+                          </td>
+                          <td className="py-1 px-1.5 text-right bg-emerald-100/50 text-emerald-950 font-black">
+                            {postTotalYr < 0 ? (
+                              <span className="text-emerald-800 font-black bg-emerald-200/80 px-1.5 py-0.5 rounded text-[9.5px] shadow-2xs">
+                                -€ {Math.abs(postTotalYr).toLocaleString('nl-NL')} (Netto Opbrengst)
+                              </span>
+                            ) : (
+                              `€ ${postTotalYr.toLocaleString('nl-NL')}`
+                            )}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex items-center gap-1 text-[10px] text-slate-600 bg-sky-50/70 border border-sky-200/50 px-2 py-1 rounded font-sans">
+                    <Sun className="w-3 h-3 text-amber-500 shrink-0" />
+                    <span className="text-[10px] leading-tight">
+                      <strong>Investeringen Overzicht:</strong>
+                      {solarInv > 0 ? ` Zonnepanelen (${liveCalcResult.tech?.aantalZonnepanelen ? `${liveCalcResult.tech.aantalZonnepanelen} panelen · ` : ''}${Math.round(solarKwh).toLocaleString('nl-NL')} kWh): € ${Math.round(solarInv).toLocaleString('nl-NL')}` : ' Geen zonnepanelen'}
+                      {batteryInv > 0 ? ` • Thuisbatterij (${batteryCap} kWh): € ${Math.round(batteryInv).toLocaleString('nl-NL')}` : ' • Geen thuisbatterij'}
+                      {wpInv > 0 ? ` • Warmtepomp (${isVolledigWp ? 'All-Electric' : 'Hybride'} · ${wpCapacityStr}): € ${Math.round(wpInv).toLocaleString('nl-NL')}` : ' • Geen warmtepomp'}
+                      {insulationInv > 0 ? ` • Isolatie (${totalInsulationM2} m²): € ${Math.round(insulationInv).toLocaleString('nl-NL')}` : ''}
+                      {` • Totale investering: € ${Math.round(totalInvestmentInv).toLocaleString('nl-NL')}`}
+                    </span>
+                  </div>
+
+                  {/* PDF Report Modal */}
+                  <EnergyCostPdfModal
+                    isOpen={showEnergyPdfModal}
+                    onClose={() => setShowEnergyPdfModal(false)}
+                    resident={resident}
+                    house={house}
+                    liveCalcResult={liveCalcResult}
+                    gPrice={gPrice}
+                    ePrice={ePrice}
+                    currentGasM3={currentGasM3}
+                    currentGasYr={currentGasYr}
+                    currentGasMth={currentGasMth}
+                    houseKwh={houseKwh}
+                    currentElektraYr={currentElektraYr}
+                    currentElektraMth={currentElektraMth}
+                    currentTotalYr={currentTotalYr}
+                    currentTotalMth={currentTotalMth}
+                    postGasM3={postGasM3}
+                    postGasYr={postGasYr}
+                    postGasMth={postGasMth}
+                    postHouseKwh={postHouseKwh}
+                    postAddElektraKwh={postAddElektraKwh}
+                    postElektraYr={postElektraYr}
+                    postElektraMth={postElektraMth}
+                    postTotalYr={postTotalYr}
+                    postTotalMth={postTotalMth}
+                    solarKwh={solarKwh}
+                    solarInv={solarInv}
+                    aantalZonnepanelen={liveCalcResult.tech?.aantalZonnepanelen || 0}
+                    batteryCap={batteryCap}
+                    batteryInv={batteryInv}
+                    selfConsPct={selfConsPct}
+                    batteryTradingYield={batteryTradingYield}
+                    isVolledigWp={isVolledigWp}
+                    isHybrideWp={isHybrideWp}
+                    wpInv={wpInv}
+                    wpCapacityStr={wpCapacityStr}
+                    wpModelId={wpModelId}
+                    insulationInv={insulationInv}
+                    totalInsulationM2={totalInsulationM2}
+                    totalGasSavingsM3={totalGasSavingsM3}
+                    totalInvestmentInv={totalInvestmentInv}
+                  />
+                </div>
+              );
+            })()}
+
+            {/* Totaalvoorstel Verduurzaming (Alle Maatregelen Samen) - Direct onder Energiekosten */}
+            {liveCalcResult && (() => {
+              const gPrice = liveCalcResult.house?.gasPrijs || 1.50;
+              const ePrice = liveCalcResult.house?.elektraPrijs || 0.35;
+
+              // 1. Isolatie
+              const isoNetCosts = liveCalcResult.totals?.net || 0;
+              const isoSubsidies = (liveCalcResult.totals?.isde || 0) + (liveCalcResult.totals?.nip || 0);
+              const isoSavings = liveCalcResult.totals?.savingsEuro || 0;
+              const hasIso = (liveCalcResult.measures?.length || 0) > 0 && isoNetCosts > 0;
+
+              // 2. Zonnepanelen
+              const solarPanels = liveCalcResult.tech?.aantalZonnepanelen || 0;
+              const solarYield = liveCalcResult.solar?.annualYieldKwh || 0;
+              const hasSolar = solarYield > 0 || solarPanels > 0;
+              const solarNetInv = hasSolar ? (liveCalcResult.tech?.customZonnepanelenPrijs || getSolarInvestmentEstimate(solarPanels)) : 0;
+              const solarSavings = Math.round(solarYield * (ePrice - 0.05));
+
+              // 3. Thuisbatterij
+              const batCap = liveCalcResult.tech?.capaciteitAccu || 0;
+              const hasBat = batCap > 0;
+              const batNetInv = hasBat ? (liveCalcResult.tech?.customAccuPrijs || getBatteryInvestmentEstimate(batCap)) : 0;
+              const currentProvider = liveCalcResult.tech?.dynamicProvider || 'Zonneplan';
+              const batEarnings = hasBat ? calculatePostSalderingEarnings(batCap, currentProvider, liveCalcResult.tech?.customAccuPrijs) : null;
+              const batSavings = batEarnings ? batEarnings.totalSavings : 0;
+
+              // 4. Warmtepomp
+              const houseWpType = liveCalcResult.house?.verwarming || 'CV-ketel';
+              const activeWpType = liveCalcResult.tech?.selectedWarmtepompType;
+              const isWpActiveInHouse = houseWpType !== 'CV-ketel' && houseWpType !== 'Geen / Overig' && houseWpType !== 'Andere' && houseWpType !== 'CV-ketel op gas';
+              const isVolledigWp = isWpActiveInHouse && (houseWpType === 'Volledige warmtepomp' || houseWpType === 'Full electric' || activeWpType === 'All-Electric');
+              const isHybrideWp = isWpActiveInHouse && (houseWpType === 'Hybride warmtepomp' || activeWpType === 'Hybride');
+
+              let wpInv = 0;
+              if (isVolledigWp) {
+                const aeOption = liveCalcResult.heatpump?.options?.find(o => o.type === 'All-Electric');
+                wpInv = aeOption ? aeOption.netInvestment : 0;
+              } else if (isHybrideWp) {
+                const hybridOption = liveCalcResult.heatpump?.options?.find(o => o.type.includes('Hybride') || o.type.includes('Lucht'));
+                wpInv = hybridOption ? hybridOption.netInvestment : 0;
+              }
+
+              const chosenWpOpt = liveCalcResult.heatpump?.options?.find(o => isVolledigWp ? o.type === 'All-Electric' : (o.type.includes('Hybride') || o.type.includes('Lucht')));
+              const hasWp = (isVolledigWp || isHybrideWp) && Boolean(chosenWpOpt || wpInv > 0);
+              const wpSubsidies = hasWp && chosenWpOpt ? chosenWpOpt.subsidy : 0;
+              const wpSavings = hasWp && chosenWpOpt ? chosenWpOpt.netSavingsEuro : 0;
+
+              // 5. Laadpaal (EV)
+              const evKm = liveCalcResult.tech?.evKilometers || 0;
+              const hasEv = evKm > 0;
+              const evNetInv = hasEv ? (liveCalcResult.laadpaal?.netInvestmentEuro ?? 1200) : 0;
+              const evSavings = hasEv ? (liveCalcResult.laadpaal?.totalSavingsEuro ?? 0) : 0;
+
+              // Totalen
+              const totalCombinedNetInvestment = Math.round((hasIso ? isoNetCosts : 0) + (hasSolar ? solarNetInv : 0) + (hasBat ? batNetInv : 0) + (hasWp ? wpInv : 0) + (hasEv ? evNetInv : 0));
+              const totalCombinedSubsidies = Math.round((hasIso ? isoSubsidies : 0) + (hasWp ? wpSubsidies : 0));
+              const totalCombinedSavingsPerYear = Math.round((hasIso ? isoSavings : 0) + (hasSolar ? solarSavings : 0) + (hasBat ? batSavings : 0) + (hasWp ? wpSavings : 0) + (hasEv ? evSavings : 0));
+
+              const totalCombinedTvtNum = totalCombinedSavingsPerYear > 0 ? (totalCombinedNetInvestment / totalCombinedSavingsPerYear) : 0;
+              const totalCombinedTvt = totalCombinedTvtNum > 0 && totalCombinedTvtNum < 99 ? `${totalCombinedTvtNum.toFixed(1)} jaar` : 'N.v.t.';
+              const totalCombinedRendement = totalCombinedNetInvestment > 0 ? `${((totalCombinedSavingsPerYear / totalCombinedNetInvestment) * 100).toFixed(1)}%` : '0%';
+
+              return (
+                <div className="bg-slate-50/80 border border-slate-200/80 rounded-lg p-2 space-y-1.5 mt-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span className="text-[11px] font-bold text-slate-800">
+                        Totaalvoorstel Verduurzaming
+                      </span>
+                      <span className="bg-emerald-100 text-emerald-800 text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                        Alle Maatregelen Samen
+                      </span>
+                    </div>
+                    {totalCombinedSubsidies > 0 && (
+                      <span className="text-[9.5px] font-bold font-mono text-blue-700 bg-blue-50 border border-blue-200/80 px-2 py-0.5 rounded-md">
+                        € {totalCombinedSubsidies.toLocaleString('nl-NL')} Subsidie (ISDE + NIP)
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-white border border-slate-200 rounded-md p-2 text-[10px]">
+                    <div>
+                      <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Netto Investering</span>
+                      <strong className="text-slate-900 font-extrabold text-[12px] font-mono">€ {totalCombinedNetInvestment.toLocaleString('nl-NL')}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Totale Jaarbesparing</span>
+                      <strong className="text-emerald-700 font-extrabold text-[12px] font-mono">€ {totalCombinedSavingsPerYear.toLocaleString('nl-NL')} / jr</strong>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Gemiddelde TVT</span>
+                      <strong className="text-amber-600 font-extrabold text-[12px] font-mono">{totalCombinedTvt}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Rendement op Investering</span>
+                      <strong className="text-blue-600 font-extrabold text-[12px] font-mono">{totalCombinedRendement}</strong>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1 text-[9.5px] text-slate-600 bg-emerald-50/60 border border-emerald-100 px-2 py-1 rounded font-sans">
+                    <span className="font-bold text-emerald-900 shrink-0">Inbegrepen maatregelen:</span>
+                    {hasIso && <span className="bg-white border border-slate-200 px-1.5 py-0.5 rounded font-medium text-slate-700">🏠 Isolatie (€ {isoNetCosts.toLocaleString('nl-NL')})</span>}
+                    {hasSolar && <span className="bg-white border border-slate-200 px-1.5 py-0.5 rounded font-medium text-slate-700">☀️ Zonnepanelen ({solarPanels} stuks)</span>}
+                    {hasBat && <span className="bg-white border border-slate-200 px-1.5 py-0.5 rounded font-medium text-slate-700">🔋 Thuisbatterij ({batCap} kWh)</span>}
+                    {hasWp && <span className="bg-white border border-slate-200 px-1.5 py-0.5 rounded font-medium text-slate-700">♨️ Warmtepomp ({isVolledigWp ? 'All-Electric' : 'Hybride'})</span>}
+                    {hasEv && <span className="bg-white border border-slate-200 px-1.5 py-0.5 rounded font-medium text-slate-700">🚗 Laadpaal ({evKm.toLocaleString('nl-NL')} km/jr)</span>}
+                    {!hasIso && !hasSolar && !hasBat && !hasWp && !hasEv && <span className="text-slate-400 italic">Nog geen maatregelen geselecteerd</span>}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* 1. Bewoner & Adres (BAG API!) */}
@@ -1053,7 +2227,7 @@ export default function InputForm({
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">
-                    Plaats
+                    Kerkdorp
                   </label>
                   <select
                     value={resident.plaats}
@@ -1061,7 +2235,7 @@ export default function InputForm({
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
                     id="plaats"
                   >
-                    <option value="">-- Selecteer Kern --</option>
+                    <option value="">-- Selecteer Kerkdorp --</option>
                     {['Baarlo', 'Beringe', 'Egchel', 'Grashoek', 'Helden', 'Kessel', 'Kessel-Eik', 'Koningslust', 'Maasbree', 'Meijel', 'Panningen'].map((k) => (
                       <option key={k} value={k}>{k}</option>
                     ))}
@@ -1287,7 +2461,17 @@ export default function InputForm({
                   </label>
                   <select
                     value={house.verwarming}
-                    onChange={(e) => setHouse(prev => ({ ...prev, verwarming: e.target.value }))}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setHouse(prev => ({ ...prev, verwarming: val }));
+                      if (val === 'CV-ketel' || val === 'Geen / Overig' || val === 'Andere' || val === '') {
+                        setTech(prev => ({ ...prev, selectedWarmtepompType: undefined, selectedWarmtepompModel: undefined }));
+                      } else if (val === 'Hybride warmtepomp') {
+                        setTech(prev => ({ ...prev, selectedWarmtepompType: 'Hybride' }));
+                      } else if (val === 'Volledige warmtepomp' || val === 'Full electric') {
+                        setTech(prev => ({ ...prev, selectedWarmtepompType: 'All-Electric' }));
+                      }
+                    }}
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
                     id="verwarming"
                   >
@@ -1739,7 +2923,7 @@ export default function InputForm({
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Enkel → HR++</span>
-                    <Tooltip text="Het oppervlak aan enkel glas dat vervangen gaat worden door hoogrendementsglas (HR++). Besparing: 12,0 m³/m²." />
+                    <Tooltip text="Vervanging van enkel glas (U ≈ 5,1) door HR++ glas (U ≈ 1,1; isoleert 4,5x beter). Voorkomt kouval & condensatie. Komt in aanmerking voor ISDE-subsidie. Besparing: 12,0 m³/m²." />
                   </label>
                   <input
                     type="number"
@@ -1753,7 +2937,7 @@ export default function InputForm({
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Dubbel → HR++</span>
-                    <Tooltip text="Het oppervlak aan oud dubbel glas dat vervangen gaat worden door HR++ glas. Besparing: 3,0 m³/m²." />
+                    <Tooltip text="Vervanging van oud dubbel glas (U ≈ 2,8; geen edelgas/coating) door HR++ (U ≈ 1,1; argongas & HR-coating, isoleert 2,5x beter). Komt in aanmerking voor ISDE-subsidie. Besparing: 3,0 m³/m²." />
                   </label>
                   <input
                     type="number"
@@ -1767,7 +2951,7 @@ export default function InputForm({
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Triple + Hout</span>
-                    <Tooltip text="Het oppervlak aan glas dat vervangen wordt door triple glas (HR+++) inclusief eventuele nieuwe kozijnen. Besparing: 12,5 m³/m²." align="right" />
+                    <Tooltip text="Vervanging door triple glas (HR+++, U ≈ 0,6) inclusief eventueel nieuwe kozijnen. Isoleert optimaal en komt in aanmerking voor ISDE-subsidie. Besparing: 12,5 m³/m²." align="right" />
                   </label>
                   <input
                     type="number"
@@ -1777,34 +2961,6 @@ export default function InputForm({
                     id="m_glas_trip"
                     placeholder="0"
                   />
-                </div>
-              </div>
-
-              {/* Informatiestrook: Oud Dubbelglas vs. Modern HR++ */}
-              <div className="mt-4 bg-sky-50/60 border border-sky-100 rounded-xl p-3.5 text-xs text-slate-700">
-                <div className="flex items-center gap-2 font-bold text-sky-900 mb-2">
-                  <Info className="w-4 h-4 text-sky-600 shrink-0" />
-                  <span>Vergelijk Glasisolatie: Oud Dubbelglas vs. Modern HR++</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                  <div className="bg-white/90 p-2.5 rounded-lg border border-sky-100 shadow-2xs">
-                    <div className="flex justify-between items-center font-bold text-amber-800 mb-1">
-                      <span>Oud dubbel glas</span>
-                      <span className="text-[10px] font-extrabold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md">U ≈ 2,8 (Hoog)</span>
-                    </div>
-                    <p className="text-slate-600 leading-snug">
-                      Geen edelgas of gecoat glas. Veroorzaakt veel warmteverlies, kouval en condensatie aan de binnenkant.
-                    </p>
-                  </div>
-                  <div className="bg-white/90 p-2.5 rounded-lg border border-sky-100 shadow-2xs">
-                    <div className="flex justify-between items-center font-bold text-emerald-800 mb-1">
-                      <span>HR++ glas</span>
-                      <span className="text-[10px] font-extrabold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">U ≈ 1,1 (Zeer laag)</span>
-                    </div>
-                    <p className="text-slate-600 leading-snug">
-                      Argongas &amp; HR-coating. Isoleert <strong>2,5x beter</strong> dan oud dubbelglas en komt in aanmerking voor ISDE-subsidie!
-                    </p>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1863,14 +3019,14 @@ export default function InputForm({
                     <input
                       type="number"
                       min="0"
-                      max="60"
-                      value={tech.aantalZonnepanelen}
+                      max="100"
+                      value={tech.aantalZonnepanelen === 0 ? '' : tech.aantalZonnepanelen}
                       onChange={(e) => {
-                        const val = Math.min(60, Math.max(0, Number(e.target.value)));
+                        const val = e.target.value === '' ? 0 : Math.min(100, Math.max(0, Number(e.target.value)));
                         handleAantalZonnepanelenChange(val);
                       }}
                       className="w-full text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono"
-                      placeholder="10"
+                      placeholder="0"
                     />
                     <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">stuks</span>
                   </div>
@@ -1888,10 +3044,22 @@ export default function InputForm({
                       min="200"
                       max="600"
                       step="10"
-                      value={tech.vermogenPerPaneel !== undefined ? tech.vermogenPerPaneel : 400}
+                      value={tech.vermogenPerPaneel === 0 ? '' : (tech.vermogenPerPaneel !== undefined ? tech.vermogenPerPaneel : 400)}
                       onChange={(e) => {
-                        const val = Math.min(600, Math.max(200, Number(e.target.value)));
+                        const raw = e.target.value;
+                        if (raw === '') {
+                          setTech(prev => ({ ...prev, vermogenPerPaneel: 0 }));
+                          return;
+                        }
+                        const val = Number(raw);
                         setTech(prev => ({ ...prev, vermogenPerPaneel: val }));
+                      }}
+                      onBlur={() => {
+                        setTech(prev => {
+                          const current = prev.vermogenPerPaneel || 400;
+                          const clamped = Math.min(600, Math.max(200, current));
+                          return { ...prev, vermogenPerPaneel: clamped };
+                        });
                       }}
                       className="w-full text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono"
                     />
@@ -2571,7 +3739,7 @@ export default function InputForm({
                 <div>
                   <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
                     <span>Omzettingsverlies</span>
-                    <Tooltip text="Laden en ontladen geeft warmte en energieverlies door de omvormer. Standaard is 10% tot 15%." />
+                    <Tooltip text="Laden en ontladen geeft warmte en energieverlies door de omvormer. Standaard is 20%." />
                   </label>
                   <div className="relative">
                     <input
@@ -2581,7 +3749,7 @@ export default function InputForm({
                       value={tech.omzettingsverliezen}
                       onChange={(e) => setTech(prev => ({ ...prev, omzettingsverliezen: Number(e.target.value) }))}
                       className="w-full text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono"
-                      placeholder="10"
+                      placeholder="20"
                     />
                     <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">%</span>
                   </div>
@@ -3138,7 +4306,7 @@ export default function InputForm({
                           <span className="text-[9px] font-bold text-slate-400 block uppercase">Opbrengst Arbitrage-trading</span>
                           <Tooltip text="De extra inkomsten die je vergaart door volautomatisch te handelen op de dynamische energiemarkt (opladen bij lage/negatieve stroomprijzen en ontladen/terugleveren bij hoge prijzen)." />
                         </div>
-                        <span className="text-sm font-extrabold text-slate-700 font-mono">€{Math.round(arbitrageYield)} / jr</span>
+                        <span className="text-sm font-extrabold text-slate-700 font-mono">€{arbitrageYield.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / jr</span>
                       </div>
                     </div>
 
@@ -3181,9 +4349,17 @@ export default function InputForm({
                           <span>Leverancier</span>
                           <Tooltip text="De geselecteerde dynamische energieleverancier stuurt de batterij volautomatisch aan. Verschillende leveranciers gebruiken eigen algoritmes (bijv. de onbalansmarkt van Zonneplan of de EPEX spotmarkt van Tibber/Frank), wat resulteert in verschillende jaarlijkse opbrengsten." />
                         </th>
-                        <th className="p-2.5 font-bold text-center">5 kWh</th>
-                        <th className="p-2.5 font-bold text-center">10 kWh</th>
-                        <th className="p-2.5 font-bold text-center">15 kWh</th>
+                        {(() => {
+                          const baseCaps = [5, 10, 15];
+                          const capacitiesToDisplay = (tech.capaciteitAccu > 0 && !baseCaps.includes(tech.capaciteitAccu))
+                            ? [...baseCaps, tech.capaciteitAccu]
+                            : baseCaps;
+                          return capacitiesToDisplay.map(capCol => (
+                            <th key={capCol} className="p-2.5 font-bold text-center">
+                              {capCol} kWh {capCol === tech.capaciteitAccu ? '(Jouw instelling)' : ''}
+                            </th>
+                          ));
+                        })()}
                       </tr>
                     </thead>
                     <tbody>
@@ -3193,10 +4369,15 @@ export default function InputForm({
                         { id: 'Tibber', name: 'Tibber Smart API' },
                         { id: 'Anwb', name: 'ANWB Energie' }
                       ].map((provRow) => {
+                        const baseCaps = [5, 10, 15];
+                        const capacitiesToDisplay = (tech.capaciteitAccu > 0 && !baseCaps.includes(tech.capaciteitAccu))
+                          ? [...baseCaps, tech.capaciteitAccu]
+                          : baseCaps;
+
                         return (
                           <tr key={provRow.id} className="border-b border-slate-100 hover:bg-slate-50/40 text-slate-700 transition">
                             <td className="p-2.5 font-bold text-slate-800">{provRow.name}</td>
-                            {[5, 10, 15].map((capacityCol) => {
+                            {capacitiesToDisplay.map((capacityCol) => {
                               const isActive = (tech.capaciteitAccu === capacityCol) && 
                                 (tech.dynamicProvider === provRow.id || (!tech.dynamicProvider && provRow.id === 'Zonneplan'));
                               const stats = calculatePostSalderingEarnings(
@@ -3214,8 +4395,14 @@ export default function InputForm({
                                       : ''
                                   }`}
                                 >
-                                  <span className="block font-bold">€{Math.round(stats.totalSavings)}</span>
-                                  <span className="block text-[9px] text-slate-400 font-medium font-mono">({stats.tvt.toFixed(1)}j)</span>
+                                  <div className="flex flex-col items-center justify-center">
+                                    <div className="flex items-center gap-0.5">
+                                      <span className="font-bold">€{Math.round(stats.totalSavings)}</span>
+                                      <Tooltip text={`Totale jaaropbrengst (€${Math.round(stats.totalSavings)}): €${stats.arbitrageYield.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Arbitrage/Handel + €${Math.round(stats.directSavings)} Besparing Eigen Verbruik`} />
+                                    </div>
+                                    <span className="block text-[9px] text-slate-400 font-medium font-mono">({stats.tvt.toFixed(1)}j)</span>
+                                    <span className="block text-[8px] text-sky-700 font-medium">Arbitrage: €{stats.arbitrageYield.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                  </div>
                                 </td>
                               );
                             })}
@@ -3245,7 +4432,17 @@ export default function InputForm({
                   <label className="block text-xs font-bold text-slate-500 mb-1">Verwarming Type</label>
                   <select
                     value={house.verwarming}
-                    onChange={(e) => setHouse(prev => ({ ...prev, verwarming: e.target.value }))}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setHouse(prev => ({ ...prev, verwarming: val }));
+                      if (val === 'CV-ketel' || val === 'Geen / Overig' || val === 'Andere' || val === '') {
+                        setTech(prev => ({ ...prev, selectedWarmtepompType: undefined, selectedWarmtepompModel: undefined }));
+                      } else if (val === 'Hybride warmtepomp') {
+                        setTech(prev => ({ ...prev, selectedWarmtepompType: 'Hybride' }));
+                      } else if (val === 'Volledige warmtepomp' || val === 'Full electric') {
+                        setTech(prev => ({ ...prev, selectedWarmtepompType: 'All-Electric' }));
+                      }
+                    }}
                     className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
                   >
                     <option>CV-ketel</option>
@@ -3373,7 +4570,10 @@ export default function InputForm({
                           <button
                             key={model.id}
                             type="button"
-                            onClick={() => setTech(prev => ({ ...prev, selectedWarmtepompModel: model.id, selectedWarmtepompType: 'Hybride' }))}
+                            onClick={() => {
+                              setTech(prev => ({ ...prev, selectedWarmtepompModel: model.id, selectedWarmtepompType: 'Hybride' }));
+                              setHouse(prev => ({ ...prev, verwarming: 'Hybride warmtepomp' }));
+                            }}
                             className={`w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between min-h-[175px] h-auto ${
                               isSelected 
                                 ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-500/20 shadow-sm' 
@@ -3459,7 +4659,10 @@ export default function InputForm({
                           <button
                             key={model.id}
                             type="button"
-                            onClick={() => setTech(prev => ({ ...prev, selectedWarmtepompModel: model.id, selectedWarmtepompType: 'All-Electric' }))}
+                            onClick={() => {
+                              setTech(prev => ({ ...prev, selectedWarmtepompModel: model.id, selectedWarmtepompType: 'All-Electric' }));
+                              setHouse(prev => ({ ...prev, verwarming: 'Volledige warmtepomp', tapwater: 'Warmtepompboiler' }));
+                            }}
                             className={`w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between min-h-[175px] h-auto ${
                               isSelected 
                                 ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-500/20 shadow-sm' 

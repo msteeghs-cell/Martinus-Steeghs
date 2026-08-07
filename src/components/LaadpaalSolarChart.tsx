@@ -231,7 +231,7 @@ export default function LaadpaalSolarChart({
       Number(finalAnnualSolar) || 0,
       house.verbruikKwh || 3500,
       chartBatteryCapacity,
-      tech.omzettingsverliezen || 10,
+      tech.omzettingsverliezen || 20,
       calcResult.solar.selfConsumptionBase || 30,
       calcResult.solar.absoluteSelfConsumptionBaseKwh || 0,
       tech.dynamicProvider || 'Zonneplan',

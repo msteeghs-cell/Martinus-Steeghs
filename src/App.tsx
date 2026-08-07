@@ -10,7 +10,7 @@ import { safeStorage } from './utils/storage';
 import { 
   Leaf, Info, HelpCircle, FileSpreadsheet, Sparkles, RefreshCw,
   Phone, Mail, MapPin, Download, Trash2, MailIcon, Printer,
-  Share2, Check
+  Share2, Check, PiggyBank, Sun
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -48,9 +48,9 @@ const defaultHouse: HouseData = {
   koken: 'Gas',
   ventilatie: 'Natuurlijk (Type A)',
   zonnepanelenPresent: 'Nee',
-  elektraPrijs: 0.30,
+  elektraPrijs: 0.35,
   elektraTeruglevering: 0,
-  gasPrijs: 1.30,
+  gasPrijs: 1.50,
   stookgedragOverride: 'auto',
   stookgedragBerekend: 'Normaal (1.0x)',
   stookgedragFactor: 1.0,
@@ -82,7 +82,7 @@ const defaultTech: TechData = {
   dakHellingshoek: 35,
   huidigDirectVerbruik: 30,
   capaciteitAccu: 0,
-  omzettingsverliezen: 10,
+  omzettingsverliezen: 20,
   typeContract: 'Vast',
   dynamicProvider: 'Zonneplan',
   evKilometers: 15000,
@@ -91,7 +91,7 @@ const defaultTech: TechData = {
   laadvermogen: 11,
   opslagLeverancier: 0.02,
   selectedWarmtepompModel: 'Standard',
-  selectedWarmtepompType: 'Hybride',
+  selectedWarmtepompType: undefined,
   customAccuPrijs: undefined,
   customZonnepanelenPrijs: undefined,
   customWarmtepompPrijs: undefined,
@@ -104,15 +104,46 @@ export default function App() {
   const [linkCopied, setLinkCopied] = useState(false);
 
   const deelLink = () => {
-    // Copy current page URL to clipboard
-    navigator.clipboard.writeText(window.location.href)
-      .then(() => {
-        setLinkCopied(true);
-        setTimeout(() => setLinkCopied(false), 3000);
-      })
-      .catch((err) => {
-        console.error('Failed to copy: ', err);
-      });
+    // Determine public URL by converting dev preview domain (ais-dev-) to public domain (ais-pre-)
+    let targetUrl = window.location.href;
+    if (targetUrl.includes('ais-dev-')) {
+      targetUrl = targetUrl.replace('ais-dev-', 'ais-pre-');
+    }
+
+    const copySuccess = () => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 3000);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(targetUrl)
+        .then(() => copySuccess())
+        .catch(() => {
+          fallbackCopyText(targetUrl);
+        });
+    } else {
+      fallbackCopyText(targetUrl);
+    }
+  };
+
+  const fallbackCopyText = (text: string) => {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.top = "0";
+    textArea.style.left = "0";
+    textArea.style.opacity = "0";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 3000);
+    } catch (err) {
+      console.error('Fallback copy error: ', err);
+    }
+    document.body.removeChild(textArea);
   };
 
   // Load from localStorage or defaults
@@ -621,17 +652,17 @@ export default function App() {
 
       {/* Intro info box */}
       <div className="bg-emerald-500 text-emerald-950 px-4 py-2.5 text-center text-xs font-semibold tracking-wide border-b border-emerald-600/20">
-        Actieve Kernen: Panningen, Helden, Maasbree, Meijel, Baarlo, Kessel, Grashoek, Koningslust, Beringe en Egchel.
+        Actieve Kerkdorpen: Panningen, Helden, Maasbree, Meijel, Baarlo, Kessel, Kessel-Eik, Grashoek, Koningslust, Beringe en Egchel.
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Column: Form & Inputs */}
-        <div className={`space-y-6 ${activeTab === 'accu' || activeTab === 'zon' || activeTab === 'warmtepomp' || activeTab === 'laadpaal' ? 'lg:col-span-12' : 'lg:col-span-5'}`}>
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 space-y-8">
+        {/* 1. Invoer Gegevens & Instellingen (Woning, Isolatie, Zon, Accu, Warmtepomp, EV/Laadpaal) */}
+        <div className="space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
               <span className="bg-emerald-600 text-white text-xs w-5 h-5 rounded-full inline-flex items-center justify-center font-bold">1</span>
-              Invoer Gegevens
+              Invoer Gegevens &amp; Instellingen
             </h2>
           </div>
 
@@ -654,119 +685,19 @@ export default function App() {
           />
         </div>
 
-        {/* Right Column: Live Table & Dynamic Advice */}
-        <div className={`space-y-6 ${activeTab === 'accu' || activeTab === 'zon' || activeTab === 'warmtepomp' || activeTab === 'laadpaal' ? 'lg:col-span-12' : 'lg:col-span-7'}`}>
-          {activeTab === 'isolatie' && (
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <span className="bg-emerald-600 text-white text-xs w-5 h-5 rounded-full inline-flex items-center justify-center font-bold">2</span>
-                Resultaten &amp; Persoonlijk Advies
-              </h2>
-              {calculation.addedMeasureForOptimization && (
-                <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-full animate-pulse">
-                  Subsidie-optimalisatie actief!
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Quick Realtime Math Spreadsheet (Direct feedback on changes) */}
-          {activeTab === 'isolatie' && (
-            <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-md space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
-                <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                  <FileSpreadsheet className="w-4 h-4 text-slate-400" />
-                  Live Rekenoverzicht (Basis vs Optimalisatie)
-                </h3>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] font-semibold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200/80 flex items-center gap-1">
-                    <span>Stookfactor:</span>
-                    <strong className="font-mono text-emerald-700 font-bold">{(calculation?.house?.stookgedragFactor ?? 1.0).toFixed(1)}x</strong>
-                    <span className="text-[9px] text-slate-500">({calculation?.house?.stookgedragBerekend || 'Normaal'})</span>
-                  </span>
-                  <span className="text-[10px] text-slate-500 font-mono">Gasprijs €{(house.gasPrijs ?? 1.30).toFixed(2)}/m³</span>
-                </div>
-              </div>
-
-              {calculation.measures.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-100 text-slate-400">
-                        <th className="py-2.5 font-semibold">Maatregel</th>
-                        <th className="py-2.5 font-semibold text-center">m²</th>
-                        <th className="py-2.5 font-semibold text-right">Bruto</th>
-                        <th className="py-2.5 font-semibold text-right">ISDE</th>
-                        <th className="py-2.5 font-semibold text-right">NIP</th>
-                        <th className="py-2.5 font-semibold text-right">Netto</th>
-                        <th className="py-2.5 font-semibold text-right">TVT</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {calculation.measures.map((m) => (
-                        <tr key={m.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors text-slate-600">
-                          <td className="py-2.5 font-medium text-slate-800">{m.name}</td>
-                          <td className="py-2.5 text-center">{m.area}</td>
-                          <td className="py-2.5 text-right">€{m.brutoCosts}</td>
-                          <td className="py-2.5 text-right text-emerald-600">
-                            {m.isdeSubsidy > 0 ? `€${Math.round(m.isdeSubsidy)}` : '€0'}
-                          </td>
-                          <td className="py-2.5 text-right text-blue-600">
-                            {m.nipSubsidy > 0 ? `€${Math.round(m.nipSubsidy)}` : '€0'}
-                          </td>
-                          <td className="py-2.5 text-right font-semibold text-slate-800">€{Math.round(m.netCosts)}</td>
-                          <td className="py-2.5 text-right font-mono">{m.tvt > 0 ? `${(m.tvt ?? 0).toFixed(1)}j` : '0j'}</td>
-                        </tr>
-                      ))}
-                      {/* Totale sommen */}
-                      <tr className="bg-slate-50/50 font-bold border-t border-slate-200">
-                        <td className="py-3 text-slate-800 pl-2">Totaal (Basis)</td>
-                        <td className="py-3 text-center">{calculation.measures.reduce((sum, m) => sum + (m.area || 0), 0)} m²</td>
-                        <td className="py-3 text-right">€{calculation.totals.bruto}</td>
-                        <td className="py-3 text-right text-emerald-600">€{Math.round(calculation.totals.isde)}</td>
-                        <td className="py-3 text-right text-blue-600">€{Math.round(calculation.totals.nip)}</td>
-                        <td className="py-3 text-right text-slate-900">€{Math.round(calculation.totals.net)}</td>
-                        <td className="py-3 text-right font-mono pr-2">{(calculation.totals.tvt ?? 0).toFixed(1)}j</td>
-                      </tr>
-                      {/* Toon geoptimaliseerd resultaat indien aanwezig */}
-                      {calculation.addedMeasureForOptimization && (
-                        <tr className="bg-emerald-50 font-bold text-emerald-950">
-                          <td className="py-3 text-emerald-900 pl-2 flex items-center gap-1">
-                            <Sparkles className="w-3.5 h-3.5 fill-emerald-500/20 text-emerald-600 shrink-0" />
-                            <span>Totaal (Geoptimaliseerd)</span>
-                          </td>
-                          <td className="py-3 text-center">{calculation.optimalMeasures.reduce((sum, m) => sum + (m.area || 0), 0)} m²</td>
-                          <td className="py-3 text-right">€{calculation.totalsOptimal.bruto}</td>
-                          <td className="py-3 text-right">€{Math.round(calculation.totalsOptimal.isde)}</td>
-                          <td className="py-3 text-right">€{Math.round(calculation.totalsOptimal.nip)}</td>
-                          <td className="py-3 text-right">€{Math.round(calculation.totalsOptimal.net)}</td>
-                          <td className="py-3 text-right font-mono pr-2">{(calculation.totalsOptimal.tvt ?? 0).toFixed(1)}j</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="text-center py-6 text-slate-400 text-xs">
-                  Voer isolatiemaatregelen in het linkerpaneel in om live berekeningen te starten.
-                </div>
-              )}
-
-              {/* Toelichtende nootje */}
-              <div className="bg-slate-50 rounded-xl p-3 flex gap-2 items-start text-[10px] text-slate-500">
-                <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                <p>
-                  Bovenstaande is een directe, real-time rekenberekening gebaseerd op de lokale Peel en Maas richtlijnen. 
-                  De gasbesparingen en TVT zijn gecorrigeerd met stookgedragfactor <strong className="text-slate-700">{(calculation?.house?.stookgedragFactor ?? 1.0).toFixed(1)}x</strong> ({calculation?.house?.stookgedragBerekend || 'Normaal'}).
-                  De NIP subsidie (€2.900) wordt toegekend bij minimaal twee isolatiemaatregelen mits wordt voldaan aan de WOZ-waarde (maximaal €477.000 met peildatum 2024) en inkomenseisen.
-                </p>
-              </div>
-            </div>
-          )}
-
-
-
-
+        {/* 2. Energieplanner Peel en Maas - Totaalvoorstel & Persoonlijk Advies */}
+        <div className="space-y-6 pt-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <span className="bg-emerald-600 text-white text-xs w-5 h-5 rounded-full inline-flex items-center justify-center font-bold">2</span>
+              Energieplanner Peel en Maas - Totaalvoorstel &amp; Advies
+            </h2>
+            {calculation.addedMeasureForOptimization && (
+              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-full animate-pulse">
+                Subsidie-optimalisatie actief!
+              </span>
+            )}
+          </div>
 
           {/* Error banner */}
           {error && (
@@ -775,7 +706,7 @@ export default function App() {
             </div>
           )}
 
-          {/* AI generated report */}
+          {/* AI generated report & Totaalvoorstel (Header, Theme badges, Summary card & Active detail tab) */}
           <AdviceReport
             calculation={calculation}
             adviceMarkdown={adviceMarkdown}
@@ -784,45 +715,45 @@ export default function App() {
             setActiveTab={setActiveTab}
             setTech={setTech}
           />
+
+          {/* Grafieken - Direct hoger geplaatst onder het Totaalvoorstel voor snelle visuele inzichten */}
+          {activeTab === 'zon' && (
+            <div className="mt-4 animate-fadeIn">
+              <SolarSelfConsumptionChart
+                resident={resident}
+                house={house}
+                insulation={insulation}
+                tech={tech}
+                setTech={setTech}
+              />
+            </div>
+          )}
+          {activeTab === 'warmtepomp' && (
+            <div className="mt-4 animate-fadeIn">
+              <HeatpumpSolarChart
+                resident={resident}
+                house={house}
+                insulation={insulation}
+                tech={tech}
+                setTech={setTech}
+              />
+            </div>
+          )}
+          {activeTab === 'laadpaal' && calculation.solar.annualYieldKwh > 0 && (
+            <div className="mt-4 animate-fadeIn">
+              <LaadpaalSolarChart
+                resident={resident}
+                house={house}
+                insulation={insulation}
+                tech={tech}
+                setTech={setTech}
+              />
+            </div>
+          )}
         </div>
 
-        {/* Full-width/Page-wide sections */}
-        {activeTab === 'zon' && (
-          <div className="lg:col-span-12 mt-4 animate-fadeIn">
-            <SolarSelfConsumptionChart
-              resident={resident}
-              house={house}
-              insulation={insulation}
-              tech={tech}
-              setTech={setTech}
-            />
-          </div>
-        )}
-        {activeTab === 'warmtepomp' && (
-          <div className="lg:col-span-12 mt-4 animate-fadeIn">
-            <HeatpumpSolarChart
-              resident={resident}
-              house={house}
-              insulation={insulation}
-              tech={tech}
-              setTech={setTech}
-            />
-          </div>
-        )}
-        {activeTab === 'laadpaal' && calculation.solar.annualYieldKwh > 0 && (
-          <div className="lg:col-span-12 mt-4 animate-fadeIn">
-            <LaadpaalSolarChart
-              resident={resident}
-              house={house}
-              insulation={insulation}
-              tech={tech}
-              setTech={setTech}
-            />
-          </div>
-        )}
-
-        {/* Grote actieknop - altijd helemaal onderin als laatste op alle tabbladen */}
-        <div className="lg:col-span-12 mt-8 pt-6 border-t border-slate-200/80">
+        {/* Grote actieknop - altijd onderin als laatste op alle tabbladen */}
+        <div className="mt-8 pt-6 border-t border-slate-200/80">
           <button
             onClick={generateReport}
             disabled={loadingAdvice}
