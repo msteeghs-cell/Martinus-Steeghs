@@ -150,7 +150,7 @@ export default function InputForm({
       evThuisLaden: 0,
       laadvermogen: 0,
       batteryGridTrading: false,
-      pvCurtailmentMode: false,
+      pvCurtailmentMode: true,
     }));
     setHouse(prev => ({
       ...prev,
@@ -1253,15 +1253,18 @@ export default function InputForm({
                       <Sun className="w-3.5 h-3.5 text-amber-500" /> Zonnepanelen
                       <button
                         type="button"
-                        onClick={() => setTech(prev => ({ ...prev, pvCurtailmentMode: !prev.pvCurtailmentMode }))}
-                        title="Klik om Slim EMS Omvormer Afschakelen bij negatieve stroomprijzen in of uit te schakelen"
-                        className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-md border font-sans whitespace-nowrap transition cursor-pointer ${
-                          tech.pvCurtailmentMode
-                            ? 'text-emerald-700 bg-emerald-50 border-emerald-200/80 hover:bg-emerald-100'
-                            : 'text-amber-800 bg-amber-50 border-amber-200/80 hover:bg-amber-100'
+                        onClick={() => setTech(prev => {
+                          const nextType = prev.typeContract === 'Dynamisch' ? 'Vast' : 'Dynamisch';
+                          return { ...prev, typeContract: nextType, batteryGridTrading: nextType === 'Dynamisch' };
+                        })}
+                        title="Klik om te wisselen tussen Dynamisch en Vast Tarief contract"
+                        className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-md border font-sans whitespace-nowrap transition cursor-pointer flex items-center gap-0.5 ${
+                          tech.typeContract === 'Dynamisch'
+                            ? 'text-purple-700 bg-purple-50 border-purple-200/80 hover:bg-purple-100 font-bold'
+                            : 'text-slate-700 bg-slate-50 border-slate-200 hover:bg-slate-100'
                         }`}
                       >
-                        Slim EMS {tech.pvCurtailmentMode ? 'aan' : 'uit'}
+                        <span>{tech.typeContract === 'Dynamisch' ? '⚡ Dynamisch Tarief' : '🔒 Vast Tarief'}</span>
                       </button>
                     </span>
                     <span className="font-semibold text-emerald-700 text-[10px]">
@@ -1625,9 +1628,9 @@ export default function InputForm({
               const postFeedInKwh = Math.max(0, solarKwh - postDirectSelfKwh);
               const postGridImportKwh = Math.max(0, postHouseKwh - postDirectSelfKwh);
 
-              // Grid trading or arbitrage yield if enabled
+              // Grid trading or arbitrage yield if enabled and dynamic contract selected
               let batteryTradingYield = 0;
-              if (batteryCap > 0 && liveCalcResult.tech?.batteryGridTrading) {
+              if (batteryCap > 0 && liveCalcResult.tech?.typeContract === 'Dynamisch' && liveCalcResult.tech?.batteryGridTrading !== false) {
                 const provider = liveCalcResult.tech.dynamicProvider || 'Zonneplan';
                 const ratePerKwh = provider === 'Zonneplan' ? 38.25 : provider === 'Frank' ? 31.5 : provider === 'Tibber' ? 29.25 : provider === 'Anwb' ? 27.00 : 24.75;
                 batteryTradingYield = batteryCap * ratePerKwh;
@@ -3667,35 +3670,7 @@ export default function InputForm({
                 </p>
               </div>
 
-                {/* Zonnepanelen Sturing Mode Toggle */}
-                <div className="bg-amber-50/50 border border-amber-200/80 rounded-xl p-3.5 space-y-2">
-                  <div className="flex items-center gap-2.5">
-                    <input
-                      type="checkbox"
-                      id="pvCurtailmentModeInput"
-                      checked={tech.pvCurtailmentMode || false}
-                      onChange={(e) => setTech(prev => ({ ...prev, pvCurtailmentMode: e.target.checked }))}
-                      className="accent-amber-500 w-4 h-4 rounded border-slate-300 cursor-pointer shrink-0"
-                    />
-                    <label htmlFor="pvCurtailmentModeInput" className="block text-xs font-bold text-slate-800 cursor-pointer flex items-center gap-1.5 flex-wrap">
-                      <span>Zonnepanelen Sturing Mode: Slim EMS Omvormer Afschakelen</span>
-                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider ${
-                        tech.pvCurtailmentMode 
-                          ? 'bg-amber-500 text-white' 
-                          : 'bg-indigo-100 text-indigo-900'
-                      }`}>
-                        {tech.pvCurtailmentMode ? 'Aan (100% Zonne-focus)' : 'Uit (Altijd Terugleveren)'}
-                      </span>
-                    </label>
-                  </div>
-                  <p className="text-[10px] text-slate-600 leading-relaxed font-sans pl-6">
-                    {tech.pvCurtailmentMode ? (
-                      <>Ingeschakeld: Het slimme EMS stelt je omvormer zo in dat de zonnepanelen automatisch teruggeregeld of uitgeschakeld worden op momenten met <strong>negatieve dynamische stroomprijzen</strong>. Hiermee voorkom je dat je moet betalen voor teruglevering aan het net.</>
-                    ) : (
-                      <>Uitgeschakeld (standaard): De omvormer van de zonnepanelen levert continu alle opgewekte zonnestroom aan het net, ongeacht of de uurprijs positief of negatief is.</>
-                    )}
-                  </p>
-                </div>
+
             </div>
           </div>
         </div>
@@ -3896,7 +3871,7 @@ export default function InputForm({
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setTech(prev => ({ ...prev, typeContract: 'Vast' }))}
+                  onClick={() => setTech(prev => ({ ...prev, typeContract: 'Vast', batteryGridTrading: false }))}
                   className={`py-2 px-3 text-xs font-semibold rounded-lg border text-center transition flex flex-col items-center justify-center gap-1 ${
                     tech.typeContract === 'Vast'
                       ? 'bg-emerald-50 border-emerald-300 text-emerald-800 ring-2 ring-emerald-100'
@@ -3908,7 +3883,7 @@ export default function InputForm({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTech(prev => ({ ...prev, typeContract: 'Dynamisch' }))}
+                  onClick={() => setTech(prev => ({ ...prev, typeContract: 'Dynamisch', batteryGridTrading: true }))}
                   className={`py-2 px-3 text-xs font-semibold rounded-lg border text-center transition flex flex-col items-center justify-center gap-1 ${
                     tech.typeContract === 'Dynamisch'
                       ? 'bg-blue-50 border-blue-300 text-blue-800 ring-2 ring-blue-100'
@@ -4089,7 +4064,7 @@ export default function InputForm({
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setTech(prev => ({ ...prev, typeContract: 'Vast' }))}
+                    onClick={() => setTech(prev => ({ ...prev, typeContract: 'Vast', batteryGridTrading: false }))}
                     className={`py-2 px-1 text-xs font-medium rounded-lg border text-center transition ${
                       tech.typeContract === 'Vast'
                         ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-semibold'
@@ -4100,7 +4075,7 @@ export default function InputForm({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setTech(prev => ({ ...prev, typeContract: 'Dynamisch' }))}
+                    onClick={() => setTech(prev => ({ ...prev, typeContract: 'Dynamisch', batteryGridTrading: true }))}
                     className={`py-2 px-1 text-xs font-medium rounded-lg border text-center transition ${
                       tech.typeContract === 'Dynamisch'
                         ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-semibold'

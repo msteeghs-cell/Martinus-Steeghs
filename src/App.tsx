@@ -83,6 +83,7 @@ const defaultTech: TechData = {
   huidigDirectVerbruik: 30,
   capaciteitAccu: 0,
   omzettingsverliezen: 20,
+  pvCurtailmentMode: true,
   typeContract: 'Vast',
   dynamicProvider: 'Zonneplan',
   evKilometers: 15000,
