@@ -2520,7 +2520,7 @@ Energieplanner Peel en Maas
                 <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm space-y-1">
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Laadpaal Besparing</span>
                   <span className="text-lg font-extrabold text-emerald-600">
-                    € {(calculation.laadpaal?.evSavingsEuro ?? 405).toLocaleString('nl-NL')} / jr
+                    € {Math.round(calculation.laadpaal?.evSavingsEuro ?? 405).toLocaleString('nl-NL')} / jr
                   </span>
                   <span className="text-[10px] text-slate-500 block">
                     (t.o.v. openbaar laden à €0,50/kWh)
@@ -2530,7 +2530,7 @@ Energieplanner Peel en Maas
                 <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm space-y-1">
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Wettelijke ERE-vergoeding</span>
                   <span className="text-lg font-extrabold text-indigo-600">
-                    € {(calculation.laadpaal?.ereRevenueEuro ?? 243).toLocaleString('nl-NL')} / jr
+                    € {Math.round(calculation.laadpaal?.ereRevenueEuro ?? 243).toLocaleString('nl-NL')} / jr
                   </span>
                   <span className="text-[10px] text-slate-500 block">
                     (Opbrengst van €0,12 / kWh geladen)
@@ -2561,7 +2561,7 @@ Energieplanner Peel en Maas
                 <div className="space-y-0.5">
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Gecombineerd Jaarlijks Voordeel</span>
                   <span className="text-2xl font-black text-slate-900">
-                    € {(calculation.laadpaal?.totalSavingsEuro ?? 648).toLocaleString('nl-NL')} / jr
+                    € {Math.round(calculation.laadpaal?.totalSavingsEuro ?? 648).toLocaleString('nl-NL')} / jr
                   </span>
                 </div>
                 <div className="bg-emerald-50 text-emerald-800 font-extrabold text-xs px-3 py-1.5 rounded-lg border border-emerald-100 font-mono">

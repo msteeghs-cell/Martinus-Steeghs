@@ -1425,8 +1425,20 @@ export default function InputForm({
                 {/* 4. Elektrische Auto / EV */}
                 <div className="bg-white p-2.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
-                    <span className="flex items-center gap-1">
+                    <span className="flex items-center gap-1.5">
                       <Zap className="w-3.5 h-3.5 text-indigo-500" /> Auto (EV)
+                      <button
+                        type="button"
+                        onClick={() => setTech(prev => ({ ...prev, slimEmsOnlySolar: !prev.slimEmsOnlySolar }))}
+                        title="Klik om Slim EMS laden (alleen laden op zonnestroom) in of uit te schakelen"
+                        className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-md border font-sans whitespace-nowrap transition cursor-pointer ${
+                          tech.slimEmsOnlySolar
+                            ? 'text-emerald-700 bg-emerald-50 border-emerald-200/80 hover:bg-emerald-100 font-bold'
+                            : 'text-indigo-800 bg-indigo-50 border-indigo-200/80 hover:bg-indigo-100'
+                        }`}
+                      >
+                        Slim EMS {tech.slimEmsOnlySolar ? 'aan' : 'uit'}
+                      </button>
                     </span>
                     <span className="font-semibold text-indigo-700 text-[10px]">
                       {(tech.evKilometers || 0) > 0
@@ -1545,8 +1557,8 @@ export default function InputForm({
                 </table>
               </div>
             ) : (
-              <div className="text-center py-4 text-slate-500 text-xs italic bg-slate-50/50 rounded-lg border border-dashed border-slate-200 p-3">
-                Kies een snelprofiel hierboven of voer isolatiemaatregelen in het onderstaande paneel in om live berekeningen van investeringen en subsidies te starten.
+              <div className="text-center py-1.5 px-2.5 text-slate-500 text-[11px] italic bg-slate-50/50 rounded-lg border border-dashed border-slate-200 leading-tight">
+                Kies een snelprofiel hierboven of voer isolatiemaatregelen in om live berekeningen van investeringen en subsidies te starten.
               </div>
             )}
 
@@ -1803,13 +1815,13 @@ export default function InputForm({
                             </p>
                             <ul className="list-disc list-inside space-y-1 text-slate-700 leading-snug pl-0.5">
                               <li>
-                                <strong>Adres &amp; Jaarverbruik:</strong> Vul je adres in (BAG API haalt bouwjaar/m² op) of pas je werkelijke jaarnota (m³ gas &amp; kWh stroom) aan bij <em>Woning &amp; Verbruik</em>.
+                                <strong>Adres &amp; Jaarverbruik:</strong> Vul je adres in voor automatische woninggegevens of pas je werkelijke jaarnota (m³ gas &amp; kWh stroom) aan bij <em>Woning &amp; Verbruik</em>.
                               </li>
                               <li>
-                                <strong>Bestaande zonnepanelen (bijv. &gt;16 panelen):</strong> Heb je al een flinke zonne-installatie op het dak liggen (bijv. 16, 20 of meer panelen)? Vul je aantal panelen in bij <em>Zonnepanelen &amp; Accu</em> om de actuele opbrengst en teruglevering direct mee te nemen in je nulmeting.
+                                <strong>Bestaande zonnepanelen:</strong> Geef bij <em>Woning &amp; Verbruik</em> aan of je al zonnepanelen hebt liggen ('Ja'/'Nee'). Zo wordt je huidige opgewekte stroom netjes meegenomen in de nulmeting.
                               </li>
                               <li>
-                                <strong>Slim EMS &amp; Dynamisch contract:</strong> Beschik je over een slim energiebeheersysteem (Smart EMS) of een dynamisch tarief (bijv. Zonneplan, Tibber, Frank Energie)? Schakel bij <em>Tarief &amp; Leverancier</em> en <em>Thuisaccu</em> sturing op de EPEX- en onbalansmarkt in voor een realistisch opbrengstbeeld.
+                                <strong>Contracttype &amp; Slim EMS:</strong> Kies bovenaan bij de snelkoppeling of in het techniekpaneel voor een <em>Vast Tarief</em> of <em>Dynamisch Tarief</em>. Met <strong>Slim EMS</strong> (standaard actief) worden je batterij-arbitrage en zonne-laden automatisch op de achtergrond geoptimaliseerd.
                               </li>
                             </ul>
                           </div>
@@ -1933,6 +1945,26 @@ export default function InputForm({
                       {wpInv > 0 ? ` • Warmtepomp (${isVolledigWp ? 'All-Electric' : 'Hybride'} · ${wpCapacityStr}): € ${Math.round(wpInv).toLocaleString('nl-NL')}` : ' • Geen warmtepomp'}
                       {insulationInv > 0 ? ` • Isolatie (${totalInsulationM2} m²): € ${Math.round(insulationInv).toLocaleString('nl-NL')}` : ''}
                       {` • Totale investering: € ${Math.round(totalInvestmentInv).toLocaleString('nl-NL')}`}
+                    </span>
+                  </div>
+
+                  {/* EV & Slim EMS live detailregel */}
+                  <div className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-sans ${
+                    hasEv 
+                      ? 'bg-indigo-50/70 border border-indigo-200/50 text-slate-700' 
+                      : 'bg-slate-50/70 border border-slate-200/50 text-slate-500'
+                  }`}>
+                    <Zap className={`w-3 h-3 shrink-0 ${hasEv ? 'text-indigo-500' : 'text-slate-400'}`} />
+                    <span className="text-[10px] leading-tight">
+                      {hasEv ? (
+                        <>
+                          <strong>Elektrisch Rijden (EV · {evKm.toLocaleString('nl-NL')} km/j):</strong> Thuis geladen ~{(liveCalcResult.laadpaal?.evAnnualDemandKwh || 0).toLocaleString('nl-NL')} kWh • Slim EMS: <strong className={liveCalcResult.tech?.slimEmsOnlySolar ? 'text-emerald-700 font-bold' : 'text-slate-700'}>{liveCalcResult.tech?.slimEmsOnlySolar ? 'AAN (100% Zonne-laden)' : 'UIT (Standaard Netstroom)'}</strong> • Zonne-aandeel: <strong>{(liveCalcResult.laadpaal?.evSolarCoverageKwh || 0).toLocaleString('nl-NL')} kWh</strong> ({(liveCalcResult.laadpaal?.evAnnualDemandKwh || 0) > 0 ? Math.round(((liveCalcResult.laadpaal?.evSolarCoverageKwh || 0) / (liveCalcResult.laadpaal?.evAnnualDemandKwh || 1)) * 100) : 0}%) • Besparing: <strong className="text-emerald-700 font-bold">€ {evSavingsCalculated.toLocaleString('nl-NL')} / jr</strong>
+                        </>
+                      ) : (
+                        <>
+                          <strong>Elektrisch Rijden (EV):</strong> Geen elektrische auto ingesteld (vul kilometers in bij 'Auto (EV)' om zonne-laden &amp; Slim EMS besparing live te berekenen).
+                        </>
+                      )}
                     </span>
                   </div>
 

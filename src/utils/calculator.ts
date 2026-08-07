@@ -708,10 +708,10 @@ export function calculateAll(
     evAnnualDemandKwh: Math.round(evAnnualDemandKwh),
     evSolarCoverageKwh: Math.round(chosenEvSolarCoverageKwh),
     evGridImportKwh: Math.round(chosenEvGridImportKwh),
-    evSavingsEuro,
-    ereRevenueEuro,
-    totalSavingsEuro: totalEvSavingsEuro,
-    netInvestmentEuro: laadpaalInvestment,
+    evSavingsEuro: Math.round(evSavingsEuro),
+    ereRevenueEuro: Math.round(ereRevenueEuro),
+    totalSavingsEuro: Math.round(totalEvSavingsEuro),
+    netInvestmentEuro: Math.round(laadpaalInvestment),
     tvt: laadpaalTvt
   };
 
