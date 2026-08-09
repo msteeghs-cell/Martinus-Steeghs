@@ -343,7 +343,11 @@ Energieplanner Peel en Maas
   const solarNetInvestment = (calculation.tech.customZonnepanelenPrijs !== undefined && calculation.tech.customZonnepanelenPrijs > 0)
     ? calculation.tech.customZonnepanelenPrijs
     : getSolarInvestmentEstimate(solarPanelsCount);
-  const solarSavings = Math.round(calculation.solar.annualYieldKwh * (calculation.house.elektraPrijs - 0.05));
+  const solarYieldAmount = calculation.solar.annualYieldKwh || 0;
+  const houseDemandKwh = calculation.house.verbruikKwh || 3500;
+  const solarSaldeerdKwh = Math.min(solarYieldAmount, houseDemandKwh);
+  const solarSurplusKwh = Math.max(0, solarYieldAmount - solarSaldeerdKwh);
+  const solarSavings = Math.round((solarSaldeerdKwh * calculation.house.elektraPrijs) + (solarSurplusKwh * 0.05));
   const solarROI = solarNetInvestment > 0 ? Number(((solarSavings / solarNetInvestment) * 100).toFixed(1)) : 0;
   const solarTvt = solarSavings > 0 ? Number((solarNetInvestment / solarSavings).toFixed(1)) : 0;
 
@@ -354,7 +358,7 @@ Energieplanner Peel en Maas
                      calculation.battery.options[0];
 
   const batteryNetInvestment = batteryOpt ? batteryOpt.netInvestment : 7500;
-  const batterySavings = batteryOpt ? (calculation.tech.typeContract === 'Dynamisch' ? batteryOpt.annualSavingsDynamisch : batteryOpt.annualSavingsVastPost2027) : 0;
+  const batterySavings = batteryOpt ? Math.round(calculation.tech.typeContract === 'Dynamisch' ? batteryOpt.annualSavingsDynamisch : batteryOpt.annualSavingsVastPost2027) : 0;
   const batteryROI = batteryNetInvestment > 0 ? Number(((batterySavings / batteryNetInvestment) * 100).toFixed(1)) : 0;
 
   const roiChartData = [
@@ -792,23 +796,26 @@ Energieplanner Peel en Maas
   const hasWp = Boolean(calculation.tech?.selectedWarmtepompModel) && Boolean(chosenOpt);
   const hasEv = Boolean((calculation.tech?.evKilometers || 0) > 0);
 
-  const totalCombinedNetInvestment = 
+  const totalCombinedNetInvestment = Math.round(
     (hasIso ? isoNetCosts : 0) + 
     (hasSolar ? solarNetInvestment : 0) + 
     (hasBat ? batteryNetInvestment : 0) + 
-    (hasWp ? Math.round(chosenOpt?.netInvestment || 0) : 0) + 
-    (hasEv ? (calculation.laadpaal?.netInvestmentEuro ?? 1200) : 0);
+    (hasWp ? (chosenOpt?.netInvestment || 0) : 0) + 
+    (hasEv ? (calculation.laadpaal?.netInvestmentEuro ?? 1200) : 0)
+  );
 
-  const totalCombinedSavingsPerYear = 
-    (hasIso ? Math.round(calculation.totals.savingsEuro) : 0) + 
+  const totalCombinedSavingsPerYear = Math.round(
+    (hasIso ? calculation.totals.savingsEuro : 0) + 
     (hasSolar ? solarSavings : 0) + 
     (hasBat ? batSavings : 0) + 
-    (hasWp ? Math.round(chosenOpt?.netSavingsEuro || 0) : 0) + 
-    (hasEv ? totalEvBenefit : 0);
+    (hasWp ? (chosenOpt?.netSavingsEuro || 0) : 0) + 
+    (hasEv ? totalEvBenefit : 0)
+  );
 
-  const totalCombinedSubsidies = 
-    (hasIso ? Math.round(calculation.totals.isde + calculation.totals.nip) : 0) + 
-    (hasWp ? Math.round(chosenOpt?.subsidy || 0) : 0);
+  const totalCombinedSubsidies = Math.round(
+    (hasIso ? (calculation.totals.isde + calculation.totals.nip) : 0) + 
+    (hasWp ? (chosenOpt?.subsidy || 0) : 0)
+  );
 
   const totalCombinedTvtNum = totalCombinedSavingsPerYear > 0 ? (totalCombinedNetInvestment / totalCombinedSavingsPerYear) : 0;
   const totalCombinedTvt = totalCombinedTvtNum > 0 && totalCombinedTvtNum < 99 ? `${totalCombinedTvtNum.toFixed(1)} jaar` : 'N.v.t.';
@@ -995,7 +1002,7 @@ Energieplanner Peel en Maas
                   <span>🔋 Thuisbatterij:</span>
                   <span className="font-semibold">
                     {batCapacity > 0 
-                      ? `${batCapacity} kWh (€${batSavings.toLocaleString('nl-NL')}/jr)`
+                      ? `${batCapacity} kWh (€${Math.round(batSavings).toLocaleString('nl-NL')}/jr)`
                       : 'Geen thuisbatterij'}
                   </span>
                   {activeTab === 'battery' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
@@ -1189,7 +1196,7 @@ Energieplanner Peel en Maas
               </div>
               {totalCombinedSubsidies > 0 && (
                 <span className="text-xs font-bold font-mono text-blue-700 bg-blue-50 border border-blue-200/80 px-2.5 py-0.5 rounded-md self-start sm:self-auto">
-                  € {totalCombinedSubsidies.toLocaleString('nl-NL')} Subsidie
+                  € {Math.round(totalCombinedSubsidies).toLocaleString('nl-NL')} Subsidie
                 </span>
               )}
             </div>
@@ -1197,11 +1204,11 @@ Energieplanner Peel en Maas
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50/80 border border-slate-150 p-3 rounded-xl text-xs font-medium">
               <div>
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Netto Investering</span>
-                <strong className="text-slate-900 font-extrabold text-sm">€{totalCombinedNetInvestment.toLocaleString('nl-NL')}</strong>
+                <strong className="text-slate-900 font-extrabold text-sm">€{Math.round(totalCombinedNetInvestment).toLocaleString('nl-NL')}</strong>
               </div>
               <div>
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Totale Jaarbesparing</span>
-                <strong className="text-emerald-700 font-extrabold text-sm">€{totalCombinedSavingsPerYear.toLocaleString('nl-NL')}/jr</strong>
+                <strong className="text-emerald-700 font-extrabold text-sm">€{Math.round(totalCombinedSavingsPerYear).toLocaleString('nl-NL')}/jr</strong>
               </div>
               <div>
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Gemiddelde TVT</span>
@@ -2380,7 +2387,7 @@ Energieplanner Peel en Maas
                         {opt.solarCoverageKwh !== undefined && opt.solarCoverageKwh > 0 && (
                           <div className="flex justify-between text-[11px] text-emerald-600 bg-emerald-50/40 px-2 py-0.5 rounded">
                             <span>↪ Waarvan gedekt door zonne-overschot:</span>
-                            <span className="font-semibold">-{Math.round(opt.solarCoverageKwh)} kWh (lage kosten)</span>
+                            <span className="font-semibold">-{Math.round(opt.solarCoverageKwh)} kWh (eigen zonne-opwek)</span>
                           </div>
                         )}
                         {opt.fixedGasSavingsEuro > 0 && (

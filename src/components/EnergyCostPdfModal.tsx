@@ -161,7 +161,7 @@ Woningtype: ${house?.soortWoning || 'Hoekwoning'} (Bouwjaar: ${house?.bouwjaar |
 ### 2. INVESTERINGSOVERZICHT
 - Isolatie (${totalInsulationM2} m², besparing: ${totalGasSavingsM3} m³ gas): € ${Math.round(insulationInv).toLocaleString('nl-NL')}
 - Zonnepanelen (${aantalZonnepanelen} panelen, opbrengst: ${Math.round(solarKwh)} kWh): € ${Math.round(solarInv).toLocaleString('nl-NL')}
-- Thuisbatterij (${batteryCap} kWh, eigenverbruik: ${selfConsPct.toLocaleString('nl-NL', { maximumFractionDigits: 2 })}%): € ${Math.round(batteryInv).toLocaleString('nl-NL')}
+- Thuisbatterij (${batteryCap} kWh, eigenverbruik: ${Math.round(selfConsPct)}%): € ${Math.round(batteryInv).toLocaleString('nl-NL')}
 - Warmtepomp (${isVolledigWp ? 'All-Electric' : isHybrideWp ? 'Hybride' : 'Geen'} - ${wpCapacityStr}): € ${Math.round(wpInv).toLocaleString('nl-NL')}
 - **Totale Netto Investering**: € ${Math.round(totalInvestmentInv).toLocaleString('nl-NL')}
 - **Geschatte Terugverdientijd**: ${paybackYears ? `${paybackYears} jaar` : 'Direct rendement'}
@@ -450,7 +450,7 @@ Woningtype: ${house?.soortWoning || 'Hoekwoning'} (Bouwjaar: ${house?.bouwjaar |
                       <BatteryCharging className="w-4 h-4 text-sky-600 shrink-0" /> Thuisbatterij
                     </td>
                     <td className="p-2.5 text-slate-600">
-                      {batteryCap > 0 ? `${batteryCap} kWh capaciteit (${selfConsPct.toLocaleString('nl-NL', { maximumFractionDigits: 2 })}% eigenverbruik)` : 'Geen thuisbatterij'}
+                      {batteryCap > 0 ? `${batteryCap} kWh capaciteit (${Math.round(selfConsPct)}% eigenverbruik)` : 'Geen thuisbatterij'}
                       {batteryTradingYield > 0 && (
                         <span className="block text-[10px] text-sky-700 font-semibold mt-0.5">
                           Dynamische handelsopbrengst: € {Math.round(batteryTradingYield).toLocaleString('nl-NL')}/jaar
@@ -461,7 +461,7 @@ Woningtype: ${house?.soortWoning || 'Hoekwoning'} (Bouwjaar: ${house?.bouwjaar |
                       )}
                     </td>
                     <td className="p-2.5 text-right font-mono font-bold text-emerald-700">
-                      {batteryCap > 0 ? `Hoger eigenverbruik (+${(selfConsPct - 35).toLocaleString('nl-NL', { maximumFractionDigits: 2 })}%)` : '35% basis verbruik'}
+                      {batteryCap > 0 ? `Hoger eigenverbruik (+${Math.round(selfConsPct - 35)}%)` : '35% basis verbruik'}
                     </td>
                     <td className="p-2.5 text-right font-mono font-bold text-slate-900">
                       € {Math.round(batteryInv).toLocaleString('nl-NL')}
@@ -552,7 +552,7 @@ Woningtype: ${house?.soortWoning || 'Hoekwoning'} (Bouwjaar: ${house?.bouwjaar |
                     <li>• <strong>Plus Warmtepomp Stroomvraag:</strong> <span className="font-mono font-bold text-sky-800">+{postAddElektraKwh} kWh</span>/jaar.</li>
                     <li>• <strong>Totale Stroomvraag:</strong> <span className="font-mono font-bold text-slate-900">{postHouseKwh} kWh</span>/jaar.</li>
                     <li>
-                      • <strong>Zonnepanelen &amp; Accu:</strong> {aantalZonnepanelen} panelen ({Math.round(solarKwh)} kWh opbrengst) met {selfConsPct.toLocaleString('nl-NL', { maximumFractionDigits: 2 })}% direct eigenverbruik via {batteryCap > 0 ? `${batteryCap} kWh thuisbatterij` : 'geen thuisaccu'}.
+                      • <strong>Zonnepanelen &amp; Accu:</strong> {aantalZonnepanelen} panelen ({Math.round(solarKwh)} kWh opbrengst) met {Math.round(selfConsPct)}% direct eigenverbruik via {batteryCap > 0 ? `${batteryCap} kWh thuisbatterij` : 'geen thuisaccu'}.
                     </li>
                     <li className="pt-1 border-t border-slate-150 font-bold text-slate-900 flex justify-between">
                       <span>Nettokosten Elektriciteit per jaar:</span>

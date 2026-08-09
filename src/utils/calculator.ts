@@ -560,7 +560,10 @@ export function calculateAll(
   const gridFeedBaseKwh = annualYieldKwh - absoluteSelfConsumptionBaseKwh;
   const gridFeedWithBatteryKwh = annualYieldKwh - absoluteSelfConsumptionWithBatteryKwh;
 
-  const costSavingsPre2027 = annualYieldKwh * (updatedHouse.elektraPrijs - 0.05);
+  const houseDemand = updatedHouse.verbruikKwh || 3500;
+  const saldeerdKwh = Math.min(annualYieldKwh, houseDemand);
+  const surplusKwh = Math.max(0, annualYieldKwh - saldeerdKwh);
+  const costSavingsPre2027 = Math.round((saldeerdKwh * updatedHouse.elektraPrijs) + (surplusKwh * 0.05));
 
   const savingsVastBase = absoluteSelfConsumptionBaseKwh * updatedHouse.elektraPrijs;
   const savingsVastWithBattery = absoluteSelfConsumptionWithBatteryKwh * updatedHouse.elektraPrijs;
@@ -843,13 +846,12 @@ export function calculateAll(
   // The cost of that offset solar electricity is the missed feed-in return tariff (opportunity cost), 
   // while the remaining electricity is bought from the grid at standard price.
   // NOTE: We subtract the solar energy already consumed by the EV (evSolarCoverageBaseKwh) because you can't use the same solar energy twice!
-  const returnTariff = 0.05; // fixed feed-in return rate (€/kWh)
   const gridFeedAvailableForHybridWp = Math.max(0, gridFeedBaseKwh - evSolarCoverageBaseKwh);
   const hybridSolarCoverage = Math.min(hybridElecUsed, gridFeedAvailableForHybridWp);
   const hybridGridImport = Math.max(0, hybridElecUsed - hybridSolarCoverage);
-  const hybridElecCostEuro = (hybridSolarCoverage * returnTariff) + (hybridGridImport * updatedHouse.elektraPrijs);
+  const hybridElecCostEuro = Math.round(hybridElecUsed * updatedHouse.elektraPrijs);
 
-  const hybridNetSavings = Math.max(0, hybridGasSavingEuro - hybridElecCostEuro);
+  const hybridNetSavings = Math.max(0, Math.round(hybridGasSavingEuro - hybridElecCostEuro));
   const hybridTvt = hybridNetSavings > 0 ? hybridNet / hybridNetSavings : 99;
   const hybridFeasible = selectedModel === 'LuchtLucht' ? true : isInsulatedSufficiently;
   const hybridFeasibilityReason = selectedModel === 'LuchtLucht'
@@ -871,10 +873,10 @@ export function calculateAll(
   const gridFeedAvailableForAeWp = Math.max(0, gridFeedBaseKwh - evSolarCoverageBaseKwh);
   const aeSolarCoverage = Math.min(aeElecUsed, gridFeedAvailableForAeWp);
   const aeGridImport = Math.max(0, aeElecUsed - aeSolarCoverage);
-  const aeElecCostEuro = (aeSolarCoverage * returnTariff) + (aeGridImport * updatedHouse.elektraPrijs);
+  const aeElecCostEuro = Math.round(aeElecUsed * updatedHouse.elektraPrijs);
 
   const aeFixedGasSaving = remainingGasM3 > 0 ? 280 : 0; // Complete removal of gas connection saves ~€280/year in vastrecht
-  const aeNetSavings = Math.max(0, aeGasSavingEuro + aeFixedGasSaving - aeElecCostEuro);
+  const aeNetSavings = Math.max(0, Math.round(aeGasSavingEuro + aeFixedGasSaving - aeElecCostEuro));
   const aeTvt = aeNetSavings > 0 ? aeNet / aeNetSavings : 99;
   
   // All-electric is feasible if highly insulated or remaining gas is quite low

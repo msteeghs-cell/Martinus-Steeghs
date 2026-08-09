@@ -1503,7 +1503,7 @@ export default function InputForm({
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                 Live Rekenoverzicht
               </h3>
-              <div className="flex items-center gap-2 flex-wrap text-[10px]">
+              <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
                 <span className="font-medium text-slate-600 bg-slate-100/80 px-2 py-0.5 rounded-full border border-slate-200/70 flex items-center gap-1">
                   <span>Stookfactor:</span>
                   <strong className="font-mono text-emerald-700 font-bold">{(liveCalcResult?.house?.stookgedragFactor ?? 1.0).toFixed(1)}x</strong>
@@ -1686,7 +1686,9 @@ export default function InputForm({
               // Componenten van Totale Jaarbesparing (Afgerond op hele euro's)
               const isoSavingsCalculated = Math.round(liveCalcResult.totals?.savingsEuro || 0);
               const solarPanelsCount = liveCalcResult.tech?.aantalZonnepanelen || 0;
-              const solarSavingsCalculated = Math.round(solarKwh * (ePrice - 0.05));
+              const solarSaldeerdKwh = Math.min(solarKwh, houseKwh);
+              const solarSurplusKwh = Math.max(0, solarKwh - solarSaldeerdKwh);
+              const solarSavingsCalculated = Math.round((solarSaldeerdKwh * ePrice) + (solarSurplusKwh * 0.05));
               const batterySavingsCalculated = Math.round(batteryTradingYield);
               const chosenWpOpt = liveCalcResult.heatpump?.options?.find(o => isVolledigWp ? o.type === 'All-Electric' : (o.type.includes('Hybride') || o.type.includes('Lucht')));
               const hasWp = (isVolledigWp || isHybrideWp) && Boolean(chosenWpOpt || wpInv > 0);
@@ -1702,7 +1704,16 @@ export default function InputForm({
                     <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
                       <PiggyBank className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Energiekosten Jouw Woning (Gas &amp; Elektra)
                     </span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={onDownloadExcel}
+                        className="text-[9.5px] text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 px-2.5 py-0.5 rounded-full font-bold transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
+                        title="Download een uitgebreide Excel-spreadsheet met alle berekeningen en gegevens"
+                      >
+                        <FileSpreadsheet className="w-3 h-3 text-emerald-700" />
+                        <span>Spreadsheet Download (.xlsx)</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => setShowEnergyPdfModal(true)}
@@ -2019,6 +2030,7 @@ export default function InputForm({
             {liveCalcResult && (() => {
               const gPrice = liveCalcResult.house?.gasPrijs || 1.50;
               const ePrice = liveCalcResult.house?.elektraPrijs || 0.35;
+              const houseKwh = liveCalcResult.house?.verbruikKwh || 3500;
 
               // 1. Isolatie
               const isoNetCosts = liveCalcResult.totals?.net || 0;
@@ -2031,7 +2043,9 @@ export default function InputForm({
               const solarYield = liveCalcResult.solar?.annualYieldKwh || 0;
               const hasSolar = solarYield > 0 || solarPanels > 0;
               const solarNetInv = hasSolar ? (liveCalcResult.tech?.customZonnepanelenPrijs || getSolarInvestmentEstimate(solarPanels)) : 0;
-              const solarSavings = Math.round(solarYield * (ePrice - 0.05));
+              const solarSaldeerd = Math.min(solarYield, houseKwh);
+              const solarSurplus = Math.max(0, solarYield - solarSaldeerd);
+              const solarSavings = Math.round((solarSaldeerd * ePrice) + (solarSurplus * 0.05));
 
               // 3. Thuisbatterij
               const batCap = liveCalcResult.tech?.capaciteitAccu || 0;
@@ -2091,7 +2105,7 @@ export default function InputForm({
                     </div>
                     {totalCombinedSubsidies > 0 && (
                       <span className="text-[9.5px] font-bold font-mono text-blue-700 bg-blue-50 border border-blue-200/80 px-2 py-0.5 rounded-md">
-                        € {totalCombinedSubsidies.toLocaleString('nl-NL')} Subsidie (ISDE + NIP)
+                        € {Math.round(totalCombinedSubsidies).toLocaleString('nl-NL')} Subsidie (ISDE + NIP)
                       </span>
                     )}
                   </div>
@@ -2099,11 +2113,11 @@ export default function InputForm({
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-white border border-slate-200 rounded-md p-2 text-[10px]">
                     <div>
                       <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Netto Investering</span>
-                      <strong className="text-slate-900 font-extrabold text-[12px] font-mono">€ {totalCombinedNetInvestment.toLocaleString('nl-NL')}</strong>
+                      <strong className="text-slate-900 font-extrabold text-[12px] font-mono">€ {Math.round(totalCombinedNetInvestment).toLocaleString('nl-NL')}</strong>
                     </div>
                     <div>
                       <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Totale Jaarbesparing</span>
-                      <strong className="text-emerald-700 font-extrabold text-[12px] font-mono">€ {totalCombinedSavingsPerYear.toLocaleString('nl-NL')} / jr</strong>
+                      <strong className="text-emerald-700 font-extrabold text-[12px] font-mono">€ {Math.round(totalCombinedSavingsPerYear).toLocaleString('nl-NL')} / jr</strong>
                     </div>
                     <div>
                       <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Gemiddelde TVT</span>
@@ -4313,7 +4327,7 @@ export default function InputForm({
                           <span className="text-[9px] font-bold text-slate-400 block uppercase">Opbrengst Arbitrage-trading</span>
                           <Tooltip text="De extra inkomsten die je vergaart door volautomatisch te handelen op de dynamische energiemarkt (opladen bij lage/negatieve stroomprijzen en ontladen/terugleveren bij hoge prijzen)." />
                         </div>
-                        <span className="text-sm font-extrabold text-slate-700 font-mono">€{arbitrageYield.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / jr</span>
+                        <span className="text-sm font-extrabold text-slate-700 font-mono">€{Math.round(arbitrageYield).toLocaleString('nl-NL')} / jr</span>
                       </div>
                     </div>
 
@@ -4405,10 +4419,10 @@ export default function InputForm({
                                   <div className="flex flex-col items-center justify-center">
                                     <div className="flex items-center gap-0.5">
                                       <span className="font-bold">€{Math.round(stats.totalSavings)}</span>
-                                      <Tooltip text={`Totale jaaropbrengst (€${Math.round(stats.totalSavings)}): €${stats.arbitrageYield.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Arbitrage/Handel + €${Math.round(stats.directSavings)} Besparing Eigen Verbruik`} />
+                                      <Tooltip text={`Totale jaaropbrengst (€${Math.round(stats.totalSavings)}): €${Math.round(stats.arbitrageYield).toLocaleString('nl-NL')} Arbitrage/Handel + €${Math.round(stats.directSavings)} Besparing Eigen Verbruik`} />
                                     </div>
                                     <span className="block text-[9px] text-slate-400 font-medium font-mono">({stats.tvt.toFixed(1)}j)</span>
-                                    <span className="block text-[8px] text-sky-700 font-medium">Arbitrage: €{stats.arbitrageYield.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                    <span className="block text-[8px] text-sky-700 font-medium">Arbitrage: €{Math.round(stats.arbitrageYield).toLocaleString('nl-NL')}</span>
                                   </div>
                                 </td>
                               );

@@ -298,6 +298,145 @@ export default function App() {
 
   // Excel download
   const downloadExcel = () => {
+    // 0. Live Rekenoverzicht & Uitgebreide Berekeningen
+    const gPrice = house.gasPrijs || 1.50;
+    const ePrice = house.elektraPrijs || 0.35;
+    const currentGasM3 = house.verbruikM3 || 0;
+    const currentGasYr = Math.round(currentGasM3 * gPrice);
+    const currentGasMth = Math.round(currentGasYr / 12);
+    const houseKwh = house.verbruikKwh || 0;
+    const currentElektraYr = Math.round(houseKwh * ePrice);
+    const currentElektraMth = Math.round(currentElektraYr / 12);
+    const currentTotalYr = currentGasYr + currentElektraYr;
+    const currentTotalMth = Math.round(currentTotalYr / 12);
+
+    const totalGasSavingsM3 = calculation.measures.reduce((s, m) => s + m.savingM3, 0);
+    const remainingGasAfterInsulation = Math.max(0, currentGasM3 - totalGasSavingsM3);
+
+    const activeType = tech.selectedWarmtepompType;
+    const houseWpType = house.verwarming || 'CV-ketel';
+    const isWpActiveInHouse = houseWpType !== 'CV-ketel' && houseWpType !== 'Geen / Overig' && houseWpType !== 'Andere' && houseWpType !== 'CV-ketel op gas';
+    const isVolledigWp = isWpActiveInHouse && (houseWpType === 'Volledige warmtepomp' || houseWpType === 'Full electric' || activeType === 'All-Electric');
+    const isHybrideWp = isWpActiveInHouse && (houseWpType === 'Hybride warmtepomp' || activeType === 'Hybride');
+
+    let postGasM3 = remainingGasAfterInsulation;
+    let postAddElektraKwh = 0;
+
+    if (isVolledigWp) {
+      postGasM3 = 0;
+      const aeOption = calculation.heatpump?.options?.find(o => o.type === 'All-Electric');
+      postAddElektraKwh = (tech.userAnnualWp && tech.userAnnualWp > 0)
+        ? tech.userAnnualWp
+        : (aeOption ? Math.round(aeOption.elecIncreaseKwh) : Math.round(remainingGasAfterInsulation * 2.2));
+    } else if (isHybrideWp) {
+      const isAirco = tech.selectedWarmtepompModel === 'LuchtLucht';
+      const hybridRatio = isAirco ? 0.55 : 0.75;
+      postGasM3 = Math.max(0, Math.round(remainingGasAfterInsulation * (1 - hybridRatio)));
+      const hybridOption = calculation.heatpump?.options?.find(o => o.type.includes('Hybride') || o.type.includes('Lucht'));
+      postAddElektraKwh = (tech.userAnnualWp && tech.userAnnualWp > 0)
+        ? tech.userAnnualWp
+        : (hybridOption ? Math.round(hybridOption.elecIncreaseKwh) : Math.round(remainingGasAfterInsulation * hybridRatio * 2.2));
+    } else {
+      postGasM3 = remainingGasAfterInsulation;
+      postAddElektraKwh = 0;
+    }
+
+    const postGasYr = Math.round(postGasM3 * gPrice);
+    const postGasMth = Math.round(postGasYr / 12);
+
+    const solarKwh = calculation.solar.annualYieldKwh || 0;
+    const selfConsPct = calculation.solar.selfConsumptionWithBattery || 35;
+    const postHouseKwh = houseKwh + postAddElektraKwh;
+    const postDirectSelfKwh = Math.min(postHouseKwh, (solarKwh * selfConsPct) / 100);
+    const postFeedInKwh = Math.max(0, solarKwh - postDirectSelfKwh);
+    const postGridImportKwh = Math.max(0, postHouseKwh - postDirectSelfKwh);
+
+    let batteryTradingYield = 0;
+    const batteryCap = tech.capaciteitAccu || 0;
+    if (batteryCap > 0 && tech.typeContract === 'Dynamisch' && tech.batteryGridTrading !== false) {
+      const provider = tech.dynamicProvider || 'Zonneplan';
+      const ratePerKwh = provider === 'Zonneplan' ? 38.25 : provider === 'Frank' ? 31.5 : provider === 'Tibber' ? 29.25 : provider === 'Anwb' ? 27.00 : 24.75;
+      batteryTradingYield = batteryCap * ratePerKwh;
+    }
+
+    const postElektraYr = Math.round((postGridImportKwh * ePrice) - (postFeedInKwh * 0.05) - batteryTradingYield);
+    const postElektraMth = Math.round(postElektraYr / 12);
+
+    const postTotalYr = postGasYr + postElektraYr;
+    const postTotalMth = Math.round(postTotalYr / 12);
+    const totalJaarbesparing = currentTotalYr - postTotalYr;
+
+    // Investment breakdowns
+    const solarInv = (solarKwh > 0 || (tech.aantalZonnepanelen && tech.aantalZonnepanelen > 0))
+      ? (tech.customZonnepanelenPrijs || ((tech.aantalZonnepanelen || 0) * 350 + 800))
+      : 0;
+    const batteryInv = (batteryCap > 0)
+      ? (tech.customAccuPrijs || (batteryCap * 450 + 1200))
+      : 0;
+
+    let wpInv = 0;
+    let wpIsde = 0;
+    if (isVolledigWp) {
+      const ae = calculation.heatpump?.options?.find(o => o.type === 'All-Electric');
+      wpInv = ae ? ae.netInvestment : 9500;
+      wpIsde = 2850;
+    } else if (isHybrideWp) {
+      const hy = calculation.heatpump?.options?.find(o => o.type.includes('Hybride'));
+      wpInv = hy ? hy.netInvestment : 4200;
+      wpIsde = 2400;
+    }
+
+    const insulationBruto = calculation.totals.bruto || 0;
+    const insulationIsde = Math.round(calculation.totals.isde || 0);
+    const insulationNip = Math.round(calculation.totals.nip || 0);
+    const insulationNetto = Math.round(calculation.totals.net || 0);
+
+    const evKm = tech.evKilometers || 0;
+    const hasEv = evKm > 0;
+    const lpResult = calculation.laadpaal;
+    const laadpaalInv = hasEv ? (lpResult?.netInvestmentEuro ?? 1200) : 0;
+    const laadpaalSavings = hasEv ? (lpResult?.totalSavingsEuro ?? 0) : 0;
+
+    const totalBrutoInv = insulationBruto + solarInv + batteryInv + (wpInv + wpIsde) + laadpaalInv;
+    const totalSubsidies = insulationIsde + insulationNip + wpIsde;
+    const totalNettoInv = insulationNetto + solarInv + batteryInv + wpInv + laadpaalInv;
+    const overallTvt = totalJaarbesparing > 0 ? (totalNettoInv / totalJaarbesparing).toFixed(1) : 'N.v.t.';
+
+    const liveRekenoverzichtData = [
+      { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Registratiecode", Waarde: resident.registratiecode || 'PM-CONCEPT', Details: "" },
+      { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Woningadres", Waarde: `${resident.straat || ''} ${resident.huisnummer || ''}, ${resident.postcode || ''} ${resident.plaats || ''}`.trim(), Details: "" },
+      { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Woningtype & Label", Waarde: `${house.soortWoning || 'Hoekwoning'} (Label ${house.energielabel || 'C'})`, Details: "" },
+      { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Berekend Stookgedrag", Waarde: `${calculation.house.stookgedragBerekend || 'Normaal'} (${(calculation.house.stookgedragFactor || 1.0).toFixed(1)}x factor)`, Details: "" },
+      { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Contracttype", Waarde: `${tech.typeContract || 'Vast'}${tech.typeContract === 'Dynamisch' ? ` (${tech.dynamicProvider || 'Zonneplan'})` : ''}`, Details: "" },
+      
+      { Categorie: "", Onderdeel: "", Waarde: "", Details: "" },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: "SITUATIE", Waarde: "JAARKOSTEN (€)", Details: "MAANDKOSTEN (€)" },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: "Huidige Situatie (Nulmeting) Gas", Waarde: `€ ${currentGasYr}`, Details: `€ ${currentGasMth} / mnd (${currentGasM3} m³ à €${gPrice.toFixed(2)})` },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: "Huidige Situatie (Nulmeting) Elektra", Waarde: `€ ${currentElektraYr}`, Details: `€ ${currentElektraMth} / mnd (${houseKwh} kWh à €${ePrice.toFixed(2)})` },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: "Huidige Situatie TOTAAL", Waarde: `€ ${currentTotalYr}`, Details: `€ ${currentTotalMth} / mnd` },
+      
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: "Na Verduurzaming Gas", Waarde: postGasM3 === 0 ? "€ 0 (Gasloos)" : `€ ${postGasYr}`, Details: postGasM3 === 0 ? "0 m³ gas" : `€ ${postGasMth} / mnd (${postGasM3} m³)` },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: "Na Verduurzaming Elektra", Waarde: postElektraYr < 0 ? `-€ ${Math.abs(postElektraYr)} (netto opbrengst)` : `€ ${postElektraYr}`, Details: `€ ${postElektraMth} / mnd (incl. zonnestroom, accu, WP & EV)` },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: "Na Verduurzaming TOTAAL", Waarde: postTotalYr < 0 ? `-€ ${Math.abs(postTotalYr)} (netto opbrengst)` : `€ ${postTotalYr}`, Details: `€ ${postTotalMth} / mnd` },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: "TOTALE NETTO JAARBESPARING", Waarde: `€ ${totalJaarbesparing} / jaar`, Details: `€ ${Math.round(totalJaarbesparing / 12)} / mnd voordeel` },
+
+      { Categorie: "", Onderdeel: "", Waarde: "", Details: "" },
+      { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "🏠 Isolatiebesparing", Waarde: `€ ${Math.round(calculation.totals.savingsEuro || 0)} / jaar`, Details: `${Math.round(totalGasSavingsM3)} m³ gasbesparing` },
+      { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "☀️ Zonnepanelen Opbrengst", Waarde: `€ ${Math.round((solarKwh * ePrice))} / jaar`, Details: `${tech.aantalZonnepanelen || 0} panelen (~${Math.round(solarKwh)} kWh/jr opbrengst)` },
+      { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "🔋 Thuisbatterij Output", Waarde: `€ ${Math.round(batteryTradingYield)} / jaar`, Details: `${batteryCap} kWh accu (${Math.round(selfConsPct)}% eigenverbruik + handelsrendement)` },
+      { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "♨️ Warmtepomp Rendement", Waarde: `€ ${Math.round((currentGasYr - postGasYr) - Math.round(postAddElektraKwh * ePrice))} / jaar`, Details: `${isVolledigWp ? 'All-Electric' : isHybrideWp ? 'Hybride' : 'Geen'} (uitgespaard gas minus extra stroom)` },
+      { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "🚗 EV / Laadpaal Brandstofverplaatsing", Waarde: `€ ${laadpaalSavings} / jaar`, Details: hasEv ? `${evKm} km/jr (besparing brandstof vs thuisstroom & ERE)` : 'Geen EV' },
+
+      { Categorie: "", Onderdeel: "", Waarde: "", Details: "" },
+      { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "Isolatie", Waarde: `Bruto € ${insulationBruto} | Subsidie € ${insulationIsde + insulationNip}`, Details: `Netto € ${insulationNetto}` },
+      { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "Zonnepanelen", Waarde: `Bruto € ${solarInv}`, Details: `Netto € ${solarInv}` },
+      { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "Thuisbatterij", Waarde: `Bruto € ${batteryInv}`, Details: `Netto € ${batteryInv}` },
+      { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "Warmtepomp", Waarde: `Bruto € ${wpInv + wpIsde} | ISDE € ${wpIsde}`, Details: `Netto € ${wpInv}` },
+      { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "Laadpaal", Waarde: `Bruto € ${laadpaalInv}`, Details: `Netto € ${laadpaalInv}` },
+      { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "TOTALE OVERALL INVESTERING", Waarde: `Bruto € ${totalBrutoInv} | Subsidies € ${totalSubsidies}`, Details: `Netto € ${totalNettoInv}` },
+      { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "TOTALE TERUGVERDIENTIJD (TVT)", Waarde: `${overallTvt} jaar`, Details: `Op basis van € ${totalJaarbesparing}/jr besparing` }
+    ];
+
     // 1. General & House Data
     const generalData = [
       { Categorie: "KLANTGEGEVENS", Onderdeel: "Registratiecode", Waarde: resident.registratiecode },
@@ -414,35 +553,91 @@ export default function App() {
     insulationData.push({ Maatregel: "Opmerkingen voor offertes", Oppervlakte: opmerkingenOffertes });
     insulationData.push({ Maatregel: "Bijzonderheden verwerkers", Oppervlakte: opmerkingenAlgemeen });
 
-    // 3. Solar Prognosis Data
-    const solarData = [
-      { Parameter: "Aantal zonnepanelen", Waarde: tech.aantalZonnepanelen, Eenheid: "stuks" },
-      { Parameter: "Vermogen per paneel", Waarde: tech.vermogenPerPaneel || 400, Eenheid: "Wp" },
-      { Parameter: "Totaal geïnstalleerd vermogen", Waarde: (tech.aantalZonnepanelen * (tech.vermogenPerPaneel || 400)), Eenheid: "Wp" },
-      { Parameter: "Dakoriëntatie", Waarde: tech.dakOrientatie, Eenheid: "graden t.o.v. Zuid" },
-      { Parameter: "Oriëntatiefactor", Waarde: Number(calculation.solar.orientationFactor.toFixed(3)), Eenheid: "-" },
-      { Parameter: "Dakhellingshoek", Waarde: tech.dakHellingshoek !== undefined ? tech.dakHellingshoek : 35, Eenheid: "graden" },
-      { Parameter: "Jaarlijkse zonne-opbrengst", Waarde: Math.round(calculation.solar.annualYieldKwh), Eenheid: "kWh/jaar" },
-      { Parameter: "Huidig direct eigen verbruik (basis)", Waarde: calculation.solar.selfConsumptionBase, Eenheid: "%" },
-      { Parameter: "Huidig direct eigen verbruik (kWh)", Waarde: Math.round(calculation.solar.absoluteSelfConsumptionBaseKwh), Eenheid: "kWh/jaar" },
-      { Parameter: "Netteruglevering aan het net (basis)", Waarde: Math.round(calculation.solar.gridFeedBaseKwh), Eenheid: "kWh/jaar" }
-    ];
+    // 3. Solar Prognosis Data (Ingestelde Gegevens & Stap-voor-stap Berekening)
+    const solarData: any[] = [];
+    const solarPanelsCount = tech.aantalZonnepanelen || 0;
+    const solarWpPerPanel = tech.vermogenPerPaneel || 400;
+    const totalWp = solarPanelsCount * solarWpPerPanel;
+    const totalKwp = (totalWp / 1000).toFixed(2);
+    const orientationFactor = Number(calculation.solar.orientationFactor.toFixed(3));
+    const annualYieldKwh = Math.round(calculation.solar.annualYieldKwh || 0);
+    const selfConsBasePct = Math.round(calculation.solar.selfConsumptionBase || 35);
+    const selfConsBaseKwh = Math.round(calculation.solar.absoluteSelfConsumptionBaseKwh || 0);
+    const gridFeedBaseKwh = Math.round(calculation.solar.gridFeedBaseKwh || 0);
+    const pre2027Savings = Math.round(annualYieldKwh * ePrice);
+    const post2027Savings = Math.round((selfConsBaseKwh * ePrice) + (gridFeedBaseKwh * 0.06));
+    const solarTvtVal = (solarInv > 0 && pre2027Savings > 0) ? (solarInv / pre2027Savings).toFixed(1) : "N.v.t.";
 
-    // 4. Battery & Smart Trading Data
+    solarData.push({ Onderdeel: "ZONNEPANELEN CONFIGURATIE & INSTALLATIE", Waarde: "", Details: "" });
+    solarData.push({ Onderdeel: "Aantal zonnepanelen", Waarde: `${solarPanelsCount} stuks`, Details: "" });
+    solarData.push({ Onderdeel: "Vermogen per paneel", Waarde: `${solarWpPerPanel} Wp`, Details: "" });
+    solarData.push({ Onderdeel: "Totaal geïnstalleerd vermogen (Wp)", Waarde: `${totalWp} Wp`, Details: "" });
+    solarData.push({ Onderdeel: "Totaal geïnstalleerd vermogen (kWp)", Waarde: `${totalKwp} kWp`, Details: "" });
+    solarData.push({ Onderdeel: "Dakoriëntatie", Waarde: `${tech.dakOrientatie || 'Zuid'}°`, Details: "Aantal graden t.o.v. Zuid" });
+    solarData.push({ Onderdeel: "Dakhellingshoek", Waarde: `${tech.dakHellingshoek !== undefined ? tech.dakHellingshoek : 35}°`, Details: "Aantal graden dakhelling" });
+    solarData.push({ Onderdeel: "Oriëntatiefactor (instraling)", Waarde: `${orientationFactor}`, Details: "Correctiefactor op basis van oriëntatie & helling" });
+
+    solarData.push({});
+    solarData.push({ Onderdeel: "STAP-VOOR-STAP ZONNE-OPBRENGST & RENDEMENT BEREKENING", Waarde: "", Details: "" });
+    solarData.push({
+      Onderdeel: "1. Berekende Bruto Jaaropbrengst (kWh)",
+      Waarde: `${annualYieldKwh} kWh/jaar`,
+      Details: `Formule: Geïnstalleerd vermogen (${totalWp} Wp) × Oriëntatiefactor (${orientationFactor})`
+    });
+    solarData.push({
+      Onderdeel: "2. Direct Eigen Verbruik % (Basis zonder accu)",
+      Waarde: `${selfConsBasePct}%`,
+      Details: "Percentage direct binnenshuis verbruikte zonnestroom"
+    });
+    solarData.push({
+      Onderdeel: "3. Direct Eigen Verbruik Volume (Basis zonder accu)",
+      Waarde: `${selfConsBaseKwh} kWh/jaar`,
+      Details: `Formule: Opbrengst (${annualYieldKwh} kWh) × Direct verbruik (${selfConsBasePct}%)`
+    });
+    solarData.push({
+      Onderdeel: "4. Netteruglevering Volume (Basis zonder accu)",
+      Waarde: `${gridFeedBaseKwh} kWh/jaar`,
+      Details: `Formule: Opbrengst (${annualYieldKwh} kWh) - Direct verbruik (${selfConsBaseKwh} kWh)`
+    });
+    solarData.push({
+      Onderdeel: "5. Financiële Jaaropbrengst Pre-2027 (Met Saldering)",
+      Waarde: `€ ${pre2027Savings} / jaar`,
+      Details: `Formule: Total opbrengst (${annualYieldKwh} kWh) × Stroomtarief (€${ePrice.toFixed(2)}/kWh)`
+    });
+    solarData.push({
+      Onderdeel: "6. Financiële Jaaropbrengst Post-2027 (Zonder Saldering)",
+      Waarde: `€ ${post2027Savings} / jaar`,
+      Details: `Formule: Direct verbruik (${selfConsBaseKwh} kWh × €${ePrice.toFixed(2)}) + Teruglevering (${gridFeedBaseKwh} kWh × €0,06/kWh)`
+    });
+    solarData.push({
+      Onderdeel: "7. Investeringskosten Zonnepanelen",
+      Waarde: `€ ${Math.round(solarInv)}`,
+      Details: tech.customZonnepanelenPrijs ? "Op basis van eigen prijsopgave" : "Standaard raming inclusief omvormer & montage"
+    });
+    solarData.push({
+      Onderdeel: "8. Berekende Terugverdientijd Zonnepanelen (TVT)",
+      Waarde: solarTvtVal !== "N.v.t." ? `${solarTvtVal} jaar` : "N.v.t.",
+      Details: `Formule: Investering (€${Math.round(solarInv)}) / Jaarbesparing (€${pre2027Savings})`
+    });
+
+    // 4. Battery & Smart Trading Data (Ingevulde Gegevens & Stap-voor-stap Berekening)
     const batteryData: any[] = [];
+    batteryData.push({ Onderdeel: "THUISBATTERIJ CONFIGURATIE & INSTELLINGEN", Waarde: "", Details: "" });
     batteryData.push({
       Onderdeel: "Geselecteerde Thuisbatterij Capaciteit",
-      Waarde: tech.capaciteitAccu > 0 ? `${tech.capaciteitAccu} kWh` : "Geen geselecteerd",
+      Waarde: batteryCap > 0 ? `${batteryCap} kWh` : "Geen thuisbatterij geselecteerd",
       Details: ""
     });
     batteryData.push({
-      Onderdeel: "Eigen Prijsopgave (Optioneel)",
-      Waarde: tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0 ? `€ ${tech.customAccuPrijs}` : "Standaard schatting",
+      Onderdeel: "Investering / Eigen Prijsopgave",
+      Waarde: tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0 
+        ? `€ ${Math.round(tech.customAccuPrijs)} (eigen opgave)` 
+        : batteryCap > 0 ? `€ ${Math.round(batteryInv)} (standaard raming)` : "€ 0",
       Details: ""
     });
     batteryData.push({
       Onderdeel: "Energiecontract Type",
-      Waarde: tech.typeContract,
+      Waarde: tech.typeContract || 'Vast',
       Details: ""
     });
     if (tech.typeContract === 'Dynamisch') {
@@ -451,92 +646,186 @@ export default function App() {
         Waarde: tech.dynamicProvider || 'Zonneplan',
         Details: ""
       });
-    }
-    batteryData.push({
-      Onderdeel: "Nieuw direct eigen verbruik met batterij",
-      Waarde: `${Math.round(calculation.solar.selfConsumptionWithBattery)}%`,
-      Details: `(+${Math.round(calculation.battery.efficiencyIncrease)}% toename)`
-    });
-    batteryData.push({
-      Onderdeel: "Nieuw direct eigen verbruik (kWh)",
-      Waarde: `${Math.round(calculation.solar.absoluteSelfConsumptionWithBatteryKwh)} kWh/jr`,
-      Details: ""
-    });
-    batteryData.push({
-      Onderdeel: "Nieuwe teruglevering aan net",
-      Waarde: `${Math.round(calculation.solar.gridFeedWithBatteryKwh)} kWh/jr`,
-      Details: ""
-    });
-    batteryData.push({
-      Onderdeel: "Jaarlijkse besparing pre-2027 (onder saldering)",
-      Waarde: `€ ${Math.round(calculation.battery.costSavingsPre2027)}`,
-      Details: ""
-    });
-    batteryData.push({
-      Onderdeel: "Jaarlijkse besparing post-2027 (zonder saldering)",
-      Waarde: `€ ${Math.round(calculation.battery.costSavingsPost2027)}`,
-      Details: ""
-    });
-
-    batteryData.push({}); // Space
-    batteryData.push({
-      Onderdeel: "STANDAARD CAPACITEITEN VERGELIJKING",
-      Waarde: "",
-      Details: ""
-    });
-    
-    batteryData.push({
-      Onderdeel: "Batterij Capaciteit",
-      Waarde: "Netto Investeringskosten (na btw-teruggave)",
-      Details: "Jaarlijkse Opbrengst (Dynamisch handelen/Arbitrage)",
-      "Terugverdientijd (Dynamisch jr)": "Terugverdientijd (Vast Contract Post-2027 jr)",
-      Advies: "Advies"
-    });
-
-    calculation.battery.options.forEach(opt => {
       batteryData.push({
-        Onderdeel: `${opt.capacityKwh} kWh (${opt.label})`,
-        Waarde: `€ ${Math.round(opt.netInvestment)}`,
-        Details: `€ ${Math.round(opt.annualSavingsDynamisch)} / jr`,
-        "Terugverdientijd (Dynamisch jr)": opt.tvtDynamisch < 90 ? `${opt.tvtDynamisch.toFixed(1)} jaar` : "N.v.t.",
-        "Terugverdientijd (Vast Contract Post-2027 jr)": opt.tvtPost2027 < 90 ? `${opt.tvtPost2027.toFixed(1)} jaar` : "N.v.t.",
-        Advies: opt.bestSuited ? "BEST PASSEND (Geadviseerd)" : opt.recommendation
+        Onderdeel: "Dynamische Nethandel / Arbitrage Status",
+        Waarde: tech.batteryGridTrading !== false ? "Actief (Powerplay / Onbalanssturing)" : "Inactief (100% Zonne-focus)",
+        Details: ""
       });
+    }
+
+    batteryData.push({});
+    batteryData.push({ Onderdeel: "STAP-VOOR-STAP THUISBATTERIJ BEREKENING", Waarde: "", Details: "" });
+
+    const batSelfConsBaseKwh = Math.round(calculation.solar.absoluteSelfConsumptionBaseKwh || 0);
+    const batSelfConsWithBatKwh = Math.round(calculation.solar.absoluteSelfConsumptionWithBatteryKwh || 0);
+    const extraSelfConsKwh = Math.max(0, batSelfConsWithBatKwh - batSelfConsBaseKwh);
+    const selfConsSavingsEuro = Math.round(extraSelfConsKwh * ePrice);
+    const totalAnnualBatteryYield = Math.round(batteryTradingYield + selfConsSavingsEuro);
+    const batTvtVal = (batteryInv > 0 && totalAnnualBatteryYield > 0) ? (batteryInv / totalAnnualBatteryYield).toFixed(1) : "N.v.t.";
+
+    batteryData.push({
+      Onderdeel: "1. Direct Eigen Verbruik Zonnestroom (Basis zonder accu)",
+      Waarde: `${Math.round(calculation.solar.selfConsumptionBase)}%`,
+      Details: `${batSelfConsBaseKwh} kWh/jaar direct verbruikt`
+    });
+    batteryData.push({
+      Onderdeel: "2. Nieuw Direct Eigen Verbruik Zonnestroom (Met accu)",
+      Waarde: `${Math.round(calculation.solar.selfConsumptionWithBattery)}%`,
+      Details: `${batSelfConsWithBatKwh} kWh/jaar direct verbruikt (+${Math.round(calculation.battery.efficiencyIncrease)}% toename)`
+    });
+    batteryData.push({
+      Onderdeel: "3. Extra Opgevangen Zonnestroom in Accu",
+      Waarde: `${extraSelfConsKwh} kWh/jaar`,
+      Details: `Formule: Met accu (${batSelfConsWithBatKwh} kWh) - Zonder accu (${batSelfConsBaseKwh} kWh)`
+    });
+    batteryData.push({
+      Onderdeel: "4. Besparing op Netimport door Extra Eigenverbruik (€)",
+      Waarde: `€ ${selfConsSavingsEuro} / jaar`,
+      Details: `Formule: Extra zonnestroom (${extraSelfConsKwh} kWh) × Stroomtarief (€${ePrice.toFixed(2)}/kWh)`
+    });
+    batteryData.push({
+      Onderdeel: "5. Berekende Jaarlijkse Handelsopbrengst (Arbitrage / Nethandel)",
+      Waarde: `€ ${Math.round(batteryTradingYield)} / jaar`,
+      Details: batteryCap > 0 && tech.typeContract === 'Dynamisch' && tech.batteryGridTrading !== false
+        ? `Formule: Accucapaciteit (${batteryCap} kWh) × Spottarief vergoeding (€${(batteryTradingYield / batteryCap).toFixed(2)}/kWh/jaar via ${tech.dynamicProvider || 'Zonneplan'})`
+        : "€ 0 (Nethandel inactief of vast contract)"
+    });
+    batteryData.push({
+      Onderdeel: "6. Resterende Teruglevering aan Net (Met accu)",
+      Waarde: `${Math.round(calculation.solar.gridFeedWithBatteryKwh)} kWh/jaar`,
+      Details: `Formule: Totale opbrengst (${annualYieldKwh} kWh) - Nieuw eigenverbruik (${batSelfConsWithBatKwh} kWh)`
+    });
+    batteryData.push({
+      Onderdeel: "7. Totale Gecombineerde Jaaropbrengst Thuisbatterij (€)",
+      Waarde: `€ ${totalAnnualBatteryYield} / jaar`,
+      Details: `Formule: Handelsopbrengst (€${Math.round(batteryTradingYield)}) + Besparing eigenverbruik (€${selfConsSavingsEuro})`
+    });
+    batteryData.push({
+      Onderdeel: "8. Berekende Terugverdientijd Thuisbatterij (TVT)",
+      Waarde: batTvtVal !== "N.v.t." ? `${batTvtVal} jaar` : "N.v.t.",
+      Details: `Formule: Investering (€${Math.round(batteryInv)}) / Totale Jaaropbrengst (€${totalAnnualBatteryYield})`
     });
 
-    // 5. Heatpump & EV Charging Data
+    // 5. Heatpump & EV Charging Data (Ingestelde Gegevens & Stap-voor-stap Berekening)
     const hpLpData: any[] = [];
-    hpLpData.push({ Onderdeel: "WARMTEPOMP CHECK", Waarde: "", Details: "" });
-    hpLpData.push({ Onderdeel: "Isolatie voldoende voor WP?", Waarde: calculation.heatpump.isInsulatedSufficiently ? "Ja" : "Nee", Details: "" });
-    hpLpData.push({ Onderdeel: "Resterend gasverbruik na isolatie", Waarde: `${Math.round(calculation.heatpump.remainingGasM3)} m³/jaar`, Details: "" });
-    hpLpData.push({ Onderdeel: "Warmtepomp aanbevolen?", Waarde: calculation.heatpump.isRecommended ? "Ja" : "Nee", Details: "" });
-    hpLpData.push({ Onderdeel: "Geselecteerd warmtepomp model", Waarde: tech.selectedWarmtepompModel || 'Standard', Details: "" });
-    
+    const selWpType = tech.selectedWarmtepompType || (isVolledigWp ? 'All-Electric' : isHybrideWp ? 'Hybride' : 'Hybride');
+    const selWpModel = tech.selectedWarmtepompModel || 'Standaard';
+    const chosenHpOption = calculation.heatpump?.options?.find(o => 
+      selWpType === 'All-Electric' ? o.type === 'All-Electric' : (o.type.includes('Hybride') || o.type.includes('Lucht'))
+    ) || calculation.heatpump?.options?.[0];
+
+    hpLpData.push({ Onderdeel: "WARMTEPOMP CHECK & SYSTEEMINFORMATIE", Waarde: "", Details: "" });
+    hpLpData.push({ Onderdeel: "Geselecteerd Warmtepomp Systeemtype", Waarde: selWpType, Details: "" });
+    hpLpData.push({ Onderdeel: "Geselecteerd Model / Vermogen", Waarde: selWpModel, Details: "" });
+    hpLpData.push({ Onderdeel: "Woningtype & Woonoppervlakte", Waarde: `${house.soortWoning || 'Hoekwoning'} (${house.woonoppervlakte || 120} m²)`, Details: "" });
+    hpLpData.push({ Onderdeel: "Oorspronkelijk gasverbruik", Waarde: `${house.verbruikM3 || 0} m³/jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Resterend gasverbruik na isolatie", Waarde: `${Math.round(remainingGasAfterInsulation)} m³/jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Streefwaarde max. gasverbruik voor warmtepomp", Waarde: `${Math.round((house.woonoppervlakte || 120) * 9.0)} m³/jaar`, Details: "Heuristiek op basis van woningtype en m²" });
+    hpLpData.push({ Onderdeel: "Isolatie voldoende voor warmtepomp?", Waarde: calculation.heatpump.isInsulatedSufficiently ? "Ja (Klaar voor warmtepomp)" : "Nee (Eerst extra isoleren)", Details: "" });
+    hpLpData.push({ Onderdeel: "Warmtepomp geadviseerd?", Waarde: calculation.heatpump.isRecommended ? "Ja" : "Nee", Details: calculation.heatpump.explanation });
+
     hpLpData.push({});
+    hpLpData.push({ Onderdeel: "STAP-VOOR-STAP WARMTEPOMP BEREKENING", Waarde: "", Details: "" });
+
+    const calculatedGasSavingsM3 = chosenHpOption ? Math.round(chosenHpOption.gasSavingsM3) : (selWpType === 'All-Electric' ? Math.round(remainingGasAfterInsulation) : Math.round(remainingGasAfterInsulation * 0.75));
+    const calculatedGasSavingsEuro = Math.round(calculatedGasSavingsM3 * gPrice);
+    const fixedGasSavingEuro = selWpType === 'All-Electric' ? 280 : 0;
+
     hpLpData.push({
-      Onderdeel: "Systeemtype",
-      Waarde: "Netto Investering (€)",
-      Details: "Gasbesparing (m³)",
-      "Elektra Toename (kWh)": "Jaarlijkse Netto Besparing (€)",
-      "Terugverdientijd (jr)": "Haalbaarheid / Advies"
+      Onderdeel: "1. Verwachte Gasbesparing (m³)",
+      Waarde: `${calculatedGasSavingsM3} m³/jaar`,
+      Details: selWpType === 'All-Electric' ? '100% gasbesparing (volledig gasloos)' : selWpModel === 'LuchtLucht' ? '55% gasbesparing (lucht-lucht airco)' : '75% gasbesparing (hybride)'
+    });
+    hpLpData.push({
+      Onderdeel: "2. Financiële Besparing op Gas (€)",
+      Waarde: `€ ${calculatedGasSavingsEuro} / jaar`,
+      Details: `Formule: ${calculatedGasSavingsM3} m³ × €${gPrice.toFixed(2)}/m³`
+    });
+    if (fixedGasSavingEuro > 0) {
+      hpLpData.push({
+        Onderdeel: "3. Besparing Vastrecht Gasaansluiting (€)",
+        Waarde: `€ ${fixedGasSavingEuro} / jaar`,
+        Details: "Volledige verwijdering gasaansluiting & meter"
+      });
+    }
+
+    const copFactor = selWpModel === 'Middelgroot 8kW' ? 2.0 : selWpModel === 'Groot 12kW' ? 2.4 : selWpModel === 'LuchtLucht' ? 1.9 : 2.2;
+    const calculatedAddElecKwh = chosenHpOption ? Math.round(chosenHpOption.elecIncreaseKwh) : Math.round(calculatedGasSavingsM3 * copFactor);
+    const calculatedElecCostEuro = Math.round(calculatedAddElecKwh * ePrice);
+
+    hpLpData.push({
+      Onderdeel: "4. Omzettings-Coëfficiënt / SCOP Factor",
+      Waarde: `${copFactor} kWh per m³ gas`,
+      Details: "Berekend elektrisch verbruik per m³ uitgespaard gas op basis van seizoensrendement"
+    });
+    hpLpData.push({
+      Onderdeel: "5. Berekend Extra Elektriciteitsverbruik (kWh)",
+      Waarde: `${calculatedAddElecKwh} kWh/jaar`,
+      Details: `Formule: ${calculatedGasSavingsM3} m³ gasbesparing × ${copFactor} kWh/m³`
     });
 
-    calculation.heatpump.options.forEach(opt => {
-      hpLpData.push({
-        Onderdeel: opt.type,
-        Waarde: `€ ${Math.round(opt.netInvestment)}`,
-        Details: `${Math.round(opt.gasSavingsM3)} m³`,
-        "Elektra Toename (kWh)": `${Math.round(opt.elecIncreaseKwh)} kWh`,
-        "Jaarlijkse Netto Besparing (€)": `€ ${Math.round(opt.netSavingsEuro)}`,
-        "Terugverdientijd (jr)": opt.tvt < 90 ? `${opt.tvt.toFixed(1)} jaar` : "N.v.t.",
-        "Haalbaarheid / Advies": opt.isFeasible ? "Haalbaar / Geschikt" : opt.feasibilityReason
-      });
+    const wpSolarCoverage = chosenHpOption ? Math.round(chosenHpOption.solarCoverageKwh) : 0;
+    const wpGridImport = chosenHpOption ? Math.round(chosenHpOption.gridImportKwh) : calculatedAddElecKwh;
+
+    hpLpData.push({
+      Onderdeel: "6. Zonnestroom direct gebruikt voor Warmtepomp",
+      Waarde: `${wpSolarCoverage} kWh/jaar`,
+      Details: "Overtollige zonnestroom ingezet voor warmtepomp (na aftrek EV-laden)"
+    });
+    hpLpData.push({
+      Onderdeel: "7. Netstroom Import voor Warmtepomp",
+      Waarde: `${wpGridImport} kWh/jaar`,
+      Details: "Resterende stroom benodigd van het net"
+    });
+    hpLpData.push({
+      Onderdeel: "8. Extra Elektriciteitskosten Warmtepomp (€)",
+      Waarde: `€ ${calculatedElecCostEuro} / jaar`,
+      Details: `Formule: ${calculatedAddElecKwh} kWh × €${ePrice.toFixed(2)}/kWh`
+    });
+
+    const calculatedNetSavingsEuro = Math.round(calculatedGasSavingsEuro + fixedGasSavingEuro - calculatedElecCostEuro);
+
+    hpLpData.push({
+      Onderdeel: "9. Jaarlijkse NETTO Financiele Besparing Warmtepomp (€)",
+      Waarde: `€ ${calculatedNetSavingsEuro} / jaar`,
+      Details: `Formule: Gasbesparing (€${calculatedGasSavingsEuro})${fixedGasSavingEuro > 0 ? ` + Vastrecht (€${fixedGasSavingEuro})` : ''} - Extra Elektra (€${calculatedElecCostEuro})`
+    });
+
+    const hpBrutoInv = chosenHpOption ? Math.round(chosenHpOption.brutoInvestment) : (wpInv + wpIsde);
+    const hpSubsidie = chosenHpOption ? Math.round(chosenHpOption.subsidy) : wpIsde;
+    const hpNettoInv = chosenHpOption ? Math.round(chosenHpOption.netInvestment) : wpInv;
+    const hpTvt = calculatedNetSavingsEuro > 0 ? (hpNettoInv / calculatedNetSavingsEuro) : 99;
+
+    hpLpData.push({
+      Onderdeel: "10. Bruto Investeringskosten Warmtepomp",
+      Waarde: `€ ${hpBrutoInv}`,
+      Details: tech.customWarmtepompPrijs ? "Op basis van eigen prijsopgave" : "Standaard raming inclusief installatie"
+    });
+    hpLpData.push({
+      Onderdeel: "11. ISDE Subsidie Warmtepomp",
+      Waarde: `€ ${hpSubsidie}`,
+      Details: "Mogelijke overheidsvergoeding via ISDE"
+    });
+    hpLpData.push({
+      Onderdeel: "12. Netto Investering Warmtepomp",
+      Waarde: `€ ${hpNettoInv}`,
+      Details: `Formule: Bruto (€${hpBrutoInv}) - Subsidie (€${hpSubsidie})`
+    });
+    hpLpData.push({
+      Onderdeel: "13. Berekende Terugverdientijd Warmtepomp (TVT)",
+      Waarde: hpTvt < 90 ? `${hpTvt.toFixed(1)} jaar` : "N.v.t.",
+      Details: `Formule: Netto Investering (€${hpNettoInv}) / Netto Jaarbesparing (€${calculatedNetSavingsEuro})`
+    });
+    hpLpData.push({
+      Onderdeel: "14. Haalbaarheid & Advies",
+      Waarde: chosenHpOption ? (chosenHpOption.isFeasible ? "Haalbaar & Geschikt" : "Beperkt geschikt") : "Geschikt",
+      Details: chosenHpOption ? chosenHpOption.feasibilityReason : calculation.heatpump.explanation
     });
 
     hpLpData.push({});
     hpLpData.push({ Onderdeel: "ELEKTRISCH RIJDEN & LAADPAAL ANALYSE", Waarde: "", Details: "" });
     
-    const lpResult = calculation.laadpaal || {
+    const lpSheetResult = calculation.laadpaal || {
       evAnnualDemandKwh: Math.round(((tech.evKilometers ?? 15000) / 100) * (tech.evVerbruik ?? 18) * ((tech.evThuisLaden ?? 75) / 100)),
       evSolarCoverageKwh: 0,
       evGridImportKwh: Math.round(((tech.evKilometers ?? 15000) / 100) * (tech.evVerbruik ?? 18) * ((tech.evThuisLaden ?? 75) / 100)),
@@ -547,24 +836,28 @@ export default function App() {
       tvt: 1.8
     };
 
-    const evKm = tech.evKilometers ?? 15000;
+    const evKmSheet = tech.evKilometers ?? 15000;
     const evCons = tech.evVerbruik ?? 18;
     const evHome = tech.evThuisLaden ?? 75;
 
-    hpLpData.push({ Onderdeel: "Jaarkilometrage EV", Waarde: `${evKm} km/jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Jaarkilometrage EV", Waarde: `${evKmSheet} km/jaar`, Details: "" });
     hpLpData.push({ Onderdeel: "EV Normverbruik", Waarde: `${evCons} kWh/100km`, Details: "" });
     hpLpData.push({ Onderdeel: "Thuislaad-aandeel", Waarde: `${evHome}%`, Details: "" });
     hpLpData.push({ Onderdeel: "Laadvermogen laadpaal", Waarde: `${tech.laadvermogen ?? 11} kW`, Details: "" });
-    hpLpData.push({ Onderdeel: "Thuisgeladen volume", Waarde: `${lpResult.evAnnualDemandKwh} kWh/jaar`, Details: "" });
-    hpLpData.push({ Onderdeel: "Zonnedekking laadsessies", Waarde: `${lpResult.evSolarCoverageKwh} kWh/jaar`, Details: "Zonnestroom direct gebruikt voor de EV, in mindering gebracht op teruglevering en warmtepomp" });
-    hpLpData.push({ Onderdeel: "Netstroom laadsessies", Waarde: `${lpResult.evGridImportKwh} kWh/jaar`, Details: "" });
-    hpLpData.push({ Onderdeel: "Laadpaal besparing (vs openbaar laden)", Waarde: `€ ${lpResult.evSavingsEuro} / jaar`, Details: "" });
-    hpLpData.push({ Onderdeel: "Wettelijke ERE-vergoeding (€0,12/kWh)", Waarde: `€ ${lpResult.ereRevenueEuro} / jaar`, Details: "" });
-    hpLpData.push({ Onderdeel: "Gecombineerd jaarlijks voordeel laadpaal", Waarde: `€ ${lpResult.totalSavingsEuro} / jaar`, Details: "" });
-    hpLpData.push({ Onderdeel: "Geschatte terugverdientijd laadpaal", Waarde: lpResult.tvt < 90 ? `${lpResult.tvt.toFixed(1)} jaar` : "N.v.t.", Details: `Op basis van € ${lpResult.netInvestmentEuro} installatiekosten` });
+    hpLpData.push({ Onderdeel: "Thuisgeladen volume", Waarde: `${lpSheetResult.evAnnualDemandKwh} kWh/jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Zonnedekking laadsessies", Waarde: `${lpSheetResult.evSolarCoverageKwh} kWh/jaar`, Details: "Zonnestroom direct gebruikt voor de EV, in mindering gebracht op teruglevering en warmtepomp" });
+    hpLpData.push({ Onderdeel: "Netstroom laadsessies", Waarde: `${lpSheetResult.evGridImportKwh} kWh/jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Laadpaal besparing (vs openbaar laden)", Waarde: `€ ${lpSheetResult.evSavingsEuro} / jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Wettelijke ERE-vergoeding (€0,12/kWh)", Waarde: `€ ${lpSheetResult.ereRevenueEuro} / jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Gecombineerd jaarlijks voordeel laadpaal", Waarde: `€ ${lpSheetResult.totalSavingsEuro} / jaar`, Details: "" });
+    hpLpData.push({ Onderdeel: "Geschatte terugverdientijd laadpaal", Waarde: lpSheetResult.tvt < 90 ? `${lpSheetResult.tvt.toFixed(1)} jaar` : "N.v.t.", Details: `Op basis van € ${lpSheetResult.netInvestmentEuro} installatiekosten` });
 
     // Build the workbook
     const wb = XLSX.utils.book_new();
+
+    const ws0 = XLSX.utils.json_to_sheet(liveRekenoverzichtData);
+    XLSX.utils.book_append_sheet(wb, ws0, "0. Live Rekenoverzicht");
+    ws0['!cols'] = [{ wch: 35 }, { wch: 45 }, { wch: 40 }, { wch: 50 }];
 
     const ws1 = XLSX.utils.json_to_sheet(generalData);
     XLSX.utils.book_append_sheet(wb, ws1, "1. Klant & Woning");
@@ -576,11 +869,11 @@ export default function App() {
 
     const ws3 = XLSX.utils.json_to_sheet(solarData);
     XLSX.utils.book_append_sheet(wb, ws3, "3. Zonnepanelen");
-    ws3['!cols'] = [{ wch: 35 }, { wch: 20 }, { wch: 25 }];
+    ws3['!cols'] = [{ wch: 45 }, { wch: 30 }, { wch: 65 }];
 
     const ws4 = XLSX.utils.json_to_sheet(batteryData);
     XLSX.utils.book_append_sheet(wb, ws4, "4. Thuisbatterij");
-    ws4['!cols'] = [{ wch: 40 }, { wch: 45 }, { wch: 50 }, { wch: 35 }, { wch: 35 }, { wch: 35 }];
+    ws4['!cols'] = [{ wch: 45 }, { wch: 30 }, { wch: 65 }];
 
     const ws5 = XLSX.utils.json_to_sheet(hpLpData);
     XLSX.utils.book_append_sheet(wb, ws5, "5. Warmtepomp & Laadpaal");

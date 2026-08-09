@@ -20,9 +20,9 @@ const BatteryTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     const originalData = payload[0].payload;
     const arbitrageVal = originalData ? originalData['Arbitrage stroomverschuiving (kWh)'] : 0;
-    const pureArbEuro = originalData ? (originalData['Pure Arbitrage Handel (€)'] || originalData['Arbitrage opbrengst (€)'] || 0) : 0;
-    const eigenZonEvEuro = originalData ? (originalData['Eigen Zon & Slim Laden (€)'] || 0) : 0;
-    const totalMaandEuro = originalData ? (originalData['Totaal Maandvoordeel (€)'] || (pureArbEuro + eigenZonEvEuro)) : 0;
+    const pureArbEuro = originalData ? Math.round(originalData['Pure Arbitrage Handel (€)'] || originalData['Arbitrage opbrengst (€)'] || 0) : 0;
+    const eigenZonEvEuro = originalData ? Math.round(originalData['Eigen Zon & Slim Laden (€)'] || 0) : 0;
+    const totalMaandEuro = originalData ? Math.round(originalData['Totaal Maandvoordeel (€)'] || (pureArbEuro + eigenZonEvEuro)) : 0;
     
     const directBase = originalData ? Number(originalData['Direct verbruik (zonder accu) (kWh)']) : 0;
     const extraBattery = originalData ? Number(originalData['Extra verbruik via accu (kWh)']) : 0;

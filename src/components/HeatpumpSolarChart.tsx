@@ -115,7 +115,7 @@ const HeatpumpSolarTooltip = ({ active, payload, label }: HeatpumpSolarTooltipPr
                 )}
               </span>
               <span className={`font-black font-mono text-sm text-right ${nettoKosten < 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                € {Math.abs(nettoKosten).toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                € {Math.round(Math.abs(nettoKosten)).toLocaleString('nl-NL')}
               </span>
             </div>
             <p className="text-[10px] text-slate-400">
