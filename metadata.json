@@ -1,5 +1,5 @@
 {
-  "name": "Energie Advies Centrum Peel en Maas",
+  "name": "Energieplanner Peel en Maas",
   "description": "De Energieplanner Peel en Maas stelt bewoners in staat zelfstandig hun woning te analyseren op verduurzaming, isolatie, zonnepanelen, accu's en warmtepompen.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

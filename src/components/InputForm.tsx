@@ -3731,7 +3731,7 @@ export default function InputForm({
               <h3 className="text-sm font-semibold text-slate-700">Thuisbatterij Instellingen</h3>
             </div>
             <div className="p-4 space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* Capaciteit accu */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
@@ -3775,40 +3775,40 @@ export default function InputForm({
                     <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">%</span>
                   </div>
                 </div>
+              </div>
 
-                {/* Eigen Prijsopgave */}
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="block text-xs font-bold text-slate-500 flex items-center gap-1">
-                      <span>Eigen prijsopgave</span>
-                      <Tooltip text="Vul hier de totale kosten (incl. btw) uit bijv. een offerte in. Laat leeg voor marktconforme schatting." />
-                    </label>
-                    {tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setTech(prev => ({ ...prev, customAccuPrijs: undefined }))}
-                        className="text-[9px] font-bold text-rose-600 hover:underline cursor-pointer"
-                      >
-                        Reset
-                      </button>
-                    )}
+              {/* Eigen Prijsopgave & Marktconforme Richtprijzen */}
+              <div className="space-y-3 pt-1 border-t border-slate-100">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-1">
+                    <label className="text-xs font-medium text-slate-500">Eigen Prijsopgave (€, incl. 21% btw - optioneel)</label>
+                    <Tooltip text="Vul hier de totale kosten (incl. btw) van de thuisbatterij in (bijv. uit een offerte). De 21% btw-teruggave (mogelijk bij een dynamisch contract) wordt automatisch verrekend om de netto terugverdientijd te berekenen. Laat leeg voor marktconforme schatting." />
                   </div>
-                  <div className="relative">
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-semibold">€</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="50"
-                      placeholder={`Bijv. ${getBatteryInvestmentEstimate(tech.capaciteitAccu || 10)}`}
-                      value={tech.customAccuPrijs !== undefined ? tech.customAccuPrijs : ''}
-                      onChange={(e) => {
-                        const val = e.target.value === '' ? undefined : Number(e.target.value);
-                        setTech(prev => ({ ...prev, customAccuPrijs: val }));
-                      }}
-                      className="w-full pl-6 pr-2.5 py-1.5 text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg focus:outline-emerald-500 font-mono"
-                      id="custom_accu_prijs_input_main"
-                    />
-                  </div>
+                  {tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setTech(prev => ({ ...prev, customAccuPrijs: undefined }))}
+                      className="text-[10px] font-bold text-rose-600 hover:underline cursor-pointer"
+                    >
+                      Reset naar standaard
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-semibold">€</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="50"
+                    placeholder={`Bijv. ${getBatteryInvestmentEstimate(tech.capaciteitAccu || 10)} (laat leeg voor marktconforme schatting)`}
+                    value={tech.customAccuPrijs !== undefined ? tech.customAccuPrijs : ''}
+                    onChange={(e) => {
+                      const val = e.target.value === '' ? undefined : Number(e.target.value);
+                      setTech(prev => ({ ...prev, customAccuPrijs: val }));
+                    }}
+                    className="w-full pl-7 pr-3 py-1.5 text-xs text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-emerald-500 font-mono"
+                    id="custom_accu_prijs_input_main"
+                  />
                 </div>
               </div>
 
@@ -4237,39 +4237,6 @@ export default function InputForm({
                     </div>
                   </div>
 
-                  <div>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs font-semibold text-slate-600">Eigen Prijsopgave (€, incl. 21% btw - optioneel):</span>
-                        <Tooltip text="Vul hier de totale aanschaf- en installatiekosten (inclusief btw) van de thuisbatterij in (bijv. uit een offerte). De 21% btw-teruggave (mogelijk bij een dynamisch contract) wordt automatisch verrekend om de netto terugverdientijd te berekenen. Laat leeg om met onze marktgemiddelde schatting te rekenen." />
-                      </div>
-                      {tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setTech(prev => ({ ...prev, customAccuPrijs: undefined }))}
-                          className="text-[10px] font-bold text-rose-600 hover:underline"
-                        >
-                          Reset naar standaard
-                        </button>
-                      )}
-                    </div>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-semibold">€</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="50"
-                        placeholder={`Bijv. ${getBatteryInvestmentEstimate(tech.capaciteitAccu || 10)} (laat leeg voor marktconforme schatting)`}
-                        value={tech.customAccuPrijs !== undefined ? tech.customAccuPrijs : ''}
-                        onChange={(e) => {
-                          const val = e.target.value === '' ? undefined : Number(e.target.value);
-                          setTech(prev => ({ ...prev, customAccuPrijs: val }));
-                        }}
-                        className="w-full pl-7 pr-3 py-1.5 text-xs text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-emerald-500 font-mono"
-                      />
-                    </div>
-                  </div>
-
                   {/* Thuisaccu Sturing Mode Toggle */}
                   <div className="bg-purple-50/50 border border-purple-200/80 rounded-xl p-3.5 space-y-2">
                     <div className="flex items-center gap-2.5">
@@ -4507,6 +4474,42 @@ export default function InputForm({
                 </div>
               </div>
 
+              {/* Eigen Prijsopgave warmtepomp - direct onder de parameters */}
+              <div className="pt-3 border-t border-slate-100 space-y-2">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-1">
+                    <label className="text-xs font-semibold text-slate-600 font-sans">
+                      Eigen Prijsopgave warmtepomp (€, bruto incl. btw - optioneel):
+                    </label>
+                    <Tooltip text="Vul hier de totale aanschaf- en installatiekosten (inclusief btw, bruto vóór subsidie) van de warmtepomp in (bijv. uit een offerte). De rekentool trekt hier automatisch de geselecteerde ISDE-subsidie vanaf om de netto investering en terugverdientijd te berekenen. Laat leeg om met onze modelraming te rekenen." />
+                  </div>
+                  {tech.customWarmtepompPrijs !== undefined && tech.customWarmtepompPrijs > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setTech(prev => ({ ...prev, customWarmtepompPrijs: undefined }))}
+                      className="text-[10px] font-bold text-rose-600 hover:underline cursor-pointer"
+                    >
+                      Reset naar standaard
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-semibold">€</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="50"
+                    placeholder="Bijv. 7500 (laat leeg voor raming van geselecteerde model)"
+                    value={tech.customWarmtepompPrijs !== undefined ? tech.customWarmtepompPrijs : ''}
+                    onChange={(e) => {
+                      const val = e.target.value === '' ? undefined : Number(e.target.value);
+                      setTech(prev => ({ ...prev, customWarmtepompPrijs: val }));
+                    }}
+                    className="w-full pl-7 pr-3 py-1.5 text-xs text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-emerald-500 font-mono"
+                  />
+                </div>
+              </div>
+
               <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-3 text-[11px] text-blue-800 leading-relaxed">
                 <span className="font-bold">💡 Waarom deze gasgegevens?</span> Op basis van je gasverbruik en afgiftesysteem berekent onze tool direct de haalbaarheid van een warmtepomp, benodigde capaciteit, besparingen en ISDE-subsidies.
               </div>
@@ -4716,40 +4719,6 @@ export default function InputForm({
                       })}
                     </div>
                   </div>
-                </div>
-              </div>
-
-              {/* Eigen Prijsopgave (Optioneel) */}
-              <div className="bg-slate-50 border border-slate-100 rounded-xl p-4">
-                <div className="flex justify-between items-center mb-1.5">
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs font-semibold text-slate-600 font-sans">Eigen Prijsopgave warmtepomp (€, bruto incl. btw - optioneel):</span>
-                    <Tooltip text="Vul hier de totale aanschaf- en installatiekosten (inclusief btw, bruto vóór subsidie) van de warmtepomp in (bijv. uit een offerte). De rekentool trekt hier automatisch de geselecteerde ISDE-subsidie vanaf om de netto investering en terugverdientijd te berekenen. Laat leeg om met onze modelraming te rekenen." />
-                  </div>
-                  {tech.customWarmtepompPrijs !== undefined && tech.customWarmtepompPrijs > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setTech(prev => ({ ...prev, customWarmtepompPrijs: undefined }))}
-                      className="text-[10px] font-bold text-rose-600 hover:underline cursor-pointer"
-                    >
-                      Reset naar standaard
-                    </button>
-                  )}
-                </div>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-semibold">€</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="50"
-                    placeholder="Bijv. 7500 (laat leeg voor raming van geselecteerde model)"
-                    value={tech.customWarmtepompPrijs !== undefined ? tech.customWarmtepompPrijs : ''}
-                    onChange={(e) => {
-                      const val = e.target.value === '' ? undefined : Number(e.target.value);
-                      setTech(prev => ({ ...prev, customWarmtepompPrijs: val }));
-                    }}
-                    className="w-full pl-7 pr-3 py-1.5 text-xs text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-emerald-500 font-mono"
-                  />
                 </div>
               </div>
 

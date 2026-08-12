@@ -1072,7 +1072,7 @@ export default function App() {
       {/* Footer */}
       <footer className="bg-slate-900 text-slate-400 py-8 px-4 text-center text-xs mt-12 border-t border-slate-800">
         <div className="max-w-7xl mx-auto space-y-3">
-          <p>© 2026 Energie Advies Centrum Peel en Maas. Alle rechten voorbehouden.</p>
+          <p>© 2026 Energieplanner Peel en Maas. Alle rechten voorbehouden.</p>
           <p className="max-w-2xl mx-auto text-slate-500 leading-relaxed font-normal">
             De opgestelde adviezen en subsidies zijn indicatief en gebaseerd op praktijkrichtlijnen, de gemeentelijke regelingen voor Peel en Maas en de landelijke ISDE-subsidieregels 2026. Er kunnen geen rechten worden ontleend aan de prognoses.
           </p>
