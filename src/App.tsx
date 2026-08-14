@@ -376,14 +376,16 @@ export default function App() {
 
     let wpInv = 0;
     let wpIsde = 0;
-    if (isVolledigWp) {
-      const ae = calculation.heatpump?.options?.find(o => o.type === 'All-Electric');
-      wpInv = ae ? ae.netInvestment : 9500;
-      wpIsde = 2850;
-    } else if (isHybrideWp) {
-      const hy = calculation.heatpump?.options?.find(o => o.type.includes('Hybride'));
-      wpInv = hy ? hy.netInvestment : 4200;
-      wpIsde = 2400;
+    let wpBruto = 0;
+    const chosenHpOptionForSheet0 = calculation.heatpump?.options?.find(o => 
+      isVolledigWp ? o.type === 'All-Electric' : (o.type.includes('Hybride') || o.type.includes('Lucht'))
+    );
+    if (isVolledigWp || isHybrideWp) {
+      if (chosenHpOptionForSheet0) {
+        wpBruto = Math.round(chosenHpOptionForSheet0.brutoInvestment);
+        wpIsde = Math.round(chosenHpOptionForSheet0.subsidy);
+        wpInv = Math.round(chosenHpOptionForSheet0.netInvestment);
+      }
     }
 
     const insulationBruto = calculation.totals.bruto || 0;
@@ -397,7 +399,7 @@ export default function App() {
     const laadpaalInv = hasEv ? (lpResult?.netInvestmentEuro ?? 1200) : 0;
     const laadpaalSavings = hasEv ? (lpResult?.totalSavingsEuro ?? 0) : 0;
 
-    const totalBrutoInv = insulationBruto + solarInv + batteryInv + (wpInv + wpIsde) + laadpaalInv;
+    const totalBrutoInv = insulationBruto + solarInv + batteryInv + wpBruto + laadpaalInv;
     const totalSubsidies = insulationIsde + insulationNip + wpIsde;
     const totalNettoInv = insulationNetto + solarInv + batteryInv + wpInv + laadpaalInv;
     const overallTvt = totalJaarbesparing > 0 ? (totalNettoInv / totalJaarbesparing).toFixed(1) : 'N.v.t.';
@@ -431,7 +433,7 @@ export default function App() {
       { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "Isolatie", Waarde: `Bruto € ${insulationBruto} | Subsidie € ${insulationIsde + insulationNip}`, Details: `Netto € ${insulationNetto}` },
       { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "Zonnepanelen", Waarde: `Bruto € ${solarInv}`, Details: `Netto € ${solarInv}` },
       { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "Thuisbatterij", Waarde: `Bruto € ${batteryInv}`, Details: `Netto € ${batteryInv}` },
-      { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "Warmtepomp", Waarde: `Bruto € ${wpInv + wpIsde} | ISDE € ${wpIsde}`, Details: `Netto € ${wpInv}` },
+      { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "Warmtepomp", Waarde: (isVolledigWp || isHybrideWp) ? `Bruto € ${wpBruto} | ISDE € ${wpIsde}` : "Geen warmtepomp", Details: (isVolledigWp || isHybrideWp) ? `Netto € ${wpInv}` : "" },
       { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "Laadpaal", Waarde: `Bruto € ${laadpaalInv}`, Details: `Netto € ${laadpaalInv}` },
       { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "TOTALE OVERALL INVESTERING", Waarde: `Bruto € ${totalBrutoInv} | Subsidies € ${totalSubsidies}`, Details: `Netto € ${totalNettoInv}` },
       { Categorie: "INVESTERINGEN & SUBSIDIES", Onderdeel: "TOTALE TERUGVERDIENTIJD (TVT)", Waarde: `${overallTvt} jaar`, Details: `Op basis van € ${totalJaarbesparing}/jr besparing` }
