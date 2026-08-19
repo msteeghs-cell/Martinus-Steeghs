@@ -65,17 +65,25 @@ export interface TechData {
   dakOrientatie: number; // degrees relative to South (0 is South, -90 East, 90 West, 180 North)
   dakHellingshoek?: number; // degrees (0 flat, 90 vertical, default 35)
   huidigDirectVerbruik: number; // % (0-100)
+  solarStatus?: 'nieuw' | 'bestaand'; // 'nieuw' = include investment; 'bestaand' = already installed (€0 investment, full yield)
   capaciteitAccu: number; // kWh
   omzettingsverliezen: number; // % (0-100)
+  batteryStatus?: 'nieuw' | 'bestaand'; // 'nieuw' = include investment; 'bestaand' = already installed (€0 investment)
   typeContract: 'Vast' | 'Dynamisch';
   dynamicProvider?: 'Zonneplan' | 'Tibber' | 'Frank' | 'Anwb';
+  vastTerugleverkosten?: number; // €/kWh terugleverkosten bij vast contract (standaard € 0.11/kWh)
+  vastTerugleverVergoeding?: number; // €/kWh terugleververgoeding overschot na salderen (standaard € 0.05/kWh)
+  dynamischStroomTarief?: number; // €/kWh gemiddeld dynamisch inkooptarief (standaard € 0.25/kWh)
+  dynamischTerugleverTarief?: number; // €/kWh gemiddeld dynamisch teruglevertarief op zonne-uren (standaard € 0.09/kWh)
   evKilometers?: number;
   evVerbruik?: number;
   evThuisLaden?: number;
   laadvermogen?: number;
+  laadpaalStatus?: 'nieuw' | 'bestaand'; // 'nieuw' = include investment; 'bestaand' = already installed (€0 investment)
   opslagLeverancier?: number; // €/kWh dynamic contract surcharge
   selectedWarmtepompModel?: 'Standard' | 'Middelgroot 8kW' | 'Groot 12kW' | 'LuchtLucht';
   selectedWarmtepompType?: 'Hybride' | 'All-Electric';
+  heatpumpStatus?: 'nieuw' | 'bestaand'; // 'nieuw' = include investment & ISDE; 'bestaand' = already installed (€0 investment & €0 ISDE)
   customAccuPrijs?: number; // Custom installation/purchase cost for the battery
   customZonnepanelenPrijs?: number; // Custom installation/purchase cost for solar panels
   customWarmtepompPrijs?: number; // Custom installation/purchase cost for heat pump

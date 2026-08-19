@@ -60,6 +60,8 @@ interface EnergyCostPdfModalProps {
   totalInsulationM2: number;
   totalGasSavingsM3: number;
   totalInvestmentInv: number;
+  baselineSituatieLabel?: string;
+  naVerduurzamingLabel?: string;
 }
 
 export const EnergyCostPdfModal: React.FC<EnergyCostPdfModalProps> = ({
@@ -102,6 +104,8 @@ export const EnergyCostPdfModal: React.FC<EnergyCostPdfModalProps> = ({
   totalInsulationM2,
   totalGasSavingsM3,
   totalInvestmentInv,
+  baselineSituatieLabel = 'Huidige Situatie (Geen WP / Zonnepanelen / Accu / Laadpaal)',
+  naVerduurzamingLabel = 'Na Verduurzaming',
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -142,12 +146,12 @@ Woningtype: ${house?.soortWoning || 'Hoekwoning'} (Bouwjaar: ${house?.bouwjaar |
 ---
 
 ### 1. ENERGIEKOSTEN OVERZICHT (HUIDIG VS NA VERDUURZAMING)
-- **Huidige Situatie (Nulmeting)**:
+- **${baselineSituatieLabel}**:
   • Gas: ${currentGasM3.toLocaleString('nl-NL')} m³/jaar = € ${currentGasYr.toLocaleString('nl-NL')}/jaar (€ ${currentGasMth.toLocaleString('nl-NL')}/maand)
   • Elektra: ${houseKwh.toLocaleString('nl-NL')} kWh/jaar = € ${currentElektraYr.toLocaleString('nl-NL')}/jaar (€ ${currentElektraMth.toLocaleString('nl-NL')}/maand)
   • Totale energiekosten: € ${currentTotalYr.toLocaleString('nl-NL')}/jaar (€ ${currentTotalMth.toLocaleString('nl-NL')}/maand)
 
-- **Na Verduurzaming**:
+- **${naVerduurzamingLabel}**:
   • Gas: ${postGasM3 === 0 ? '0 m³ (Gasloos)' : `${postGasM3.toLocaleString('nl-NL')} m³/jaar`} = € ${postGasYr.toLocaleString('nl-NL')}/jaar (€ ${postGasMth.toLocaleString('nl-NL')}/maand)
   • Elektra: ${postHouseKwh.toLocaleString('nl-NL')} kWh/jaar vraag = € ${postElektraYr.toLocaleString('nl-NL')}/jaar (€ ${postElektraMth.toLocaleString('nl-NL')}/maand)
   • Totale energiekosten: € ${postTotalYr.toLocaleString('nl-NL')}/jaar (€ ${postTotalMth.toLocaleString('nl-NL')}/maand)
@@ -319,7 +323,7 @@ Woningtype: ${house?.soortWoning || 'Hoekwoning'} (Bouwjaar: ${house?.bouwjaar |
                 <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
                   <tr className="bg-amber-50/20">
                     <td className="p-2.5 font-sans font-medium text-slate-800">
-                      <span className="font-bold text-amber-900 block">Huidige Situatie (Nulmeting)</span>
+                      <span className="font-bold text-amber-900 block">{baselineSituatieLabel}</span>
                       <span className="text-[10px] font-normal text-slate-500">Aardgas: €{gPrice.toFixed(2)}/m³ • Elektra: €{ePrice.toFixed(2)}/kWh</span>
                     </td>
                     <td className="p-2.5 text-right font-bold text-amber-900">{currentGasM3.toLocaleString('nl-NL')} m³</td>
@@ -338,8 +342,8 @@ Woningtype: ${house?.soortWoning || 'Hoekwoning'} (Bouwjaar: ${house?.bouwjaar |
 
                   <tr className="bg-emerald-50/30 font-bold">
                     <td className="p-2.5 font-sans font-bold text-emerald-950">
-                      <span className="font-black text-emerald-950 block">Na Verduurzaming</span>
-                      <span className="text-[10px] font-normal text-slate-600">Inclusief isolatie, warmtepomp, zonnepanelen &amp; accu</span>
+                      <span className="font-black text-emerald-950 block">{naVerduurzamingLabel}</span>
+                      <span className="text-[10px] font-normal text-slate-600">Inclusief geselecteerde isolatie, warmtepomp, zonnepanelen, accu en laadpaal</span>
                     </td>
                     <td className="p-2.5 text-right text-emerald-950">
                       {postGasM3 === 0 ? <span className="text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded font-black text-[10px]">0 m³ (Gasloos)</span> : `${postGasM3.toLocaleString('nl-NL')} m³`}

@@ -35,8 +35,8 @@ export const COEFFS = {
  * 20 panelen: € 7.500 – € 9.500 (~ € 425 / paneel, ~ 8.200 kWh)
  * 36 panelen: € 13.500 – € 16.000 (~ € 410 / paneel, ~ 14.500 kWh)
  */
-export function getSolarInvestmentEstimate(count: number): number {
-  if (count <= 0) return 0;
+export function getSolarInvestmentEstimate(count: number, status?: 'nieuw' | 'bestaand'): number {
+  if (count <= 0 || status === 'bestaand') return 0;
   if (count <= 2) {
     return Math.round(count * 700);
   }
@@ -563,15 +563,33 @@ export function calculateAll(
   const houseDemand = updatedHouse.verbruikKwh || 3500;
   const saldeerdKwh = Math.min(annualYieldKwh, houseDemand);
   const surplusKwh = Math.max(0, annualYieldKwh - saldeerdKwh);
-  const costSavingsPre2027 = Math.round((saldeerdKwh * updatedHouse.elektraPrijs) + (surplusKwh * 0.05));
+  
+  const vastTerugleverkosten = tech.vastTerugleverkosten !== undefined ? tech.vastTerugleverkosten : 0.11;
+  const vastTerugleverVergoeding = tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : 0.05;
+  const dynInkoopTarief = tech.dynamischStroomTarief !== undefined ? tech.dynamischStroomTarief : 0.25;
+  const returnRateDynamisch = tech.dynamischTerugleverTarief !== undefined ? tech.dynamischTerugleverTarief : 0.09;
 
-  const savingsVastBase = absoluteSelfConsumptionBaseKwh * updatedHouse.elektraPrijs;
-  const savingsVastWithBattery = absoluteSelfConsumptionWithBatteryKwh * updatedHouse.elektraPrijs;
+  // Pre-2027 (Salderingsregeling actief):
+  // Bij Vast contract: salderen tegen leveringstarief, overschot tegen terugleververgoeding, minus terugleverkosten per teruggeleverde kWh
+  const costSavingsPre2027Vast = Math.round(
+    (saldeerdKwh * updatedHouse.elektraPrijs) + 
+    (surplusKwh * vastTerugleverVergoeding) - 
+    (gridFeedBaseKwh * vastTerugleverkosten)
+  );
 
-  // Dynamisch teruglevertarief gebaseerd op het eerste halfjaar (Zonneplan gemiddelde ~ € 0,1049 per kWh)
-  const returnRateDynamisch = 0.1049;
-  const savingsDynamischBase = (absoluteSelfConsumptionBaseKwh * updatedHouse.elektraPrijs) + (gridFeedBaseKwh * returnRateDynamisch);
-  const savingsDynamischWithBattery = (absoluteSelfConsumptionWithBatteryKwh * updatedHouse.elektraPrijs) + (gridFeedWithBatteryKwh * returnRateDynamisch);
+  // Bij Dynamisch contract: directe marktwaarde opwekking zonder terugleverkosten
+  const costSavingsPre2027Dyn = Math.round(
+    (absoluteSelfConsumptionBaseKwh * dynInkoopTarief) + 
+    (gridFeedBaseKwh * returnRateDynamisch)
+  );
+
+  const costSavingsPre2027 = tech.typeContract === 'Vast' ? costSavingsPre2027Vast : costSavingsPre2027Dyn;
+
+  const savingsVastBase = (absoluteSelfConsumptionBaseKwh * updatedHouse.elektraPrijs) - (gridFeedBaseKwh * vastTerugleverkosten);
+  const savingsVastWithBattery = (absoluteSelfConsumptionWithBatteryKwh * updatedHouse.elektraPrijs) - (gridFeedWithBatteryKwh * vastTerugleverkosten);
+
+  const savingsDynamischBase = (absoluteSelfConsumptionBaseKwh * dynInkoopTarief) + (gridFeedBaseKwh * returnRateDynamisch);
+  const savingsDynamischWithBattery = (absoluteSelfConsumptionWithBatteryKwh * dynInkoopTarief) + (gridFeedWithBatteryKwh * returnRateDynamisch);
 
   const contractSavingsVast = savingsVastWithBattery - savingsVastBase;
   const contractSavingsDynamisch = savingsDynamischWithBattery - savingsDynamischBase;
@@ -595,7 +613,9 @@ export function calculateAll(
           : cap === 10);
 
     let bruto = getBatteryInvestmentEstimate(cap);
-    if (tech.capaciteitAccu === cap && tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0) {
+    if (tech.batteryStatus === 'bestaand') {
+      bruto = 0;
+    } else if (tech.capaciteitAccu === cap && tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0) {
       bruto = tech.customAccuPrijs;
     }
     // In the Netherlands, 21% VAT can often be reclaimed (Btw-teruggave voor thuisaccu's bij dynamisch contract/handelen)
@@ -702,10 +722,12 @@ export function calculateAll(
   const totalEvSavingsEuro = evSavingsEuro + ereRevenueEuro;
 
   let laadpaalInvestment = 1200;
-  if (tech.customLaadpaalPrijs !== undefined && tech.customLaadpaalPrijs > 0) {
+  if (tech.laadpaalStatus === 'bestaand') {
+    laadpaalInvestment = 0;
+  } else if (tech.customLaadpaalPrijs !== undefined && tech.customLaadpaalPrijs > 0) {
     laadpaalInvestment = tech.customLaadpaalPrijs;
   }
-  const laadpaalTvt = totalEvSavingsEuro > 0 ? laadpaalInvestment / totalEvSavingsEuro : 99;
+  const laadpaalTvt = (totalEvSavingsEuro > 0 && laadpaalInvestment > 0) ? laadpaalInvestment / totalEvSavingsEuro : 0;
 
   const laadpaalResult = {
     evAnnualDemandKwh: Math.round(evAnnualDemandKwh),
@@ -822,9 +844,14 @@ export function calculateAll(
     aeCOPFactor = 2.4;
   }
 
-  // Override bruto prices with custom price from quote if supplied
+  // Override prices if heatpump is already present (bestaand) or if custom price from quote is supplied
   const selectedType = tech.selectedWarmtepompType || 'Hybride';
-  if (tech.customWarmtepompPrijs !== undefined && tech.customWarmtepompPrijs > 0) {
+  if (tech.heatpumpStatus === 'bestaand') {
+    hybridBruto = 0;
+    hybridSubsidy = 0;
+    aeBruto = 0;
+    aeSubsidy = 0;
+  } else if (tech.customWarmtepompPrijs !== undefined && tech.customWarmtepompPrijs > 0) {
     if (selectedType === 'All-Electric') {
       aeBruto = tech.customWarmtepompPrijs;
     } else {
