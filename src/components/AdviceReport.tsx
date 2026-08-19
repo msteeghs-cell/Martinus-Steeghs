@@ -339,10 +339,17 @@ Energieplanner Peel en Maas
   const insulationSavings = Math.round(calculation.totals.savingsEuro);
   const insulationROI = insulationNet > 0 ? Number(((insulationSavings / insulationNet) * 100).toFixed(1)) : 0;
 
+  const isSolarBestaand = calculation.tech?.solarStatus === 'bestaand';
+  const isBatBestaand = calculation.tech?.batteryStatus === 'bestaand';
+  const isWpBestaand = calculation.tech?.heatpumpStatus === 'bestaand';
+  const isLaadpaalBestaand = calculation.tech?.laadpaalStatus === 'bestaand';
+
   const solarPanelsCount = calculation.tech.aantalZonnepanelen || 0;
-  const solarNetInvestment = (calculation.tech.customZonnepanelenPrijs !== undefined && calculation.tech.customZonnepanelenPrijs > 0)
-    ? calculation.tech.customZonnepanelenPrijs
-    : getSolarInvestmentEstimate(solarPanelsCount);
+  const solarNetInvestment = isSolarBestaand
+    ? 0
+    : ((calculation.tech.customZonnepanelenPrijs !== undefined && calculation.tech.customZonnepanelenPrijs > 0)
+        ? calculation.tech.customZonnepanelenPrijs
+        : getSolarInvestmentEstimate(solarPanelsCount));
   const solarYieldAmount = calculation.solar.annualYieldKwh || 0;
   const houseDemandKwh = calculation.house.verbruikKwh || 3500;
   const solarSaldeerdKwh = Math.min(solarYieldAmount, houseDemandKwh);
@@ -796,29 +803,37 @@ Energieplanner Peel en Maas
   const hasWp = Boolean(calculation.tech?.selectedWarmtepompModel) && Boolean(chosenOpt);
   const hasEv = Boolean((calculation.tech?.evKilometers || 0) > 0);
 
+  // Investeringen (alleen voor nieuwe maatregelen; bestaand = € 0)
+  const newIsoNet = hasIso ? isoNetCosts : 0;
+  const newSolarNet = hasSolar ? solarNetInvestment : 0; // is already 0 if isSolarBestaand
+  const newBatNet = (hasBat && !isBatBestaand) ? batteryNetInvestment : 0;
+  const newWpNet = (hasWp && !isWpBestaand) ? (chosenOpt?.netInvestment || 0) : 0;
+  const newEvNet = (hasEv && !isLaadpaalBestaand) ? (calculation.laadpaal?.netInvestmentEuro ?? 1200) : 0;
+
   const totalCombinedNetInvestment = Math.round(
-    (hasIso ? isoNetCosts : 0) + 
-    (hasSolar ? solarNetInvestment : 0) + 
-    (hasBat ? batteryNetInvestment : 0) + 
-    (hasWp ? (chosenOpt?.netInvestment || 0) : 0) + 
-    (hasEv ? (calculation.laadpaal?.netInvestmentEuro ?? 1200) : 0)
+    newIsoNet + newSolarNet + newBatNet + newWpNet + newEvNet
   );
 
+  // Jaarbesparingen van nieuwe maatregelen
+  const newIsoSavings = hasIso ? calculation.totals.savingsEuro : 0;
+  const newSolarSavings = (hasSolar && !isSolarBestaand) ? solarSavings : 0;
+  const newBatSavings = (hasBat && !isBatBestaand) ? batSavings : 0;
+  const newWpSavings = (hasWp && !isWpBestaand) ? (chosenOpt?.netSavingsEuro || 0) : 0;
+  const newEvSavings = (hasEv && !isLaadpaalBestaand) ? totalEvBenefit : 0;
+
   const totalCombinedSavingsPerYear = Math.round(
-    (hasIso ? calculation.totals.savingsEuro : 0) + 
-    (hasSolar ? solarSavings : 0) + 
-    (hasBat ? batSavings : 0) + 
-    (hasWp ? (chosenOpt?.netSavingsEuro || 0) : 0) + 
-    (hasEv ? totalEvBenefit : 0)
+    newIsoSavings + newSolarSavings + newBatSavings + newWpSavings + newEvSavings
   );
 
   const totalCombinedSubsidies = Math.round(
     (hasIso ? (calculation.totals.isde + calculation.totals.nip) : 0) + 
-    (hasWp ? (chosenOpt?.subsidy || 0) : 0)
+    ((hasWp && !isWpBestaand) ? (chosenOpt?.subsidy || 0) : 0)
   );
 
   const totalCombinedTvtNum = totalCombinedSavingsPerYear > 0 ? (totalCombinedNetInvestment / totalCombinedSavingsPerYear) : 0;
-  const totalCombinedTvt = totalCombinedTvtNum > 0 && totalCombinedTvtNum < 99 ? `${totalCombinedTvtNum.toFixed(1)} jaar` : 'N.v.t.';
+  const totalCombinedTvt = totalCombinedNetInvestment === 0 
+    ? 'Reeds gerealiseerd' 
+    : (totalCombinedTvtNum > 0 && totalCombinedTvtNum < 99 ? `${totalCombinedTvtNum.toFixed(1)} jaar` : 'N.v.t.');
 
   return (
     <div className="space-y-3.5" id="advice-report-section">
@@ -960,7 +975,7 @@ Energieplanner Peel en Maas
                   <span>🏠 Isolatie:</span>
                   <span className="font-semibold">
                     {isoCount > 0 
-                      ? `${isoCount} ${isoCount === 1 ? 'maatregel' : 'maatregelen'} (€${Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}/jr)`
+                      ? `${isoCount} ${isoCount === 1 ? 'maatregel' : 'maatregelen'} • € ${isoNetCosts.toLocaleString('nl-NL')}`
                       : '0 maatregelen'}
                   </span>
                   {activeTab === 'graph' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
@@ -981,7 +996,7 @@ Energieplanner Peel en Maas
                   <span>☀️ Zonnepanelen:</span>
                   <span className="font-semibold">
                     {solarPanels > 0 
-                      ? `${solarPanels} panelen / ${solarKwp} kWp (${solarYield.toLocaleString('nl-NL')} kWh/jr)`
+                      ? `${solarPanels} panelen (${isSolarBestaand ? 'Bestaand' : `€ ${solarNetInvestment.toLocaleString('nl-NL')}`})`
                       : 'Geen zonnepanelen'}
                   </span>
                   {activeTab === 'solar' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
@@ -1002,7 +1017,7 @@ Energieplanner Peel en Maas
                   <span>🔋 Thuisbatterij:</span>
                   <span className="font-semibold">
                     {batCapacity > 0 
-                      ? `${batCapacity} kWh (€${Math.round(batSavings).toLocaleString('nl-NL')}/jr)`
+                      ? `${batCapacity} kWh (${isBatBestaand ? 'Bestaand' : `€ ${Math.round(batteryNetInvestment).toLocaleString('nl-NL')}`})`
                       : 'Geen thuisbatterij'}
                   </span>
                   {activeTab === 'battery' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
@@ -1024,7 +1039,7 @@ Energieplanner Peel en Maas
                   <span className="font-semibold">
                     {calculation.house?.verwarming === 'CV-ketel' || calculation.house?.verwarming === 'Geen / Overig' 
                       ? 'CV-ketel'
-                      : `${wpType} (${wpSize})`}
+                      : `${wpType} (${isWpBestaand ? 'Bestaand' : `€ ${Math.round(chosenOpt?.netInvestment || 0).toLocaleString('nl-NL')}`})`}
                   </span>
                   {activeTab === 'heatpump' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
                 </button>
@@ -1044,7 +1059,7 @@ Energieplanner Peel en Maas
                   <span>🚗 EV / Laadpaal:</span>
                   <span className="font-semibold">
                     {calculation.tech?.evKilometers 
-                      ? `${calculation.tech.evKilometers.toLocaleString('nl-NL')} km/jr`
+                      ? `${calculation.tech.evKilometers.toLocaleString('nl-NL')} km/jr (${isLaadpaalBestaand ? 'Bestaand' : `€ ${(calculation.laadpaal?.netInvestmentEuro ?? 1200).toLocaleString('nl-NL')}`})`
                       : 'Geen EV'}
                   </span>
                   {activeTab === 'laadpaal' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
@@ -2379,6 +2394,10 @@ Energieplanner Peel en Maas
                         <div className="flex justify-between">
                           <span>Gasbesparing:</span>
                           <span className="font-semibold text-emerald-600">-{Math.round(opt.gasSavingsM3)} m³ (-€ {Math.round(opt.gasSavingsEuro)})</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Afgiftesysteem &amp; SCOP:</span>
+                          <span className="font-semibold text-slate-700">{calculation.house?.afgiftesysteem || 'Radiatoren'} (SCOP {opt.elecIncreaseKwh > 0 && opt.gasSavingsM3 > 0 ? (opt.gasSavingsM3 * 8.8 / (opt.elecIncreaseKwh || 1)).toFixed(1) : '3.8'})</span>
                         </div>
                         <div className="flex justify-between">
                           <span>Extra elektriciteitsverbruik:</span>

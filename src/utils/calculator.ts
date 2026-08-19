@@ -184,6 +184,52 @@ export function getBatteryInvestmentRange(capacityKwh: number): {
   return { min, max, avg, minPerKwh, maxPerKwh, avgPerKwh, application };
 }
 
+/**
+ * Berekent de werkelijke SCOP en kWh stroom per m³ bespaard gas op basis van afgiftesysteem en warmtepomp model.
+ * 1 m³ gas levert ca. 8,8 kWh netto warmte in een moderne HR-ketel.
+ * - Vloerverwarming / LTV (35°C aanvoer): SCOP ~4.0 à 4.2 -> ~2,05 - 2,15 kWh/m³
+ * - Radiatoren / HTV (65-75°C aanvoer): SCOP ~3.1 à 3.3 -> ~2,65 - 2,75 kWh/m³
+ * - Lucht-Lucht (Airco Inverter): SCOP ~4.4 -> ~1,90 - 1,95 kWh/m³
+ * - Gemengd / Andere: SCOP ~3.7 -> ~2,35 kWh/m³
+ */
+export function getHeatpumpCopFactor(
+  afgiftesysteem?: string,
+  model?: 'Standard' | 'Middelgroot 8kW' | 'Groot 12kW' | 'LuchtLucht',
+  type?: 'Hybride' | 'All-Electric'
+): { factor: number; scop: number; label: string } {
+  const afgifte = (afgiftesysteem || '').toLowerCase();
+  
+  if (model === 'LuchtLucht' || afgifte.includes('airco')) {
+    return { factor: 1.95, scop: 4.4, label: 'Lucht-Lucht Inverter (SCOP 4.4 • ~1.95 kWh/m³)' };
+  }
+
+  if (afgifte.includes('vloer') || afgifte.includes('ltv') || afgifte.includes('lage temperatuur')) {
+    if (model === 'Middelgroot 8kW') {
+      return { factor: 2.05, scop: 4.2, label: 'Vloerverwarming / LTV (SCOP 4.2 • ~2.05 kWh/m³)' };
+    }
+    if (model === 'Groot 12kW') {
+      return { factor: 2.25, scop: 3.9, label: 'Vloerverwarming / LTV (SCOP 3.9 • ~2.25 kWh/m³)' };
+    }
+    return { factor: 2.15, scop: 4.1, label: 'Vloerverwarming / LTV (SCOP 4.1 • ~2.15 kWh/m³)' };
+  }
+
+  if (afgifte.includes('radiator') || afgifte.includes('htv') || afgifte.includes('hoge temperatuur')) {
+    if (model === 'Groot 12kW') {
+      return { factor: 2.75, scop: 3.1, label: 'Radiatoren / HTV (SCOP 3.1 • ~2.75 kWh/m³)' };
+    }
+    return { factor: 2.65, scop: 3.3, label: 'Radiatoren (SCOP 3.3 • ~2.65 kWh/m³)' };
+  }
+
+  // Standaard / Gemengd afgiftesysteem
+  if (model === 'Middelgroot 8kW') {
+    return { factor: 2.20, scop: 3.9, label: 'Gemengd Systeem (SCOP 3.9 • ~2.20 kWh/m³)' };
+  }
+  if (model === 'Groot 12kW') {
+    return { factor: 2.50, scop: 3.5, label: 'Gemengd Systeem (SCOP 3.5 • ~2.50 kWh/m³)' };
+  }
+  return { factor: 2.35, scop: 3.7, label: 'Gemengd Afgiftesysteem (SCOP 3.7 • ~2.35 kWh/m³)' };
+}
+
 export function calculateAll(
   resident: ResidentData,
   house: HouseData,
@@ -641,18 +687,24 @@ export function calculateAll(
     const optContractSavingsVast = Math.max(0, optSavingsVastWithBattery - savingsVastBase);
 
     // Dynamisch contract (arbitrage trading on imbalances & peak shaving)
-    let arbitragePerKwh = 55 * 0.45;
+    // CORRECTIE PUNT 6: Geen dubbeltelling! Als de batterij 's zomers zonnestroom opslaat, 
+    // is de headroom voor intraday nethandel in die maanden lager.
+    let baseArbitragePerKwh = 55 * 0.45;
     const provider = tech.dynamicProvider || 'Zonneplan';
     if (provider === 'Zonneplan') {
-      arbitragePerKwh = 85 * 0.45; // Powerplay onbalansopbrengst per kWh accu (45% van oorspronkelijk)
+      baseArbitragePerKwh = 38.25; // Realistische onbalansopbrengst per kWh accu
     } else if (provider === 'Frank') {
-      arbitragePerKwh = 70 * 0.45; // Slim Handelen EPEX-arbitrage
+      baseArbitragePerKwh = 31.50; // Slim Handelen EPEX-arbitrage
     } else if (provider === 'Tibber') {
-      arbitragePerKwh = 65 * 0.45; // Smart API arbitrage/Bliq/Home Assistant
+      baseArbitragePerKwh = 29.25; // Smart API arbitrage/Bliq/Home Assistant
     } else if (provider === 'Anwb') {
-      arbitragePerKwh = 60 * 0.45; // EV Slim laden & basis arbitrage
+      baseArbitragePerKwh = 27.00; // EV Slim laden & basis arbitrage
     }
-    const arbitrageYield = tech.batteryGridTrading ? cap * arbitragePerKwh : 0;
+
+    // Bereken zonne-opslag beslag op de batterij om dubbeltelling te voorkomen
+    const solarStorageShare = annualYieldKwh > 0 ? Math.min(0.45, (annualYieldKwh / (cap * 600))) : 0;
+    const correctedArbitragePerKwh = baseArbitragePerKwh * (1 - solarStorageShare * 0.35);
+    const arbitrageYield = tech.batteryGridTrading ? cap * correctedArbitragePerKwh : 0;
     const optSavingsDynamischWithBattery = (optAbsSelfConsumptionKwh * updatedHouse.elektraPrijs) + (optGridFeedKwh * returnRateDynamisch);
     const optContractSavingsDynamisch = Math.max(0, optSavingsDynamischWithBattery - savingsDynamischBase);
     const optDynamischTotalSavings = optContractSavingsDynamisch + arbitrageYield;
@@ -807,45 +859,37 @@ export function calculateAll(
   let explanation = '';
 
   // Detailed Heat Pump Options
-  // Dynamische warmtepomp model parameters op basis van selectie
+  // Dynamische warmtepomp parameters & SCOP op basis van model EN afgiftesysteem (vloerverwarming / radiatoren / airco)
+  const selectedModel = tech.selectedWarmtepompModel || 'Standard';
+  const selectedType = tech.selectedWarmtepompType || 'Hybride';
+  const copInfo = getHeatpumpCopFactor(updatedHouse.afgiftesysteem, selectedModel, selectedType);
+
   let hybridBruto = 7200;
   let hybridSubsidy = 2400;
-  let hybridCOPFactor = 2.2; // kWh per m3 gas saved
+  let hybridCOPFactor = copInfo.factor; // Dynamisch gekoppeld aan afgiftesysteem
 
   let aeBruto = 10800;
   let aeSubsidy = 2700;
-  let aeCOPFactor = 2.2; // kWh per m3 gas saved
-
-  const selectedModel = tech.selectedWarmtepompModel || 'Standard';
+  let aeCOPFactor = copInfo.factor; // Dynamisch gekoppeld aan afgiftesysteem
 
   if (selectedModel === 'Middelgroot 8kW') {
     hybridBruto = 7900;
     hybridSubsidy = 2700;
-    hybridCOPFactor = 2.0; // very efficient propane monobloc
-
     aeBruto = 12800;
     aeSubsidy = 3075;
-    aeCOPFactor = 2.15;
   } else if (selectedModel === 'Groot 12kW') {
     hybridBruto = 9500;
     hybridSubsidy = 3075;
-    hybridCOPFactor = 2.4; // high temp radiators
-
     aeBruto = 16200;
     aeSubsidy = 3750;
-    aeCOPFactor = 2.60;
   } else if (selectedModel === 'LuchtLucht') {
     hybridBruto = 3800;
     hybridSubsidy = 0; // Geen ISDE subsidie voor lucht-lucht warmtepomp / airco
-    hybridCOPFactor = 1.9; // Zeer efficiënt gerichte verwarming (SCOP ~4.3)
-
     aeBruto = 13500;
     aeSubsidy = 3300;
-    aeCOPFactor = 2.4;
   }
 
   // Override prices if heatpump is already present (bestaand) or if custom price from quote is supplied
-  const selectedType = tech.selectedWarmtepompType || 'Hybride';
   if (tech.heatpumpStatus === 'bestaand') {
     hybridBruto = 0;
     hybridSubsidy = 0;

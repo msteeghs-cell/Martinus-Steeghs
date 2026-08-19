@@ -4,7 +4,7 @@ import {
   User, Home, Layers, Battery, Sun, HelpCircle, 
   Sparkles, RefreshCw, Calendar, CheckCircle2, Zap, Info,
   TrendingDown, Gauge, AlertTriangle, Trash2, Download, Check, Sliders,
-  FileSpreadsheet, PiggyBank, FileText, RotateCcw
+  FileSpreadsheet, PiggyBank, FileText, RotateCcw, ShieldCheck
 } from 'lucide-react';
 import { EnergyCostPdfModal } from './EnergyCostPdfModal';
 import {
@@ -19,7 +19,7 @@ import {
   ComposedChart,
   Line
 } from 'recharts';
-import { calculateAll, getSolarInvestmentEstimate, getSolarInvestmentRange, getBatteryInvestmentEstimate, getBatteryInvestmentRange } from '../utils/calculator';
+import { calculateAll, getSolarInvestmentEstimate, getSolarInvestmentRange, getBatteryInvestmentEstimate, getBatteryInvestmentRange, getHeatpumpCopFactor } from '../utils/calculator';
 
 interface InputFormProps {
   resident: ResidentData;
@@ -1813,10 +1813,16 @@ export default function InputForm({
           {/* Quick Realtime Math Spreadsheet (Direct feedback direct onder snel profiel aanpassen) */}
           <div className="bg-white rounded-2xl p-3.5 border border-slate-200/90 shadow-sm space-y-2.5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 pb-1.5 border-b border-slate-100">
-              <h3 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                Live Rekenoverzicht
-              </h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  Live Rekenoverzicht
+                </h3>
+                <span className="text-[9.5px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200/90 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                  <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+                  Toekomstbestendig berekend (Einde-Saldering 2027)
+                </span>
+              </div>
               <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
                 <span className="font-medium text-slate-600 bg-slate-100/80 px-2 py-0.5 rounded-full border border-slate-200/70 flex items-center gap-1">
                   <span>Stookfactor:</span>
@@ -1912,7 +1918,9 @@ export default function InputForm({
 
               const baselineSolarPresent = isBaselineSolarBestaand;
               const baselineSolarKwh = baselineSolarPresent ? solarKwh : 0;
-              const baselineSelfConsPct = isBaselineBatteryBestaand ? selfConsPct : 35;
+              const baselineSelfConsPct = isBaselineBatteryBestaand 
+                ? (liveCalcResult.solar?.selfConsumptionWithBattery || 65)
+                : (liveCalcResult.solar?.selfConsumptionBase || 35);
               const baselineDirectSelfKwh = baselineSolarPresent ? Math.min(houseKwh, (baselineSolarKwh * baselineSelfConsPct) / 100) : 0;
               const baselineFeedInKwh = baselineSolarPresent ? Math.max(0, baselineSolarKwh - baselineDirectSelfKwh) : 0;
               const baselineGridImportKwh = Math.max(0, houseKwh - baselineDirectSelfKwh);
@@ -1975,6 +1983,8 @@ export default function InputForm({
               let postGasM3 = remainingGasAfterInsulation;
               let postAddElektraKwh = 0;
 
+              const wpCopInfo = getHeatpumpCopFactor(house.afgiftesysteem, tech.selectedWarmtepompModel, tech.selectedWarmtepompType);
+
               if (isWpBestaand) {
                 // Bestaande warmtepomp: gasverbruik en stroomverbruik zijn al onderdeel van de nulmeting (houseKwh)
                 postGasM3 = remainingGasAfterInsulation;
@@ -1984,7 +1994,7 @@ export default function InputForm({
                 const aeOption = liveCalcResult.heatpump?.options?.find(o => o.type === 'All-Electric');
                 postAddElektraKwh = (liveCalcResult.tech?.userAnnualWp && liveCalcResult.tech.userAnnualWp > 0)
                   ? liveCalcResult.tech.userAnnualWp
-                  : (remainingGasAfterInsulation === 0 ? 0 : (aeOption ? Math.round(aeOption.elecIncreaseKwh) : Math.round(remainingGasAfterInsulation * 2.2)));
+                  : (remainingGasAfterInsulation === 0 ? 0 : (aeOption ? Math.round(aeOption.elecIncreaseKwh) : Math.round(remainingGasAfterInsulation * wpCopInfo.factor)));
               } else if (isHybrideWp) {
                 const isAirco = liveCalcResult.tech?.selectedWarmtepompModel === 'LuchtLucht';
                 const hybridRatio = isAirco ? 0.55 : 0.75;
@@ -1993,7 +2003,7 @@ export default function InputForm({
                 const hybridOption = liveCalcResult.heatpump?.options?.find(o => o.type.includes('Hybride') || o.type.includes('Lucht'));
                 postAddElektraKwh = (liveCalcResult.tech?.userAnnualWp && liveCalcResult.tech.userAnnualWp > 0)
                   ? liveCalcResult.tech.userAnnualWp
-                  : (remainingGasAfterInsulation === 0 ? 0 : (hybridOption ? Math.round(hybridOption.elecIncreaseKwh) : Math.round(remainingGasAfterInsulation * hybridRatio * 2.2)));
+                  : (remainingGasAfterInsulation === 0 ? 0 : (hybridOption ? Math.round(hybridOption.elecIncreaseKwh) : Math.round(remainingGasAfterInsulation * hybridRatio * wpCopInfo.factor)));
               } else {
                 postGasM3 = remainingGasAfterInsulation;
                 postAddElektraKwh = 0;
@@ -2008,11 +2018,14 @@ export default function InputForm({
               const postGridImportKwh = Math.max(0, postHouseKwh - postDirectSelfKwh);
 
               // Grid trading or arbitrage yield if enabled and dynamic contract selected
+              // CORRECTIE PUNT 6: Geen dubbeltelling met zonnestroom-opslag
               let batteryTradingYield = 0;
               if (batteryCap > 0 && liveCalcResult.tech?.typeContract === 'Dynamisch' && liveCalcResult.tech?.batteryGridTrading !== false) {
                 const provider = liveCalcResult.tech.dynamicProvider || 'Zonneplan';
-                const ratePerKwh = provider === 'Zonneplan' ? 38.25 : provider === 'Frank' ? 31.5 : provider === 'Tibber' ? 29.25 : provider === 'Anwb' ? 27.00 : 24.75;
-                batteryTradingYield = batteryCap * ratePerKwh;
+                const baseRatePerKwh = provider === 'Zonneplan' ? 38.25 : provider === 'Frank' ? 31.5 : provider === 'Tibber' ? 29.25 : provider === 'Anwb' ? 27.00 : 24.75;
+                const solarStorageShare = solarKwh > 0 ? Math.min(0.45, (solarKwh / (batteryCap * 600))) : 0;
+                const correctedRatePerKwh = baseRatePerKwh * (1 - solarStorageShare * 0.35);
+                batteryTradingYield = batteryCap * correctedRatePerKwh;
               }
 
               let postElektraYr = 0;
@@ -2040,10 +2053,13 @@ export default function InputForm({
                     ? (liveCalcResult.tech?.customZonnepanelenPrijs || getSolarInvestmentEstimate(liveCalcResult.tech?.aantalZonnepanelen || 0)) 
                     : 0);
 
+              const batteryBruto = (liveCalcResult.tech?.customAccuPrijs !== undefined && liveCalcResult.tech.customAccuPrijs > 0)
+                ? liveCalcResult.tech.customAccuPrijs
+                : getBatteryInvestmentEstimate(batteryCap || 0);
               const batteryInv = tech.batteryStatus === 'bestaand'
                 ? 0
                 : ((batteryCap > 0 || (liveCalcResult.tech?.capaciteitAccu && liveCalcResult.tech.capaciteitAccu > 0)) 
-                    ? (liveCalcResult.tech?.customAccuPrijs || getBatteryInvestmentEstimate(batteryCap || 0)) 
+                    ? Math.round(batteryBruto * (100 / 121)) 
                     : 0);
 
               let wpInv = 0;
@@ -2479,9 +2495,12 @@ export default function InputForm({
               const batCap = liveCalcResult.tech?.capaciteitAccu || 0;
               const hasBat = batCap > 0;
               const isBatBestaand = tech.batteryStatus === 'bestaand';
+              const batBruto = (liveCalcResult.tech?.customAccuPrijs !== undefined && liveCalcResult.tech.customAccuPrijs > 0)
+                ? liveCalcResult.tech.customAccuPrijs
+                : getBatteryInvestmentEstimate(batCap);
               const batNetInv = isBatBestaand 
                 ? 0 
-                : (hasBat ? (liveCalcResult.tech?.customAccuPrijs || getBatteryInvestmentEstimate(batCap)) : 0);
+                : (hasBat ? Math.round(batBruto * (100 / 121)) : 0);
               const currentProvider = liveCalcResult.tech?.dynamicProvider || 'Zonneplan';
               const batEarnings = hasBat ? calculatePostSalderingEarnings(batCap, currentProvider, liveCalcResult.tech?.customAccuPrijs) : null;
               const batSavings = batEarnings ? batEarnings.totalSavings : 0;
@@ -4349,6 +4368,14 @@ export default function InputForm({
                     id="custom_accu_prijs_input_main"
                   />
                 </div>
+                {tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0 && (
+                  <div className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200/80 rounded-lg px-2.5 py-1.5 flex items-center justify-between">
+                    <span>Netto investering (excl. 21% btw na teruggave):</span>
+                    <strong className="font-mono font-extrabold text-emerald-900">
+                      € {Math.round(tech.customAccuPrijs * (100 / 121)).toLocaleString('nl-NL')}
+                    </strong>
+                  </div>
+                )}
               </div>
 
               {/* Indicatieve prijsweergave & Kengetallen overzicht thuisaccu */}
@@ -5097,11 +5124,21 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">Afgiftesysteem</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-500">Afgiftesysteem</label>
+                    {(() => {
+                      const cop = getHeatpumpCopFactor(house.afgiftesysteem, tech.selectedWarmtepompModel, tech.selectedWarmtepompType);
+                      return (
+                        <span className="text-[9.5px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                          SCOP {cop.scop.toFixed(1)} (~{cop.factor.toFixed(2)} kWh/m³)
+                        </span>
+                      );
+                    })()}
+                  </div>
                   <select
                     value={house.afgiftesysteem}
                     onChange={(e) => setHouse(prev => ({ ...prev, afgiftesysteem: e.target.value }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-medium"
                   >
                     <option>Radiatoren</option>
                     <option>Vloerverwarming</option>
