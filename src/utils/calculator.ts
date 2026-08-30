@@ -9,7 +9,8 @@ import {
   HeatpumpCheck,
   HeatpumpOption,
   BatteryOption,
-  CalculationResult
+  CalculationResult,
+  InconsistencyWarning
 } from '../types';
 
 export const ELEC_PRICE = 0.25; // €/kWh
@@ -422,6 +423,22 @@ export function calculateAll(
     });
   }
 
+  // Begrens de totale gasbesparing van isolatiemaatregelen op het werkelijke gasverbruik van de woning (verbruikM3).
+  // Men kan immers nooit meer m³ gas besparen dan de woning daadwerkelijk verbruikt!
+  const rawTotalGasSaved = measures.reduce((sum, m) => sum + m.savingM3, 0);
+  if (verbruikM3 > 0 && rawTotalGasSaved > verbruikM3) {
+    const scale = verbruikM3 / rawTotalGasSaved;
+    measures = measures.map((m) => {
+      const savingM3 = m.savingM3 * scale;
+      const savingEuro = savingM3 * gasPrijs;
+      return {
+        ...m,
+        savingM3,
+        savingEuro,
+      };
+    });
+  }
+
   // Calculate TVT and priority for each base measure
   measures = measures.map((m) => {
     const priority = m.savingM3 > 0 ? m.netCosts / m.savingM3 : 99999;
@@ -546,6 +563,21 @@ export function calculateAll(
     if (bestAddedKey) {
       const areaText = COEFFS[bestAddedKey].cat === 'glas' ? '8' : '15';
       addedMeasureForOptimization = `${COEFFS[bestAddedKey].name} (toegevoegd: ${areaText} m² voor subsidie-optimalisatie)`;
+
+      // Begrens ook het optimale scenario op het werkelijke totale gasverbruik
+      const rawOptGasSaved = bestTestMeasures.reduce((sum, m) => sum + m.savingM3, 0);
+      if (verbruikM3 > 0 && rawOptGasSaved > verbruikM3) {
+        const optScale = verbruikM3 / rawOptGasSaved;
+        bestTestMeasures = bestTestMeasures.map((m) => {
+          const savingM3 = m.savingM3 * optScale;
+          const savingEuro = savingM3 * gasPrijs;
+          return {
+            ...m,
+            savingM3,
+            savingEuro,
+          };
+        });
+      }
 
       optimalMeasures = bestTestMeasures.map((m) => {
         const priority = m.savingM3 > 0 ? m.netCosts / m.savingM3 : 0;
@@ -913,14 +945,31 @@ export function calculateAll(
     ? Number(tech.userAnnualWp)
     : hybridGasSaved * hybridCOPFactor;
   
-  // If they have excess solar generation (gridFeedBaseKwh), they can offset some or all of the heat pump electricity!
-  // The cost of that offset solar electricity is the missed feed-in return tariff (opportunity cost), 
-  // while the remaining electricity is bought from the grid at standard price.
-  // NOTE: We subtract the solar energy already consumed by the EV (evSolarCoverageBaseKwh) because you can't use the same solar energy twice!
+  const isVastContract = (tech.typeContract || 'Vast') === 'Vast';
   const gridFeedAvailableForHybridWp = Math.max(0, gridFeedBaseKwh - evSolarCoverageBaseKwh);
-  const hybridSolarCoverage = Math.min(hybridElecUsed, gridFeedAvailableForHybridWp);
-  const hybridGridImport = Math.max(0, hybridElecUsed - hybridSolarCoverage);
-  const hybridElecCostEuro = Math.round(hybridElecUsed * updatedHouse.elektraPrijs);
+  
+  let hybridSolarCoverage = 0;
+  let hybridGridImport = 0;
+  let hybridElecCostEuro = 0;
+
+  if (isVastContract) {
+    // Onder de salderingsregeling (Vast contract): jaarbalans 1-op-1
+    hybridSolarCoverage = Math.min(hybridElecUsed, gridFeedAvailableForHybridWp);
+    hybridGridImport = Math.max(0, hybridElecUsed - hybridSolarCoverage);
+    hybridElecCostEuro = Math.round(
+      (hybridGridImport * updatedHouse.elektraPrijs) + 
+      (hybridSolarCoverage * (tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : 0.05))
+    );
+  } else {
+    // Dynamisch contract: seizoensgebonden real-time dekking (ca. 25% direct/zomer/tapwater, tot 35% met accu)
+    const wpSolarFraction = tech.capaciteitAccu > 0 ? 0.35 : 0.25;
+    hybridSolarCoverage = Math.min(hybridElecUsed * wpSolarFraction, gridFeedAvailableForHybridWp);
+    hybridGridImport = Math.max(0, hybridElecUsed - hybridSolarCoverage);
+    hybridElecCostEuro = Math.round(
+      (hybridGridImport * dynInkoopTarief) + 
+      (hybridSolarCoverage * returnRateDynamisch)
+    );
+  }
 
   const hybridNetSavings = Math.max(0, Math.round(hybridGasSavingEuro - hybridElecCostEuro));
   const hybridTvt = hybridNetSavings > 0 ? hybridNet / hybridNetSavings : 99;
@@ -942,11 +991,29 @@ export function calculateAll(
     : aeGasSaved * aeCOPFactor;
   
   const gridFeedAvailableForAeWp = Math.max(0, gridFeedBaseKwh - evSolarCoverageBaseKwh);
-  const aeSolarCoverage = Math.min(aeElecUsed, gridFeedAvailableForAeWp);
-  const aeGridImport = Math.max(0, aeElecUsed - aeSolarCoverage);
-  const aeElecCostEuro = Math.round(aeElecUsed * updatedHouse.elektraPrijs);
+  
+  let aeSolarCoverage = 0;
+  let aeGridImport = 0;
+  let aeElecCostEuro = 0;
 
-  const aeFixedGasSaving = remainingGasM3 > 0 ? 280 : 0; // Complete removal of gas connection saves ~€280/year in vastrecht
+  if (isVastContract) {
+    aeSolarCoverage = Math.min(aeElecUsed, gridFeedAvailableForAeWp);
+    aeGridImport = Math.max(0, aeElecUsed - aeSolarCoverage);
+    aeElecCostEuro = Math.round(
+      (aeGridImport * updatedHouse.elektraPrijs) + 
+      (aeSolarCoverage * (tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : 0.05))
+    );
+  } else {
+    const wpSolarFraction = tech.capaciteitAccu > 0 ? 0.35 : 0.25;
+    aeSolarCoverage = Math.min(aeElecUsed * wpSolarFraction, gridFeedAvailableForAeWp);
+    aeGridImport = Math.max(0, aeElecUsed - aeSolarCoverage);
+    aeElecCostEuro = Math.round(
+      (aeGridImport * dynInkoopTarief) + 
+      (aeSolarCoverage * returnRateDynamisch)
+    );
+  }
+
+  const aeFixedGasSaving = (verbruikM3 > 0 || remainingGasM3 > 0) ? 280 : 0; // Complete removal of gas connection saves ~€280/year in vastrecht
   const aeNetSavings = Math.max(0, Math.round(aeGasSavingEuro + aeFixedGasSaving - aeElecCostEuro));
   const aeTvt = aeNetSavings > 0 ? aeNet / aeNetSavings : 99;
   
@@ -1037,6 +1104,8 @@ export function calculateAll(
     options,
   };
 
+  const inconsistencies = detectInconsistencies(updatedHouse, tech, insulation);
+
   return {
     resident,
     house: updatedHouse,
@@ -1053,9 +1122,148 @@ export function calculateAll(
     battery,
     heatpump,
     laadpaal: laadpaalResult,
+    inconsistencies,
     opmerkingenOffertes: '',
     opmerkingen: '',
   };
+}
+
+export function detectInconsistencies(
+  house: HouseData,
+  tech: TechData,
+  insulation: InsulationData
+): InconsistencyWarning[] {
+  const warnings: InconsistencyWarning[] = [];
+
+  const gasUsage = house.verbruikM3 ?? 0;
+  const isWpNew = tech.heatpumpStatus !== 'bestaand';
+  const isWpActive = (
+    house.verwarming === 'Hybride warmtepomp' ||
+    house.verwarming === 'Volledige warmtepomp' ||
+    house.verwarming === 'Full electric' ||
+    tech.selectedWarmtepompType === 'Hybride' ||
+    tech.selectedWarmtepompType === 'All-Electric'
+  );
+
+  // 1. Warmtepomp gekozen (nieuw of actief), maar 0 m3 gas ingevuld
+  if (isWpActive && isWpNew && gasUsage === 0) {
+    warnings.push({
+      id: 'wp-zero-gas',
+      category: 'heatpump',
+      severity: 'danger',
+      title: 'Warmtepomp geselecteerd, maar gasverbruik staat op 0 m³',
+      description: `Je hebt gekozen voor een ${tech.selectedWarmtepompType || 'warmtepomp'}, maar je huidige gasverbruik staat op 0 m³. Een (hybride) warmtepomp bespaart gas ten opzichte van een bestaand gasverbruik. Zonder gasverbruik kan er geen gasbesparing, stroomconversie of terugverdientijd berekend worden.`,
+      actionText: '⚡ Stel gemiddeld gasverbruik in op 1.200 m³',
+      actionType: 'setGas',
+      suggestedValue: 1200,
+    });
+  }
+
+  // 2. CV-ketel op gas als huidige verwarming, maar 0 m3 gas ingevuld
+  if ((house.verwarming === 'CV-ketel' || house.verwarming === 'CV-ketel op gas' || !house.verwarming) && gasUsage === 0 && !isWpActive) {
+    warnings.push({
+      id: 'cv-zero-gas',
+      category: 'heatpump',
+      severity: 'warning',
+      title: 'CV-ketel geselecteerd, maar gasverbruik staat op 0 m³',
+      description: 'De huidige verwarming staat op een gasgestookte CV-ketel, maar het gasverbruik is 0 m³. Als de woning gasloos is, zet het verwarmingstype op "Elektrisch / Geen". Als er wel gas verbruikt wordt, vul het jaartotaal in.',
+      actionText: '⚡ Vul gemiddeld gasverbruik in (1.200 m³)',
+      actionType: 'setGas',
+      suggestedValue: 1200,
+    });
+  }
+
+  // 3. Hybride warmtepomp gekozen terwijl de woning al gasloos is (0 m3 gas of Stadsverwarming/Geen)
+  if (tech.selectedWarmtepompType === 'Hybride' && (house.verwarming === 'Stadsverwarming' || house.verwarming === 'Geen / Overig' || house.verwarming === 'Volledige warmtepomp') && gasUsage === 0) {
+    warnings.push({
+      id: 'hybrid-no-gas-source',
+      category: 'heatpump',
+      severity: 'danger',
+      title: 'Hybride warmtepomp niet mogelijk zonder gasaansluiting',
+      description: 'Een hybride warmtepomp werkt altijd in combinatie met een gasgestookte CV-ketel als back-up. Omdat deze woning gasloos is of op stadsverwarming aangesloten is, is een All-Electric warmtepomp of airco (lucht-lucht) de juiste keuze.',
+      actionText: '⚡ Wijzig naar All-Electric warmtepomp',
+      actionType: 'setElectricHeating',
+      suggestedValue: 'All-Electric',
+    });
+  }
+
+  // 4. Isolatiemaatregelen aangevinkt, maar 0 m3 gasverbruik
+  const hasInsulation = Object.values(insulation).some(val => val === true || (typeof val === 'number' && val > 0));
+  if (hasInsulation && gasUsage === 0 && !isWpActive) {
+    warnings.push({
+      id: 'insulation-zero-gas',
+      category: 'insulation',
+      severity: 'warning',
+      title: 'Isolatie gekozen, maar gasverbruik staat op 0 m³',
+      description: 'Je hebt isolatiemaatregelen aangevinkt, maar het gasverbruik is 0 m³. De berekende besparing in euro\'s en m³ gas is daardoor € 0. Vul het gasverbruik in om te zien hoeveel isolatie oplevert.',
+      actionText: '⚡ Stel gasverbruik in op 1.200 m³',
+      actionType: 'setGas',
+      suggestedValue: 1200,
+    });
+  }
+
+  // 5. Teruglevering aan het net opgegeven, maar 0 zonnepanelen
+  const gridFeed = house.elektraTeruglevering || 0;
+  const solarPanels = tech.aantalZonnepanelen || 0;
+  const panelPower = tech.vermogenPerPaneel || 430;
+  const calculatedSolarYield = solarPanels * panelPower * 0.90;
+
+  if (gridFeed > 0 && solarPanels === 0) {
+    warnings.push({
+      id: 'solar-feed-no-panels',
+      category: 'solar',
+      severity: 'danger',
+      title: 'Teruglevering ingevuld zonder zonnepanelen',
+      description: `Er staat ${gridFeed.toLocaleString('nl-NL')} kWh teruglevering ingevuld bij de woninggegevens, maar het aantal zonnepanelen staat op 0 stuks.`,
+      actionText: '⚡ Zet teruglevering op 0 kWh',
+      actionType: 'setGridFeed',
+      suggestedValue: 0,
+    });
+  }
+
+  // 6. Teruglevering is groter dan totale berekende zonne-opwekking
+  if (solarPanels > 0 && gridFeed > calculatedSolarYield) {
+    warnings.push({
+      id: 'solar-feed-exceeds-yield',
+      category: 'solar',
+      severity: 'danger',
+      title: 'Teruglevering is groter dan totale zonne-opwekking',
+      description: `Je opgegeven teruglevering (${gridFeed.toLocaleString('nl-NL')} kWh) is hoger dan wat ${solarPanels} panelen fysiek kunnen opwekken (ca. ${Math.round(calculatedSolarYield).toLocaleString('nl-NL')} kWh). Dit is natuurkundig niet mogelijk.`,
+      actionText: `⚡ Corrigeer teruglevering naar ca. ${Math.round(calculatedSolarYield * 0.70).toLocaleString('nl-NL')} kWh (70%)`,
+      actionType: 'setGridFeed',
+      suggestedValue: Math.round(calculatedSolarYield * 0.70),
+    });
+  }
+
+  // 7. Thuisbatterij geselecteerd zonder zonnepanelen én met vast contract
+  const batCap = tech.capaciteitAccu || 0;
+  if (batCap > 0 && solarPanels === 0 && tech.typeContract === 'Vast') {
+    warnings.push({
+      id: 'battery-no-pv-no-dynamic',
+      category: 'battery',
+      severity: 'warning',
+      title: 'Thuisbatterij zonder zonnepanelen én zonder dynamisch contract',
+      description: 'Een thuisbatterij heeft zonnestroom nodig om op te laden, óf een dynamisch uurtariefcontract om te handelen op de spotmarkt (arbitrage). Met een vast contract en 0 panelen kan de batterij niet renderen.',
+      actionText: '⚡ Schakel contract om naar Dynamisch',
+      actionType: 'setDynamicContract',
+      suggestedValue: 'Dynamisch',
+    });
+  }
+
+  // 8. All-Electric warmtepomp bij slecht energielabel (E, F of G)
+  const isAllElectric = (tech.selectedWarmtepompType === 'All-Electric' || house.verwarming === 'Volledige warmtepomp' || house.verwarming === 'Full electric');
+  const hasPoorLabel = ['E', 'F', 'G'].includes((house.energielabel || '').toUpperCase());
+  if (isAllElectric && hasPoorLabel && isWpNew) {
+    warnings.push({
+      id: 'all-electric-poor-insulation',
+      category: 'heatpump',
+      severity: 'warning',
+      title: `Aandachtspunt: All-Electric warmtepomp bij Energielabel ${house.energielabel}`,
+      description: `Een All-Electric warmtepomp in een woning met energielabel ${house.energielabel} vereist eerst grondige isolatie (dak, spouw, HR++ glas) en lage-temperatuurverwarming (zoals vloerverwarming). Zonder isolatie zal het stroomverbruik in de winter erg hoog zijn en kan de woning mogelijk niet warm worden.`,
+    });
+  }
+
+  return warnings;
 }
 
 function DeNormalizeOpp(val: any): number {

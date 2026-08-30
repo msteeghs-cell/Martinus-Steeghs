@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { ResidentData, HouseData, InsulationData, TechData } from '../types';
+import { ResidentData, HouseData, InsulationData, TechData, InconsistencyWarning } from '../types';
 import { 
   User, Home, Layers, Battery, Sun, HelpCircle, 
   Sparkles, RefreshCw, Calendar, CheckCircle2, Zap, Info,
@@ -245,6 +245,21 @@ export default function InputForm({
         datum: changes.datum !== undefined ? changes.datum : today
       };
     });
+  };
+
+  const handleResolveInconsistency = (warning: InconsistencyWarning) => {
+    if (warning.actionType === 'setGas') {
+      setHouse(prev => ({ ...prev, verbruikM3: warning.suggestedValue || 1200 }));
+    } else if (warning.actionType === 'setElectricHeating') {
+      setTech(prev => ({ ...prev, selectedWarmtepompType: 'All-Electric' }));
+      setHouse(prev => ({ ...prev, verwarming: 'Volledige warmtepomp' }));
+    } else if (warning.actionType === 'setGridFeed') {
+      setHouse(prev => ({ ...prev, elektraTeruglevering: warning.suggestedValue || 0 }));
+    } else if (warning.actionType === 'setDynamicContract') {
+      setTech(prev => ({ ...prev, typeContract: 'Dynamisch' }));
+    } else if (warning.actionType === 'setEvKm') {
+      setTech(prev => ({ ...prev, evKilometers: warning.suggestedValue || 12000 }));
+    }
   };
 
   // Calculate local solar yield and break-even points for the 'zon' tab (declared at top so available to all hooks)
@@ -2013,9 +2028,6 @@ export default function InputForm({
               const postGasMth = Math.round(postGasYr / 12);
 
               const postHouseKwh = houseKwh + postAddElektraKwh;
-              const postDirectSelfKwh = Math.min(postHouseKwh, (solarKwh * selfConsPct) / 100);
-              const postFeedInKwh = Math.max(0, solarKwh - postDirectSelfKwh);
-              const postGridImportKwh = Math.max(0, postHouseKwh - postDirectSelfKwh);
 
               // Grid trading or arbitrage yield if enabled and dynamic contract selected
               // CORRECTIE PUNT 6: Geen dubbeltelling met zonnestroom-opslag
@@ -2028,14 +2040,64 @@ export default function InputForm({
                 batteryTradingYield = batteryCap * correctedRatePerKwh;
               }
 
+              // NA VERDUURZAMING STROOMBALANS:
+              // In de nieuwe situatie zijn álle geselecteerde zonnepanelen en batterijen actief.
+              const postSelfConsPct = (batteryCap > 0 || isBaselineBatteryBestaand)
+                ? (liveCalcResult.solar?.selfConsumptionWithBattery || 65)
+                : (liveCalcResult.solar?.selfConsumptionBase || 35);
+
+              let postDirectSelfKwh = 0;
+              let postFeedInKwh = 0;
+              let postGridImportKwh = 0;
               let postElektraYr = 0;
+
               if (isVast) {
+                // VAST CONTRACT MET SALDERINGSREGELING (Jaarbalans 1-op-1)
                 const postSaldeerd = Math.min(solarKwh, postHouseKwh);
                 const postSurplus = Math.max(0, solarKwh - postHouseKwh);
                 const postImportAfterSaldering = Math.max(0, postHouseKwh - solarKwh);
-                postElektraYr = Math.round((postImportAfterSaldering * vastTarief) + (postFeedInKwh * vastTerugleverkosten) - (postSurplus * vastTerugleverVergoeding));
+
+                postDirectSelfKwh = postSaldeerd;
+                postFeedInKwh = postSurplus;
+                postGridImportKwh = postImportAfterSaldering;
+
+                postElektraYr = Math.round(
+                  (postImportAfterSaldering * vastTarief) + 
+                  (postFeedInKwh * vastTerugleverkosten) - 
+                  (postSurplus * vastTerugleverVergoeding)
+                );
               } else {
-                postElektraYr = Math.round((postGridImportKwh * dynInkoopTarief) - (postFeedInKwh * dynTerugleverTarief) - batteryTradingYield);
+                // DYNAMISCH CONTRACT (Uur-/Seizoensbasis zonder jaarsaldering)
+                // Stap 1: Zonnestroom direct/via accu naar basisverbruik van het huishouden
+                const baseSolarDirect = solarKwh > 0 ? Math.min(houseKwh, (solarKwh * postSelfConsPct) / 100) : 0;
+                const baseGridImport = Math.max(0, houseKwh - baseSolarDirect);
+                const solarRemainingAfterBase = Math.max(0, solarKwh - baseSolarDirect);
+
+                // Stap 2: Resterende zonnestroom naar warmtepomp
+                const wpSolarFraction = batteryCap > 0 ? 0.35 : 0.25;
+                const wpSolarDirect = (postAddElektraKwh > 0 && solarRemainingAfterBase > 0)
+                  ? Math.min(postAddElektraKwh * wpSolarFraction, solarRemainingAfterBase)
+                  : 0;
+                const wpGridImport = Math.max(0, postAddElektraKwh - wpSolarDirect);
+                const solarRemainingAfterWp = Math.max(0, solarRemainingAfterBase - wpSolarDirect);
+
+                // Stap 3: Resterende zonnestroom naar EV (indien van toepassing)
+                const evDemand = liveCalcResult.laadpaal?.evAnnualDemandKwh || 0;
+                const evSolarDirect = (isBaselineLaadpaalBestaand || (tech.evKilometers || 0) > 0) && solarRemainingAfterWp > 0
+                  ? Math.min(liveCalcResult.laadpaal?.evSolarCoverageKwh || (evDemand * 0.35), solarRemainingAfterWp)
+                  : 0;
+                const evGridImport = Math.max(0, evDemand - evSolarDirect);
+                const solarRemainingAfterEv = Math.max(0, solarRemainingAfterWp - evSolarDirect);
+
+                postDirectSelfKwh = baseSolarDirect + wpSolarDirect + evSolarDirect;
+                postFeedInKwh = Math.max(0, solarRemainingAfterEv);
+                postGridImportKwh = baseGridImport + wpGridImport + ((isBaselineLaadpaalBestaand || (tech.evKilometers || 0) > 0) ? evGridImport : 0);
+
+                postElektraYr = Math.round(
+                  (postGridImportKwh * dynInkoopTarief) - 
+                  (postFeedInKwh * dynTerugleverTarief) - 
+                  batteryTradingYield
+                );
               }
               const postElektraMth = Math.round(postElektraYr / 12);
 
@@ -2043,7 +2105,7 @@ export default function InputForm({
               const postTotalMth = Math.round(postTotalYr / 12);
 
               const wpElecSharePct = postHouseKwh > 0 ? Math.round((postAddElektraKwh / postHouseKwh) * 100) : 0;
-              const wpElecCostYr = Math.round(postAddElektraKwh * (isVast ? vastTarief : dynInkoopTarief));
+              const wpElecCostYr = Math.max(0, postElektraYr - currentElektraYr);
               const wpElecCostMth = Math.round(wpElecCostYr / 12);
 
               // Investeringskosten per technologie / maatregel (met 'bestaand' status check = €0)
@@ -2290,25 +2352,225 @@ export default function InputForm({
                         </div>
                       </div>
 
-                      <div className="bg-white p-2.5 rounded border border-slate-200/80 space-y-1">
-                        <span className="font-bold text-slate-800 flex items-center gap-1 text-[11px]">
-                          <Sliders className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                          Hoe simuleer je het beste aantal zonnepanelen &amp; accu voor jouw huis?
-                        </span>
-                        <ul className="list-disc list-inside space-y-1 text-slate-700 text-[10px] pl-0.5">
-                          <li>
-                            <strong>☀️ Zonnepanelen (Aantal bepalen):</strong> Heb je nu nog geen zonnepanelen? Vul bij <em>Snel profiel</em> of onderaan bij <em>Zonnepanelen &amp; Accu</em> bijv. <strong>8, 10 of 12 zonnepanelen</strong> in. Kijk hoe de stroomkosten bij <em>{naVerduurzamingLabel}</em> direct dalen!
-                          </li>
-                          <li>
-                            <strong>🔋 Thuisbatterij (Capaciteit bepalen):</strong> Voeg een accu toe (bijv. <strong>10 kWh</strong>). Zonder accu gebruik je maar ~35% van je zonnestroom direct. Met accu stijgt dit naar <strong>65% eigenverbruik</strong>, waardoor je in <em>{naVerduurzamingLabel}</em> aanzienlijk minder dure netstroom koopt.
-                          </li>
-                          <li>
-                            <strong>♨️ Warmtepomp &amp; Isolatie:</strong> Vink isolatiemaatregelen aan of kies een warmtepomp om te zien hoeveel gas je bespaart en wat dit doet met je nettobedrag in <em>{naVerduurzamingLabel}</em>.
-                          </li>
-                          <li>
-                            <strong>🚗 Laadpaal &amp; EV (Brandstofverplaatsing):</strong> Een elektrische auto verhoogt je elektraverbruik (~2.500 tot 3.500 kWh/jaar). Dit betreft mobiliteit en staat los van woningisolatie, maar <strong>vervangt wel je tankstationkosten (benzine/diesel)</strong>. Je energierekening stijgt hierdoor wel, maar je bespaart netto honderden euro's aan brandstof (zeker i.c.m. zonnepanelen of slim laden op daluren).
-                          </li>
-                        </ul>
+                      {/* UITGESPLITSTE BEREKENING GAS & ELEKTRA */}
+                      <div className="bg-white p-3 rounded-lg border border-slate-200/90 shadow-sm space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-150 pb-2">
+                          <div className="flex items-center gap-1.5">
+                            <Sliders className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span className="font-bold text-slate-800 text-[11.5px]">
+                              Uitgesplitste Berekening Verduurzaming (Gas &amp; Elektra)
+                            </span>
+                          </div>
+                          <span className="text-[9px] text-slate-500 font-medium bg-slate-100 px-2 py-0.5 rounded">
+                            Integraal rekenmodel
+                          </span>
+                        </div>
+
+                        <div className="overflow-x-auto rounded border border-slate-200">
+                          <table className="w-full text-left border-collapse text-[10px]">
+                            <thead>
+                              <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[9.5px]">
+                                <th className="py-1.5 px-2.5">Oorzaak</th>
+                                <th className="py-1.5 px-2 text-right">Effect</th>
+                                <th className="py-1.5 px-2.5 text-right">Kosten / Besparing (€/jr)</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-mono text-[10px]">
+                              {/* SECTIE GAS */}
+                              <tr className="bg-amber-50/80 font-bold font-sans text-amber-950">
+                                <td colSpan={3} className="py-1 px-2.5 text-[10px] tracking-wide uppercase">
+                                  🔥 Gas
+                                </td>
+                              </tr>
+                              <tr>
+                                <td className="py-1.5 px-2.5 font-sans text-slate-700">
+                                  Startpunt: huidig gasverbruik
+                                </td>
+                                <td className="py-1.5 px-2 text-right text-slate-700">
+                                  {currentGasM3.toLocaleString('nl-NL')} m³/jr
+                                </td>
+                                <td className="py-1.5 px-2.5 text-right font-bold text-slate-800">
+                                  € {currentGasYr.toLocaleString('nl-NL')}
+                                </td>
+                              </tr>
+
+                              {totalGasSavingsM3 > 0 ? (
+                                <tr>
+                                  <td className="py-1.5 px-2.5 font-sans text-slate-700">
+                                    − Isolatiemaatregelen (tabblad Isolatie)
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right text-emerald-700">
+                                    − {Math.round(totalGasSavingsM3).toLocaleString('nl-NL')} m³/jr
+                                  </td>
+                                  <td className="py-1.5 px-2.5 text-right text-emerald-700 font-bold">
+                                    − € {Math.round(totalGasSavingsM3 * gPrice).toLocaleString('nl-NL')}
+                                  </td>
+                                </tr>
+                              ) : (
+                                <tr className="text-slate-500 italic">
+                                  <td className="py-1 px-2.5 font-sans" colSpan={3}>
+                                    Geen isolatiemaatregelen ingevuld op tabblad Isolatie
+                                  </td>
+                                </tr>
+                              )}
+
+                              {(isVolledigWp || isHybrideWp) && !isWpBestaand && (
+                                <tr>
+                                  <td className="py-1.5 px-2.5 font-sans text-slate-700">
+                                    − Vervangen door nieuwe warmtepomp (tabblad Warmtepomp)
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right text-emerald-700">
+                                    − {Math.round(remainingGasAfterInsulation - postGasM3).toLocaleString('nl-NL')} m³/jr
+                                  </td>
+                                  <td className="py-1.5 px-2.5 text-right text-emerald-700 font-bold">
+                                    − € {Math.round((remainingGasAfterInsulation - postGasM3) * gPrice).toLocaleString('nl-NL')}
+                                  </td>
+                                </tr>
+                              )}
+
+                              <tr className="bg-slate-50 font-bold border-t border-slate-200">
+                                <td className="py-1.5 px-2.5 font-sans text-slate-900">
+                                  = Resterend gasverbruik
+                                </td>
+                                <td className="py-1.5 px-2 text-right text-slate-900">
+                                  {postGasM3.toLocaleString('nl-NL')} m³/jr
+                                </td>
+                                <td className="py-1.5 px-2.5 text-right text-slate-900 font-black">
+                                  € {postGasYr.toLocaleString('nl-NL')}
+                                </td>
+                              </tr>
+
+                              {/* SECTIE ELEKTRA */}
+                              <tr className="bg-sky-50/80 font-bold font-sans text-sky-950">
+                                <td colSpan={3} className="py-1 px-2.5 text-[10px] tracking-wide uppercase">
+                                  ⚡ Elektra
+                                </td>
+                              </tr>
+                              <tr>
+                                <td className="py-1.5 px-2.5 font-sans text-slate-700">
+                                  Startpunt: huidig elektraverbruik
+                                </td>
+                                <td className="py-1.5 px-2 text-right text-slate-700">
+                                  {houseKwh.toLocaleString('nl-NL')} kWh/jr
+                                </td>
+                                <td className="py-1.5 px-2.5 text-right font-bold text-slate-800">
+                                  € {Math.round(houseKwh * (isVast ? vastTarief : dynInkoopTarief)).toLocaleString('nl-NL')}
+                                </td>
+                              </tr>
+
+                              {postAddElektraKwh > 0 && (
+                                <tr>
+                                  <td className="py-1.5 px-2.5 font-sans text-slate-700">
+                                    + Extra verbruik door nieuwe warmtepomp (tabblad Warmtepomp)
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right text-amber-700">
+                                    + {postAddElektraKwh.toLocaleString('nl-NL')} kWh/jr
+                                  </td>
+                                  <td className="py-1.5 px-2.5 text-right text-amber-700 font-bold">
+                                    + € {Math.round(postAddElektraKwh * (isVast ? vastTarief : dynInkoopTarief)).toLocaleString('nl-NL')}
+                                  </td>
+                                </tr>
+                              )}
+
+                              {postDirectSelfKwh > 0 && (
+                                <tr>
+                                  <td className="py-1.5 px-2.5 font-sans text-slate-700">
+                                    − Gedekt door eigen zonnestroom (direct + via accu) (tabblad Zonnepanelen/Thuisbatterij)
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right text-emerald-700">
+                                    − {Math.round(postDirectSelfKwh).toLocaleString('nl-NL')} kWh/jr
+                                  </td>
+                                  <td className="py-1.5 px-2.5 text-right text-emerald-700 font-bold">
+                                    − € {Math.round(postDirectSelfKwh * (isVast ? vastTarief : dynInkoopTarief)).toLocaleString('nl-NL')}
+                                  </td>
+                                </tr>
+                              )}
+
+                              <tr className="bg-slate-50/50">
+                                <td className="py-1 px-2.5 font-sans text-slate-600">
+                                  Nog van het net gekocht
+                                </td>
+                                <td className="py-1 px-2 text-right text-slate-700">
+                                  {Math.round(postGridImportKwh).toLocaleString('nl-NL')} kWh/jr
+                                </td>
+                                <td className="py-1 px-2.5 text-right text-slate-700 font-semibold">
+                                  € {Math.round(postGridImportKwh * (isVast ? vastTarief : dynInkoopTarief)).toLocaleString('nl-NL')}
+                                </td>
+                              </tr>
+
+                              {postFeedInKwh > 0 && (
+                                <tr>
+                                  <td className="py-1.5 px-2.5 font-sans text-slate-700">
+                                    − Opbrengst teruglevering (tabblad Saldering, {isVast ? 'vast contract' : 'dynamisch contract'})
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right text-emerald-700">
+                                    − {Math.round(postFeedInKwh).toLocaleString('nl-NL')} kWh/jr
+                                  </td>
+                                  <td className="py-1.5 px-2.5 text-right text-emerald-700 font-bold">
+                                    − € {Math.round(isVast ? (Math.max(0, solarKwh - postHouseKwh) * vastTerugleverVergoeding - postFeedInKwh * vastTerugleverkosten) : (postFeedInKwh * dynTerugleverTarief)).toLocaleString('nl-NL')}
+                                  </td>
+                                </tr>
+                              )}
+
+                              {batteryTradingYield > 0 && (
+                                <tr>
+                                  <td className="py-1.5 px-2.5 font-sans text-slate-700">
+                                    − Arbitrage handelsrendement accu op dynamische markt (tabblad Thuisbatterij)
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right text-emerald-700">
+                                    {batteryCap} kWh accu
+                                  </td>
+                                  <td className="py-1.5 px-2.5 text-right text-emerald-700 font-bold">
+                                    − € {Math.round(batteryTradingYield).toLocaleString('nl-NL')}
+                                  </td>
+                                </tr>
+                              )}
+
+                              {hasEv && (
+                                <tr>
+                                  <td className="py-1.5 px-2.5 font-sans text-slate-700">
+                                    + Laadpaal: netto na eigen zon en ERE-vergoeding (tabblad Laadpaal)
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right text-slate-500">
+                                    —
+                                  </td>
+                                  <td className="py-1.5 px-2.5 text-right text-slate-800 font-bold">
+                                    € {Math.round(liveCalcResult.laadpaal ? Math.max(0, (liveCalcResult.laadpaal.evGridImportKwh * (isVast ? vastTarief : dynInkoopTarief)) - liveCalcResult.laadpaal.ereRevenueEuro) : (evKm * 0.025)).toLocaleString('nl-NL')}
+                                  </td>
+                                </tr>
+                              )}
+
+                              <tr className="bg-sky-50/50 font-bold border-t border-slate-200">
+                                <td className="py-1.5 px-2.5 font-sans text-slate-900">
+                                  = Nieuwe elektriciteitskosten
+                                </td>
+                                <td className="py-1.5 px-2 text-right text-slate-900">
+                                  {postElektraYr < 0 ? 'Opbrengst' : ''}
+                                </td>
+                                <td className="py-1.5 px-2.5 text-right text-sky-950 font-black">
+                                  {postElektraYr < 0 ? `− € ${Math.abs(postElektraYr).toLocaleString('nl-NL')}` : `€ ${postElektraYr.toLocaleString('nl-NL')}`}
+                                </td>
+                              </tr>
+
+                              {/* TOTAAL */}
+                              <tr className="bg-emerald-100/70 font-bold border-t-2 border-emerald-300 text-emerald-950 text-[10.5px]">
+                                <td className="py-2 px-2.5 font-sans font-black">
+                                  Totaal ná verduurzaming
+                                </td>
+                                <td className="py-2 px-2 text-right">
+                                  {postTotalYr < 0 ? 'Netto opbrengst' : 'Netto kosten'}
+                                </td>
+                                <td className="py-2 px-2.5 text-right font-black">
+                                  {postTotalYr < 0 ? `− € ${Math.abs(postTotalYr).toLocaleString('nl-NL')}` : `€ ${postTotalYr.toLocaleString('nl-NL')}`}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <p className="text-[9.5px] text-slate-500 italic leading-snug">
+                          Een <strong>−</strong> betekent een besparing of opbrengst (verlaagt je kosten), een <strong>+</strong> betekent extra kosten. Deze uitsplitsing telt op tot exact dezelfde bedragen als de kostenvergelijkingstabel hieronder.
+                        </p>
                       </div>
                     </div>
                   )}
@@ -2606,12 +2868,28 @@ export default function InputForm({
                     {hasAnyExisting && (
                       <div className="flex flex-wrap items-center gap-1 text-slate-600 bg-amber-50/60 border border-amber-200/60 px-2 py-1 rounded font-sans">
                         <span className="font-bold text-amber-900 shrink-0">Reeds aanwezig (€0 inv.):</span>
-                        {isSolarBestaand && hasSolar && <span className="bg-white border border-amber-200 px-1.5 py-0.5 rounded font-medium text-amber-950">☀️ Zonnepanelen ({solarPanels} stuks)</span>}
-                        {isBatBestaand && hasBat && <span className="bg-white border border-amber-200 px-1.5 py-0.5 rounded font-medium text-amber-950">🔋 Thuisbatterij ({batCap} kWh)</span>}
-                        {isWpBestaand && hasWp && <span className="bg-white border border-amber-200 px-1.5 py-0.5 rounded font-medium text-amber-950">♨️ Warmtepomp ({isVolledigWp ? 'All-Electric' : 'Hybride'})</span>}
-                        {isLaadpaalBestaand && hasEv && <span className="bg-white border border-amber-200 px-1.5 py-0.5 rounded font-medium text-amber-950">🚗 Laadpaal</span>}
-                        <span className="text-[9px] text-amber-800 italic ml-1">
-                          (Levert al € {existingSavingsPerYear.toLocaleString('nl-NL')} / jr op in je nulmeting)
+                        {isSolarBestaand && hasSolar && (
+                          <span className="bg-white border border-amber-200 px-1.5 py-0.5 rounded font-medium text-amber-950">
+                            ☀️ Zonnepanelen ({solarPanels} stuks • € {Math.round(solarSavings).toLocaleString('nl-NL')} / jr)
+                          </span>
+                        )}
+                        {isBatBestaand && hasBat && (
+                          <span className="bg-white border border-amber-200 px-1.5 py-0.5 rounded font-medium text-amber-950">
+                            🔋 Thuisbatterij ({batCap} kWh • € {Math.round(batSavings).toLocaleString('nl-NL')} / jr)
+                          </span>
+                        )}
+                        {isWpBestaand && hasWp && (
+                          <span className="bg-white border border-amber-200 px-1.5 py-0.5 rounded font-medium text-amber-950">
+                            ♨️ Warmtepomp ({isVolledigWp ? 'All-Electric' : 'Hybride'} • € {Math.round(wpSavings).toLocaleString('nl-NL')} / jr)
+                          </span>
+                        )}
+                        {isLaadpaalBestaand && hasEv && (
+                          <span className="bg-white border border-amber-200 px-1.5 py-0.5 rounded font-medium text-amber-950">
+                            🚗 Laadpaal ({evKm > 0 ? `${evKm.toLocaleString('nl-NL')} km/jr • ` : ''}€ {Math.round(evSavings).toLocaleString('nl-NL')} / jr)
+                          </span>
+                        )}
+                        <span className="text-[9px] text-amber-900 font-bold ml-1">
+                          (Totaal levert al € {existingSavingsPerYear.toLocaleString('nl-NL')} / jr op in je nulmeting)
                         </span>
                       </div>
                     )}
@@ -2619,6 +2897,64 @@ export default function InputForm({
                 </div>
               );
             })()}
+
+            {/* Inconsistentie & Invoercontrole Meldingen */}
+            {liveCalcResult && liveCalcResult.inconsistencies && liveCalcResult.inconsistencies.length > 0 && (
+              <div className="bg-rose-50/90 border-2 border-rose-300 rounded-2xl p-4 space-y-3 shadow-xs animate-fadeIn" id="inconsistency-alert-banner">
+                <div className="flex items-center justify-between border-b border-rose-200/70 pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1 bg-rose-600 text-white rounded-md">
+                      <AlertTriangle className="w-4 h-4" />
+                    </span>
+                    <h4 className="text-xs font-black text-rose-950 uppercase tracking-wide">
+                      Inconsistentie in Invoer ({liveCalcResult.inconsistencies.length})
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-bold text-rose-800 bg-rose-100 border border-rose-300 px-2.5 py-0.5 rounded-full">
+                    Aandacht vereist
+                  </span>
+                </div>
+                
+                <div className="space-y-2">
+                  {liveCalcResult.inconsistencies.map((inc) => {
+                    const isDanger = inc.severity === 'danger';
+                    return (
+                      <div 
+                        key={inc.id}
+                        className={`p-3 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                          isDanger 
+                            ? 'bg-white border-rose-200 text-rose-950 shadow-2xs' 
+                            : 'bg-white border-amber-200 text-amber-950 shadow-2xs'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 font-bold">
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${isDanger ? 'bg-rose-500 animate-pulse' : 'bg-amber-500'}`} />
+                            <span className={isDanger ? 'text-rose-900' : 'text-amber-900'}>{inc.title}</span>
+                          </div>
+                          <p className="text-[11.5px] text-slate-600 leading-relaxed pl-4.5">
+                            {inc.description}
+                          </p>
+                        </div>
+                        {inc.actionText && (
+                          <button
+                            type="button"
+                            onClick={() => handleResolveInconsistency(inc)}
+                            className={`shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap self-start sm:self-center ${
+                              isDanger
+                                ? 'bg-rose-600 hover:bg-rose-700 text-white active:bg-rose-800'
+                                : 'bg-amber-600 hover:bg-amber-700 text-white active:bg-amber-800'
+                            }`}
+                          >
+                            {inc.actionText}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 1. Bewoner & Adres (BAG API!) */}
@@ -3181,9 +3517,25 @@ export default function InputForm({
                     type="number"
                     value={house.verbruikM3 || ''}
                     onChange={(e) => setHouse(prev => ({ ...prev, verbruikM3: Number(e.target.value) }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-sm bg-slate-50 border rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500 ${
+                      (!house.verbruikM3 || house.verbruikM3 === 0) && (house.verwarming === 'Hybride warmtepomp' || house.verwarming === 'Full electric' || house.verwarming === 'CV-ketel' || tech.selectedWarmtepompType)
+                        ? 'border-rose-400 bg-rose-50/40 text-rose-950'
+                        : 'border-slate-200'
+                    }`}
                     id="gas_totaal"
                   />
+                  {(!house.verbruikM3 || house.verbruikM3 === 0) && (house.verwarming === 'Hybride warmtepomp' || house.verwarming === 'Full electric' || tech.selectedWarmtepompType) && (
+                    <div className="mt-1 text-[10px] text-rose-600 font-semibold flex items-center justify-between">
+                      <span>⚠️ Warmtepomp actief bij 0 m³</span>
+                      <button
+                        type="button"
+                        onClick={() => setHouse(prev => ({ ...prev, verbruikM3: 1200 }))}
+                        className="underline hover:text-rose-800 font-bold cursor-pointer"
+                      >
+                        Vul 1.200 m³ in
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
@@ -5087,13 +5439,35 @@ export default function InputForm({
               )}
             </div>
             <div className="p-4 space-y-3">
+              {/* Inconsistentie waarschuwing: Warmtepomp met 0 m3 gas */}
+              {(house.verwarming === 'Hybride warmtepomp' || house.verwarming === 'Full electric' || tech.selectedWarmtepompType) && (!house.verbruikM3 || house.verbruikM3 === 0) && (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs text-rose-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 animate-fadeIn">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="block text-rose-900 font-bold">Inconsistentie: Warmtepomp gekozen, maar gasverbruik staat op 0 m³</strong>
+                      <span className="text-[11px] text-rose-800 leading-tight block mt-0.5">
+                        Een (hybride) warmtepomp bespaart gas ten opzichte van het huidige gasverbruik. Omdat er 0 m³ is ingevuld, is de berekende gasbesparing € 0 en kan de TVT niet berekend worden.
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setHouse(prev => ({ ...prev, verbruikM3: 1200 }))}
+                    className="shrink-0 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg transition shadow-xs cursor-pointer whitespace-nowrap"
+                  >
+                    ⚡ Vul 1.200 m³ in
+                  </button>
+                </div>
+              )}
+
               {house.verwarming !== 'CV-ketel' && tech.heatpumpStatus === 'bestaand' && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-900 flex items-center justify-between">
                   <span>💡 <strong>Reeds aanwezig:</strong> De gasbesparing en het stroomverbruik van de warmtepomp worden meegenomen, maar de aanschafkosten en subsidie staan op <strong>€0</strong> in het adviesrapport.</span>
                   <button
                     type="button"
                     onClick={() => setTech(prev => ({ ...prev, heatpumpStatus: 'nieuw' }))}
-                    className="text-[11px] font-bold text-emerald-800 underline hover:text-emerald-950 shrink-0 ml-2"
+                    className="text-[11px] font-bold text-emerald-800 underline hover:text-emerald-950 shrink-0 ml-2 cursor-pointer"
                   >
                     Zet op nieuw
                   </button>

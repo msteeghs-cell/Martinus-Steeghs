@@ -10,7 +10,7 @@ import {
   FileText, Copy, Printer, Check, TrendingDown, ShieldAlert, Award, Zap, HelpCircle, 
   BarChart3, LineChart as LineIcon, Landmark, Sparkles, ArrowRightLeft, Clock, PiggyBank,
   Sun, Battery, Flame, ArrowUpRight, TrendingUp, Info, Mail, Send, Loader2, Layers,
-  ChevronDown, ChevronUp
+  ChevronDown, ChevronUp, AlertTriangle
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -1235,6 +1235,24 @@ Energieplanner Peel en Maas
               </div>
             </div>
           </div>
+
+          {/* Inconsistentie & Invoer Aandachtspunten in Adviesrapport */}
+          {calculation.inconsistencies && calculation.inconsistencies.length > 0 && (
+            <div className="bg-rose-50/80 border border-rose-200 rounded-2xl p-4 space-y-2 text-xs text-rose-950 shadow-2xs print:border-slate-300">
+              <div className="flex items-center gap-2 font-bold text-rose-900">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>Let op: Er zijn {calculation.inconsistencies.length} invoer-inconsistentie(s) opgemerkt in dit rapport</span>
+              </div>
+              <div className="space-y-1.5 pl-6 text-[11.5px] text-rose-900/90">
+                {calculation.inconsistencies.map(inc => (
+                  <div key={inc.id} className="flex items-start gap-1.5">
+                    <span className="font-bold">• {inc.title}:</span>
+                    <span className="text-slate-700">{inc.description}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Geopend detail indicator banner */}
@@ -2248,6 +2266,19 @@ Energieplanner Peel en Maas
                   <span className="font-bold text-emerald-900 block">Warmtepomp geconfigureerd: {calculation.house?.verwarming}</span>
                   <p className="text-[11px] text-emerald-800/90 mt-0.5 leading-relaxed">
                     Jouw woning is geconfigureerd met een {calculation.house?.verwarming}. Bekijk hieronder het verwachte rendement, de ISDE-subsidie en de vergelijking tussen hybride en all-electric.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Inconsistentie: Gasverbruik = 0 bij warmtepomp */}
+            {(!calculation.house?.verbruikM3 || calculation.house?.verbruikM3 === 0) && (
+              <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex gap-3 items-start text-xs shadow-2xs">
+                <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-rose-950 block text-sm">Let op: Huidig gasverbruik staat op 0 m³</span>
+                  <p className="text-xs text-rose-800 mt-1 leading-relaxed">
+                    Er is momenteel geen gasverbruik ingevuld (0 m³). Een warmtepomp bespaart gas ten opzichte van het huidige gasverbruik. Omdat er geen referentie-gasverbruik is, wordt er € 0 gasbesparing berekend en kan de terugverdientijd niet accuraat worden bepaald. Pas het gasverbruik aan in het tabblad Woning (bijv. 1.200 m³) voor een complete berekening.
                   </p>
                 </div>
               </div>

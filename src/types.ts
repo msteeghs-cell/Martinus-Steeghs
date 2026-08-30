@@ -177,6 +177,17 @@ export interface HeatpumpCheck {
   options: HeatpumpOption[];
 }
 
+export interface InconsistencyWarning {
+  id: string;
+  category: 'heatpump' | 'solar' | 'battery' | 'laadpaal' | 'insulation' | 'general';
+  severity: 'danger' | 'warning' | 'info';
+  title: string;
+  description: string;
+  actionText?: string;
+  actionType?: 'setGas' | 'setElectricHeating' | 'setPanels' | 'setGridFeed' | 'setDynamicContract' | 'setEvKm' | 'setHeatpumpExisting' | 'removeHybrid';
+  suggestedValue?: any;
+}
+
 export interface CalculationResult {
   resident: ResidentData;
   house: HouseData;
@@ -216,6 +227,7 @@ export interface CalculationResult {
     netInvestmentEuro: number;
     tvt: number;
   };
+  inconsistencies?: InconsistencyWarning[];
   opmerkingenOffertes: string;
   opmerkingen: string;
 }

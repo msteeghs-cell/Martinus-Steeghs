@@ -351,27 +351,15 @@ export default function App() {
     const postGasYr = Math.round(postGasM3 * gPrice);
     const postGasMth = Math.round(postGasYr / 12);
 
+    const isVast = tech.typeContract === 'Vast';
+    const vastTarief = ePrice;
+    const vastTerugleverkosten = tech.vastTerugleverkosten !== undefined ? tech.vastTerugleverkosten : 0.11;
+    const vastTerugleverVergoeding = tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : 0.05;
+    const dynInkoopTarief = tech.dynamischStroomTarief !== undefined ? tech.dynamischStroomTarief : 0.25;
+    const dynTerugleverTarief = tech.dynamischTerugleverTarief !== undefined ? tech.dynamischTerugleverTarief : 0.09;
+    const batteryCap = tech.capaciteitAccu || 0;
     const solarKwh = calculation.solar.annualYieldKwh || 0;
     const selfConsPct = calculation.solar.selfConsumptionWithBattery || 35;
-    const postHouseKwh = houseKwh + postAddElektraKwh;
-    const postDirectSelfKwh = Math.min(postHouseKwh, (solarKwh * selfConsPct) / 100);
-    const postFeedInKwh = Math.max(0, solarKwh - postDirectSelfKwh);
-    const postGridImportKwh = Math.max(0, postHouseKwh - postDirectSelfKwh);
-
-    // Grid trading or arbitrage yield if enabled and dynamic contract selected
-    // CORRECTIE PUNT 6: Geen dubbeltelling met zonnestroom-opslag
-    let batteryTradingYield = 0;
-    const batteryCap = tech.capaciteitAccu || 0;
-    if (batteryCap > 0 && tech.typeContract === 'Dynamisch' && tech.batteryGridTrading !== false) {
-      const provider = tech.dynamicProvider || 'Zonneplan';
-      const baseRatePerKwh = provider === 'Zonneplan' ? 38.25 : provider === 'Frank' ? 31.5 : provider === 'Tibber' ? 29.25 : provider === 'Anwb' ? 27.00 : 24.75;
-      const solarStorageShare = solarKwh > 0 ? Math.min(0.45, (solarKwh / (batteryCap * 600))) : 0;
-      const correctedRatePerKwh = baseRatePerKwh * (1 - solarStorageShare * 0.35);
-      batteryTradingYield = batteryCap * correctedRatePerKwh;
-    }
-
-    const postElektraYr = Math.round((postGridImportKwh * ePrice) - (postFeedInKwh * 0.05) - batteryTradingYield);
-    const postElektraMth = Math.round(postElektraYr / 12);
 
     // Investment breakdowns & baseline logic
     const isSolarBestaand = tech.solarStatus === 'bestaand';
@@ -399,12 +387,95 @@ export default function App() {
       baselineBatteryTradingYield = batteryCap * correctedRatePerKwh;
     }
 
-    const currentElektraYr = isBaselineSolarBestaand
-      ? Math.round((baselineGridImportKwh * ePrice) - (baselineFeedInKwh * 0.05) - baselineBatteryTradingYield)
-      : Math.round(houseKwh * ePrice);
+    let currentElektraYr = 0;
+    if (isBaselineSolarBestaand) {
+      if (isVast) {
+        const baseSaldeerd = Math.min(houseKwh, baselineSolarKwh);
+        const baseSurplus = Math.max(0, baselineSolarKwh - houseKwh);
+        const baseImportAfterSaldering = Math.max(0, houseKwh - baselineSolarKwh);
+        currentElektraYr = Math.round((baseImportAfterSaldering * vastTarief) + (baselineFeedInKwh * vastTerugleverkosten) - (baseSurplus * vastTerugleverVergoeding));
+      } else {
+        currentElektraYr = Math.round((baselineGridImportKwh * dynInkoopTarief) - (baselineFeedInKwh * dynTerugleverTarief) - baselineBatteryTradingYield);
+      }
+    } else {
+      currentElektraYr = Math.round(isVast ? (houseKwh * vastTarief) : ((houseKwh * dynInkoopTarief) - baselineBatteryTradingYield));
+    }
     const currentElektraMth = Math.round(currentElektraYr / 12);
     const currentTotalYr = currentGasYr + currentElektraYr;
     const currentTotalMth = Math.round(currentTotalYr / 12);
+
+    const postHouseKwh = houseKwh + postAddElektraKwh;
+
+    // Grid trading or arbitrage yield if enabled and dynamic contract selected
+    let batteryTradingYield = 0;
+    if (batteryCap > 0 && tech.typeContract === 'Dynamisch' && tech.batteryGridTrading !== false) {
+      const provider = tech.dynamicProvider || 'Zonneplan';
+      const baseRatePerKwh = provider === 'Zonneplan' ? 38.25 : provider === 'Frank' ? 31.5 : provider === 'Tibber' ? 29.25 : provider === 'Anwb' ? 27.00 : 24.75;
+      const solarStorageShare = solarKwh > 0 ? Math.min(0.45, (solarKwh / (batteryCap * 600))) : 0;
+      const correctedRatePerKwh = baseRatePerKwh * (1 - solarStorageShare * 0.35);
+      batteryTradingYield = batteryCap * correctedRatePerKwh;
+    }
+
+    // NA VERDUURZAMING STROOMBALANS:
+    // In de nieuwe situatie zijn álle geselecteerde zonnepanelen en batterijen actief.
+    const postSelfConsPct = (batteryCap > 0 || isBaselineBatteryBestaand)
+      ? (calculation.solar.selfConsumptionWithBattery || 65)
+      : (calculation.solar.selfConsumptionBase || 35);
+
+    let postDirectSelfKwh = 0;
+    let postFeedInKwh = 0;
+    let postGridImportKwh = 0;
+    let postElektraYr = 0;
+
+    if (isVast) {
+      // VAST CONTRACT MET SALDERINGSREGELING (Jaarbalans 1-op-1)
+      const postSaldeerd = Math.min(solarKwh, postHouseKwh);
+      const postSurplus = Math.max(0, solarKwh - postHouseKwh);
+      const postImportAfterSaldering = Math.max(0, postHouseKwh - solarKwh);
+
+      postDirectSelfKwh = postSaldeerd;
+      postFeedInKwh = postSurplus;
+      postGridImportKwh = postImportAfterSaldering;
+
+      postElektraYr = Math.round(
+        (postImportAfterSaldering * vastTarief) + 
+        (postFeedInKwh * vastTerugleverkosten) - 
+        (postSurplus * vastTerugleverVergoeding)
+      );
+    } else {
+      // DYNAMISCH CONTRACT (Uur-/Seizoensbasis zonder jaarsaldering)
+      // Stap 1: Zonnestroom direct/via accu naar basisverbruik van het huishouden
+      const baseSolarDirect = solarKwh > 0 ? Math.min(houseKwh, (solarKwh * postSelfConsPct) / 100) : 0;
+      const baseGridImport = Math.max(0, houseKwh - baseSolarDirect);
+      const solarRemainingAfterBase = Math.max(0, solarKwh - baseSolarDirect);
+
+      // Stap 2: Resterende zonnestroom naar warmtepomp
+      const wpSolarFraction = batteryCap > 0 ? 0.35 : 0.25;
+      const wpSolarDirect = (postAddElektraKwh > 0 && solarRemainingAfterBase > 0)
+        ? Math.min(postAddElektraKwh * wpSolarFraction, solarRemainingAfterBase)
+        : 0;
+      const wpGridImport = Math.max(0, postAddElektraKwh - wpSolarDirect);
+      const solarRemainingAfterWp = Math.max(0, solarRemainingAfterBase - wpSolarDirect);
+
+      // Stap 3: Resterende zonnestroom naar EV (indien van toepassing)
+      const evDemand = calculation.laadpaal?.evAnnualDemandKwh || 0;
+      const evSolarDirect = (isLpBestaand || (tech.evKilometers || 0) > 0) && solarRemainingAfterWp > 0
+        ? Math.min(calculation.laadpaal?.evSolarCoverageKwh || (evDemand * 0.35), solarRemainingAfterWp)
+        : 0;
+      const evGridImport = Math.max(0, evDemand - evSolarDirect);
+      const solarRemainingAfterEv = Math.max(0, solarRemainingAfterWp - evSolarDirect);
+
+      postDirectSelfKwh = baseSolarDirect + wpSolarDirect + evSolarDirect;
+      postFeedInKwh = Math.max(0, solarRemainingAfterEv);
+      postGridImportKwh = baseGridImport + wpGridImport + ((isLpBestaand || (tech.evKilometers || 0) > 0) ? evGridImport : 0);
+
+      postElektraYr = Math.round(
+        (postGridImportKwh * dynInkoopTarief) - 
+        (postFeedInKwh * dynTerugleverTarief) - 
+        batteryTradingYield
+      );
+    }
+    const postElektraMth = Math.round(postElektraYr / 12);
 
     const postTotalYr = postGasYr + postElektraYr;
     const postTotalMth = Math.round(postTotalYr / 12);
@@ -534,7 +605,7 @@ export default function App() {
       { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "🏠 Isolatiebesparing", Waarde: `€ ${Math.round(calculation.totals.savingsEuro || 0)} / jaar`, Details: `${Math.round(totalGasSavingsM3)} m³ gasbesparing` },
       { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "☀️ Zonnepanelen Opbrengst", Waarde: `€ ${Math.round((solarKwh * ePrice))} / jaar`, Details: `${tech.aantalZonnepanelen || 0} panelen (~${Math.round(solarKwh)} kWh/jr opbrengst)${isSolarBestaand ? ' [Reeds aanwezig]' : ''}` },
       { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "🔋 Thuisbatterij Output", Waarde: `€ ${Math.round(batteryTradingYield)} / jaar`, Details: `${batteryCap} kWh accu (${Math.round(selfConsPct)}% eigenverbruik + handelsrendement)${isBatteryBestaand ? ' [Reeds aanwezig]' : ''}` },
-      { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "♨️ Warmtepomp Rendement", Waarde: `€ ${Math.round((currentGasYr - postGasYr) - Math.round(postAddElektraKwh * ePrice))} / jaar`, Details: `${isVolledigWp ? 'All-Electric' : isHybrideWp ? 'Hybride' : 'Geen'} (uitgespaard gas minus extra stroom)${isWpBestaand ? ' [Reeds aanwezig]' : ''}` },
+      { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "♨️ Warmtepomp Rendement", Waarde: `€ ${chosenHpOptionForSheet0 ? Math.round(chosenHpOptionForSheet0.netSavingsEuro) : Math.round(Math.max(0, (currentGasYr - postGasYr) - Math.round(postAddElektraKwh * ePrice)))} / jaar`, Details: `${isVolledigWp ? 'All-Electric' : isHybrideWp ? 'Hybride' : 'Geen'} (uitgespaard gas minus extra stroom)${isWpBestaand ? ' [Reeds aanwezig]' : ''}` },
       { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "🚗 EV / Laadpaal Brandstofverplaatsing", Waarde: `€ ${laadpaalSavings} / jaar`, Details: hasEv ? `${evKm} km/jr (besparing brandstof vs thuisstroom & ERE)${isLpBestaand ? ' [Reeds aanwezig]' : ''}` : 'Geen EV' },
 
       { Categorie: "", Onderdeel: "", Waarde: "", Details: "" },
@@ -862,7 +933,9 @@ export default function App() {
     const copInfoForExport = getHeatpumpCopFactor(house.afgiftesysteem, selWpModel, selWpType);
     const copFactor = copInfoForExport.factor;
     const calculatedAddElecKwh = chosenHpOption ? Math.round(chosenHpOption.elecIncreaseKwh) : Math.round(calculatedGasSavingsM3 * copFactor);
-    const calculatedElecCostEuro = Math.round(calculatedAddElecKwh * ePrice);
+    const wpSolarCoverage = chosenHpOption ? Math.round(chosenHpOption.solarCoverageKwh) : 0;
+    const wpGridImport = chosenHpOption ? Math.round(chosenHpOption.gridImportKwh) : calculatedAddElecKwh;
+    const calculatedElecCostEuro = chosenHpOption ? Math.round(chosenHpOption.elecCostEuro) : Math.round(calculatedAddElecKwh * (isVast ? vastTarief : dynInkoopTarief));
 
     hpLpData.push({
       Onderdeel: "4. Afgiftesysteem & SCOP Factor",
@@ -875,23 +948,26 @@ export default function App() {
       Details: `Formule: ${calculatedGasSavingsM3} m³ gasbesparing × ${copFactor} kWh/m³`
     });
 
-    const wpSolarCoverage = chosenHpOption ? Math.round(chosenHpOption.solarCoverageKwh) : 0;
-    const wpGridImport = chosenHpOption ? Math.round(chosenHpOption.gridImportKwh) : calculatedAddElecKwh;
-
     hpLpData.push({
-      Onderdeel: "6. Zonnestroom direct gebruikt voor Warmtepomp",
+      Onderdeel: "6. Zonnestroom Compensatie voor Warmtepomp",
       Waarde: `${wpSolarCoverage} kWh/jaar`,
-      Details: "Overtollige zonnestroom ingezet voor warmtepomp (na aftrek EV-laden)"
+      Details: isVast
+        ? `Onder de salderingsregeling 1-op-1 verrekend met het beschikbare zonne-overschot (${wpSolarCoverage} kWh)`
+        : `Real-time zonnestroom dekking (~25-35% in voorjaar/zomer/milde maanden voor o.a. tapwater)`
     });
     hpLpData.push({
-      Onderdeel: "7. Netstroom Import voor Warmtepomp",
+      Onderdeel: "7. Netto Netimport voor Warmtepomp",
       Waarde: `${wpGridImport} kWh/jaar`,
-      Details: "Resterende stroom benodigd van het net"
+      Details: isVast
+        ? (wpGridImport === 0 ? "0 kWh netto import na jaarsaldering (volledig gedekt door overschot)" : `${wpGridImport} kWh netto stroomimport na saldering`)
+        : `${wpGridImport} kWh import van het net in de donkere winter-/stookmaanden`
     });
     hpLpData.push({
       Onderdeel: "8. Extra Elektriciteitskosten Warmtepomp (€)",
       Waarde: `€ ${calculatedElecCostEuro} / jaar`,
-      Details: `Formule: ${calculatedAddElecKwh} kWh × €${ePrice.toFixed(2)}/kWh`
+      Details: isVast
+        ? `Formule: ${wpGridImport} kWh import à €${vastTarief.toFixed(2)} + ${wpSolarCoverage} kWh gemiste teruglevering à €${vastTerugleverVergoeding.toFixed(2)}`
+        : `Formule: ${wpGridImport} kWh import à €${dynInkoopTarief.toFixed(2)} + ${wpSolarCoverage} kWh gemiste teruglevering à €${dynTerugleverTarief.toFixed(2)}`
     });
 
     const calculatedNetSavingsEuro = Math.round(calculatedGasSavingsEuro + fixedGasSavingEuro - calculatedElecCostEuro);
