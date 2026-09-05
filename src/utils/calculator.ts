@@ -631,14 +631,31 @@ export function calculateAll(
     efficiencyIncrease = rawIncrease * (1 - tech.omzettingsverliezen / 100);
   }
 
-  const selfConsumptionWithBattery = Math.min(100, selfConsumptionBase + efficiencyIncrease);
-  const absoluteSelfConsumptionBaseKwh = (annualYieldKwh * selfConsumptionBase) / 100;
-  const absoluteSelfConsumptionWithBatteryKwh = (annualYieldKwh * selfConsumptionWithBattery) / 100;
-
-  const gridFeedBaseKwh = annualYieldKwh - absoluteSelfConsumptionBaseKwh;
-  const gridFeedWithBatteryKwh = annualYieldKwh - absoluteSelfConsumptionWithBatteryKwh;
+  const selfConsumptionWithBattery = Math.min(85, selfConsumptionBase + efficiencyIncrease);
 
   const houseDemand = updatedHouse.verbruikKwh || 3500;
+  // Bounded direct self-consumption: direct self-consumption without battery cannot physically exceed household base demand
+  const absoluteSelfConsumptionBaseKwh = Math.min(houseDemand, (annualYieldKwh * selfConsumptionBase) / 100);
+  
+  // Preliminary estimate of total electricity demand after measures (house + WP + EV)
+  const estWpDemand = (tech.userAnnualWp !== undefined && tech.userAnnualWp !== null && Number(tech.userAnnualWp) > 0)
+    ? Number(tech.userAnnualWp)
+    : (tech.selectedWarmtepompType === 'All-Electric' ? (updatedHouse.verbruikM3 * 2.25) : 1800);
+  const estEvDemand = (tech.evKilometers !== undefined && tech.evKilometers > 0)
+    ? (tech.evKilometers / 100) * (tech.evVerbruik || 18) * ((tech.evThuisLaden || 60) / 100)
+    : 0;
+  const totalElectraDemandAfterMeasures = houseDemand + (tech.selectedWarmtepompModel ? estWpDemand : 0) + estEvDemand;
+
+  // With battery: bounded by 100% of PV yield and bounded by total annual electricity demand (geen fictieve overconsumptie)
+  const rawSelfConsumptionWithBatteryKwh = (annualYieldKwh * selfConsumptionWithBattery) / 100;
+  const absoluteSelfConsumptionWithBatteryKwh = Math.min(
+    annualYieldKwh,
+    Math.min(totalElectraDemandAfterMeasures, rawSelfConsumptionWithBatteryKwh)
+  );
+
+  const gridFeedBaseKwh = Math.max(0, annualYieldKwh - absoluteSelfConsumptionBaseKwh);
+  const gridFeedWithBatteryKwh = Math.max(0, annualYieldKwh - absoluteSelfConsumptionWithBatteryKwh);
+
   const saldeerdKwh = Math.min(annualYieldKwh, houseDemand);
   const surplusKwh = Math.max(0, annualYieldKwh - saldeerdKwh);
   
@@ -802,8 +819,10 @@ export function calculateAll(
   const evSavingsEuro = Math.round(evSolarChargingSavingsEuro + evGridChargingSavingsEuro);
 
   const actualHomeChargedKwh = chosenEvSolarCoverageKwh + chosenEvGridImportKwh;
-  const ereRevenueEuro = Math.round(actualHomeChargedKwh * 0.12);
-  const totalEvSavingsEuro = evSavingsEuro + ereRevenueEuro;
+  // Gecorrigeerd conform kritische praktijkaudit: geen fictieve wettelijke ERE/HBE-vergoeding voor particuliere laadpalen.
+  // Het voordeel is zuiver gebaseerd op het reële verschil tussen openbaar laden (€0,50/kWh) en thuistarief.
+  const ereRevenueEuro = 0;
+  const totalEvSavingsEuro = evSavingsEuro;
 
   let laadpaalInvestment = 1200;
   if (tech.laadpaalStatus === 'bestaand') {
@@ -938,38 +957,47 @@ export function calculateAll(
   // 1. Hybride option (or Lucht-lucht Airco)
   const hybridNet = hybridBruto - hybridSubsidy;
   const hybridGasSaved = remainingGasM3 * (selectedModel === 'LuchtLucht' ? 0.55 : 0.75);
-  const hybridGasSavingEuro = hybridGasSaved * gasPrijs;
+  
+  const isVastContract = (tech.typeContract || 'Vast') === 'Vast';
+  const effectiveGasTarief = (tech.vastGasTarief !== undefined && tech.vastGasTarief > 0)
+    ? tech.vastGasTarief
+    : gasPrijs;
+
+  const effectiveElecTarief = (isVastContract && tech.vastTarief !== undefined && tech.vastTarief > 0)
+    ? tech.vastTarief
+    : (!isVastContract && tech.dynamischStroomTarief !== undefined && tech.dynamischStroomTarief > 0)
+      ? tech.dynamischStroomTarief
+      : (updatedHouse.elektraPrijs || 0.35);
+
+  const effectiveTerugleverVergoeding = (tech.vastTerugleverVergoeding !== undefined)
+    ? tech.vastTerugleverVergoeding
+    : 0.055;
+
+  const hybridGasSavingEuro = hybridGasSaved * effectiveGasTarief;
   
   // Use user overridden annual heat pump electricity consumption if active and this is a Hybrid
   const hybridElecUsed = (tech.userAnnualWp !== undefined && tech.userAnnualWp !== null && Number(tech.userAnnualWp) > 0 && selectedType !== 'All-Electric')
     ? Number(tech.userAnnualWp)
     : hybridGasSaved * hybridCOPFactor;
   
-  const isVastContract = (tech.typeContract || 'Vast') === 'Vast';
   const gridFeedAvailableForHybridWp = Math.max(0, gridFeedBaseKwh - evSolarCoverageBaseKwh);
   
   let hybridSolarCoverage = 0;
   let hybridGridImport = 0;
   let hybridElecCostEuro = 0;
 
-  if (isVastContract) {
-    // Onder de salderingsregeling (Vast contract): jaarbalans 1-op-1
-    hybridSolarCoverage = Math.min(hybridElecUsed, gridFeedAvailableForHybridWp);
-    hybridGridImport = Math.max(0, hybridElecUsed - hybridSolarCoverage);
-    hybridElecCostEuro = Math.round(
-      (hybridGridImport * updatedHouse.elektraPrijs) + 
-      (hybridSolarCoverage * (tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : 0.05))
-    );
-  } else {
-    // Dynamisch contract: seizoensgebonden real-time dekking (ca. 25% direct/zomer/tapwater, tot 35% met accu)
-    const wpSolarFraction = tech.capaciteitAccu > 0 ? 0.35 : 0.25;
-    hybridSolarCoverage = Math.min(hybridElecUsed * wpSolarFraction, gridFeedAvailableForHybridWp);
-    hybridGridImport = Math.max(0, hybridElecUsed - hybridSolarCoverage);
-    hybridElecCostEuro = Math.round(
-      (hybridGridImport * dynInkoopTarief) + 
-      (hybridSolarCoverage * returnRateDynamisch)
-    );
-  }
+  // Seizoensgebonden realisme conform NTA 8800 praktijk (circa 20-25% zonne-energie, tot 35% met thuisaccu)
+  const wpSolarFractionHybrid = tech.capaciteitAccu > 0 ? 0.35 : 0.25;
+  hybridSolarCoverage = Math.min(hybridElecUsed * wpSolarFractionHybrid, gridFeedAvailableForHybridWp);
+  hybridGridImport = Math.max(0, hybridElecUsed - hybridSolarCoverage);
+
+  const hybridTariffNet = isVastContract ? effectiveElecTarief : dynInkoopTarief;
+  const hybridTariffPv = isVastContract ? effectiveTerugleverVergoeding : returnRateDynamisch;
+
+  hybridElecCostEuro = Math.round(
+    (hybridGridImport * hybridTariffNet) + 
+    (hybridSolarCoverage * hybridTariffPv)
+  );
 
   const hybridNetSavings = Math.max(0, Math.round(hybridGasSavingEuro - hybridElecCostEuro));
   const hybridTvt = hybridNetSavings > 0 ? hybridNet / hybridNetSavings : 99;
@@ -983,7 +1011,7 @@ export function calculateAll(
   // 2. All-Electric option
   const aeNet = aeBruto - aeSubsidy;
   const aeGasSaved = remainingGasM3;
-  const aeGasSavingEuro = aeGasSaved * gasPrijs;
+  const aeGasSavingEuro = aeGasSaved * effectiveGasTarief;
 
   // Use user overridden annual heat pump electricity consumption if active and this is All-Electric
   const aeElecUsed = (tech.userAnnualWp !== undefined && tech.userAnnualWp !== null && Number(tech.userAnnualWp) > 0 && selectedType === 'All-Electric')
@@ -996,22 +1024,20 @@ export function calculateAll(
   let aeGridImport = 0;
   let aeElecCostEuro = 0;
 
-  if (isVastContract) {
-    aeSolarCoverage = Math.min(aeElecUsed, gridFeedAvailableForAeWp);
-    aeGridImport = Math.max(0, aeElecUsed - aeSolarCoverage);
-    aeElecCostEuro = Math.round(
-      (aeGridImport * updatedHouse.elektraPrijs) + 
-      (aeSolarCoverage * (tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : 0.05))
-    );
-  } else {
-    const wpSolarFraction = tech.capaciteitAccu > 0 ? 0.35 : 0.25;
-    aeSolarCoverage = Math.min(aeElecUsed * wpSolarFraction, gridFeedAvailableForAeWp);
-    aeGridImport = Math.max(0, aeElecUsed - aeSolarCoverage);
-    aeElecCostEuro = Math.round(
-      (aeGridImport * dynInkoopTarief) + 
-      (aeSolarCoverage * returnRateDynamisch)
-    );
-  }
+  // Seizoensgebonden realisme conform NTA 8800: 75% van de warmtevraag valt in de donkere wintermaanden (nov-feb).
+  // Hierdoor kan zonnestroom op jaarbasis slechts circa 20-25% van het warmtepompverbruik direct dekken (tot 35% met thuisaccu).
+  // De resterende ~75% wordt altijd als netimport afgenomen. Dit voorkomt onrealistische 5-7 jaar claims zonder warmteverliesberekening.
+  const wpSolarFraction = tech.capaciteitAccu > 0 ? 0.35 : 0.25;
+  aeSolarCoverage = Math.min(aeElecUsed * wpSolarFraction, gridFeedAvailableForAeWp);
+  aeGridImport = Math.max(0, aeElecUsed - aeSolarCoverage);
+
+  const aeTariffNet = isVastContract ? effectiveElecTarief : dynInkoopTarief;
+  const aeTariffPv = isVastContract ? effectiveTerugleverVergoeding : returnRateDynamisch;
+
+  aeElecCostEuro = Math.round(
+    (aeGridImport * aeTariffNet) + 
+    (aeSolarCoverage * aeTariffPv)
+  );
 
   const aeFixedGasSaving = (verbruikM3 > 0 || remainingGasM3 > 0) ? 280 : 0; // Complete removal of gas connection saves ~€280/year in vastrecht
   const aeNetSavings = Math.max(0, Math.round(aeGasSavingEuro + aeFixedGasSaving - aeElecCostEuro));

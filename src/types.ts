@@ -69,8 +69,18 @@ export interface TechData {
   capaciteitAccu: number; // kWh
   omzettingsverliezen: number; // % (0-100)
   batteryStatus?: 'nieuw' | 'bestaand'; // 'nieuw' = include investment; 'bestaand' = already installed (€0 investment)
-  typeContract: 'Vast' | 'Dynamisch';
-  dynamicProvider?: 'Zonneplan' | 'Tibber' | 'Frank' | 'Anwb';
+  baselineTypeContract?: 'Vast' | 'Dynamisch'; // Contract type for baseline / 0-meting (default 'Vast')
+  baselineFixedProvider?: 'Essent' | 'Vattenfall' | 'Eneco' | 'Greenchoice' | 'Custom';
+  baselineDynamicProvider?: 'Zonneplan' | 'Tibber' | 'Frank' | 'Anwb' | 'Custom';
+  baselineVastTarief?: number;
+  baselineGasTarief?: number;
+  baselineDynamischStroomTarief?: number;
+  baselineDynamischTerugleverTarief?: number;
+  typeContract: 'Vast' | 'Dynamisch'; // Contract type for post-verduurzaming (future)
+  fixedProvider?: 'Essent' | 'Vattenfall' | 'Eneco' | 'Greenchoice' | 'Custom';
+  dynamicProvider?: 'Zonneplan' | 'Tibber' | 'Frank' | 'Anwb' | 'Custom';
+  vastTarief?: number;
+  vastGasTarief?: number;
   vastTerugleverkosten?: number; // €/kWh terugleverkosten bij vast contract (standaard € 0.11/kWh)
   vastTerugleverVergoeding?: number; // €/kWh terugleververgoeding overschot na salderen (standaard € 0.05/kWh)
   dynamischStroomTarief?: number; // €/kWh gemiddeld dynamisch inkooptarief (standaard € 0.25/kWh)

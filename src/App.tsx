@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { calculateAll, getHeatpumpCopFactor } from './utils/calculator';
 import { ResidentData, HouseData, InsulationData, TechData } from './types';
+import { TOP4_FIXED_PROVIDERS, TOP4_DYNAMIC_PROVIDERS, getFixedProvider, getDynamicProvider } from './utils/energyProviders';
 import InputForm from './components/InputForm';
 import AdviceReport from './components/AdviceReport';
 import HeatpumpSolarChart from './components/HeatpumpSolarChart';
@@ -84,7 +85,11 @@ const defaultTech: TechData = {
   capaciteitAccu: 0,
   omzettingsverliezen: 20,
   pvCurtailmentMode: true,
+  baselineTypeContract: 'Vast',
+  baselineFixedProvider: 'Essent',
+  baselineDynamicProvider: 'Zonneplan',
   typeContract: 'Vast',
+  fixedProvider: 'Essent',
   dynamicProvider: 'Zonneplan',
   evKilometers: 15000,
   evVerbruik: 18,
@@ -306,8 +311,6 @@ export default function App() {
     const gPrice = house.gasPrijs || 1.50;
     const ePrice = house.elektraPrijs || 0.35;
     const currentGasM3 = house.verbruikM3 || 0;
-    const currentGasYr = Math.round(currentGasM3 * gPrice);
-    const currentGasMth = Math.round(currentGasYr / 12);
     const houseKwh = house.verbruikKwh || 0;
 
     const totalGasSavingsM3 = calculation.measures.reduce((s, m) => s + m.savingM3, 0);
@@ -348,15 +351,41 @@ export default function App() {
       postAddElektraKwh = 0;
     }
 
-    const postGasYr = Math.round(postGasM3 * gPrice);
+    const baselineIsVast = (tech.baselineTypeContract || 'Vast') === 'Vast';
+    const postIsVast = (tech.typeContract || 'Vast') === 'Vast';
+
+    const baselineFixed = getFixedProvider(tech.baselineFixedProvider || 'Essent');
+    const baselineDynamic = getDynamicProvider(tech.baselineDynamicProvider || 'Zonneplan');
+
+    const baselineVastTarief = tech.baselineVastTarief !== undefined ? tech.baselineVastTarief : (tech.baselineFixedProvider ? baselineFixed.stroomTarief : ePrice);
+    const baselineGasTarief = tech.baselineGasTarief !== undefined ? tech.baselineGasTarief : (tech.baselineFixedProvider ? baselineFixed.gasTarief : gPrice);
+    const baselineVastTerugleverkosten = baselineFixed.terugleverkosten;
+    const baselineVastTerugleverVergoeding = baselineFixed.terugleverVergoeding;
+
+    const baselineDynInkoopTarief = tech.baselineDynamischStroomTarief !== undefined ? tech.baselineDynamischStroomTarief : baselineDynamic.stroomInkoop;
+    const baselineDynTerugleverTarief = tech.baselineDynamischTerugleverTarief !== undefined ? tech.baselineDynamischTerugleverTarief : baselineDynamic.stroomTeruglever;
+    const baselineDynGasTarief = baselineDynamic.gasTarief;
+
+    const currentEffectiveGasTarief = baselineIsVast ? baselineGasTarief : baselineDynGasTarief;
+    const currentGasYr = Math.round(currentGasM3 * currentEffectiveGasTarief);
+    const currentGasMth = Math.round(currentGasYr / 12);
+
+    const postFixed = getFixedProvider(tech.fixedProvider || 'Essent');
+    const postDynamic = getDynamicProvider(tech.dynamicProvider || 'Zonneplan');
+
+    const postVastTarief = tech.vastTarief !== undefined ? tech.vastTarief : (tech.fixedProvider ? postFixed.stroomTarief : ePrice);
+    const postGasTarief = tech.vastGasTarief !== undefined ? tech.vastGasTarief : (tech.fixedProvider ? postFixed.gasTarief : gPrice);
+    const postVastTerugleverkosten = tech.vastTerugleverkosten !== undefined ? tech.vastTerugleverkosten : postFixed.terugleverkosten;
+    const postVastTerugleverVergoeding = tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : postFixed.terugleverVergoeding;
+
+    const postDynInkoopTarief = tech.dynamischStroomTarief !== undefined ? tech.dynamischStroomTarief : postDynamic.stroomInkoop;
+    const postDynTerugleverTarief = tech.dynamischTerugleverTarief !== undefined ? tech.dynamischTerugleverTarief : postDynamic.stroomTeruglever;
+    const postDynGasTarief = postDynamic.gasTarief;
+
+    const postEffectiveGasTarief = postIsVast ? postGasTarief : postDynGasTarief;
+    const postGasYr = Math.round(postGasM3 * postEffectiveGasTarief);
     const postGasMth = Math.round(postGasYr / 12);
 
-    const isVast = tech.typeContract === 'Vast';
-    const vastTarief = ePrice;
-    const vastTerugleverkosten = tech.vastTerugleverkosten !== undefined ? tech.vastTerugleverkosten : 0.11;
-    const vastTerugleverVergoeding = tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : 0.05;
-    const dynInkoopTarief = tech.dynamischStroomTarief !== undefined ? tech.dynamischStroomTarief : 0.25;
-    const dynTerugleverTarief = tech.dynamischTerugleverTarief !== undefined ? tech.dynamischTerugleverTarief : 0.09;
     const batteryCap = tech.capaciteitAccu || 0;
     const solarKwh = calculation.solar.annualYieldKwh || 0;
     const selfConsPct = calculation.solar.selfConsumptionWithBattery || 35;
@@ -379,9 +408,8 @@ export default function App() {
     const baselineGridImportKwh = Math.max(0, houseKwh - baselineDirectSelfKwh);
 
     let baselineBatteryTradingYield = 0;
-    if (isBaselineBatteryBestaand && batteryCap > 0 && tech.typeContract === 'Dynamisch' && tech.batteryGridTrading !== false) {
-      const provider = tech.dynamicProvider || 'Zonneplan';
-      const baseRatePerKwh = provider === 'Zonneplan' ? 38.25 : provider === 'Frank' ? 31.5 : provider === 'Tibber' ? 29.25 : provider === 'Anwb' ? 27.00 : 24.75;
+    if (isBaselineBatteryBestaand && batteryCap > 0 && !baselineIsVast && tech.batteryGridTrading !== false) {
+      const baseRatePerKwh = baselineDynamic.batteryTradingYieldPerKwh;
       const solarStorageShare = baselineSolarKwh > 0 ? Math.min(0.45, (baselineSolarKwh / (batteryCap * 600))) : 0;
       const correctedRatePerKwh = baseRatePerKwh * (1 - solarStorageShare * 0.35);
       baselineBatteryTradingYield = batteryCap * correctedRatePerKwh;
@@ -389,16 +417,16 @@ export default function App() {
 
     let currentElektraYr = 0;
     if (isBaselineSolarBestaand) {
-      if (isVast) {
+      if (baselineIsVast) {
         const baseSaldeerd = Math.min(houseKwh, baselineSolarKwh);
         const baseSurplus = Math.max(0, baselineSolarKwh - houseKwh);
         const baseImportAfterSaldering = Math.max(0, houseKwh - baselineSolarKwh);
-        currentElektraYr = Math.round((baseImportAfterSaldering * vastTarief) + (baselineFeedInKwh * vastTerugleverkosten) - (baseSurplus * vastTerugleverVergoeding));
+        currentElektraYr = Math.round((baseImportAfterSaldering * baselineVastTarief) + (baselineFeedInKwh * baselineVastTerugleverkosten) - (baseSurplus * baselineVastTerugleverVergoeding));
       } else {
-        currentElektraYr = Math.round((baselineGridImportKwh * dynInkoopTarief) - (baselineFeedInKwh * dynTerugleverTarief) - baselineBatteryTradingYield);
+        currentElektraYr = Math.round((baselineGridImportKwh * baselineDynInkoopTarief) - (baselineFeedInKwh * baselineDynTerugleverTarief) - baselineBatteryTradingYield);
       }
     } else {
-      currentElektraYr = Math.round(isVast ? (houseKwh * vastTarief) : ((houseKwh * dynInkoopTarief) - baselineBatteryTradingYield));
+      currentElektraYr = Math.round(baselineIsVast ? (houseKwh * baselineVastTarief) : ((houseKwh * baselineDynInkoopTarief) - baselineBatteryTradingYield));
     }
     const currentElektraMth = Math.round(currentElektraYr / 12);
     const currentTotalYr = currentGasYr + currentElektraYr;
@@ -408,9 +436,8 @@ export default function App() {
 
     // Grid trading or arbitrage yield if enabled and dynamic contract selected
     let batteryTradingYield = 0;
-    if (batteryCap > 0 && tech.typeContract === 'Dynamisch' && tech.batteryGridTrading !== false) {
-      const provider = tech.dynamicProvider || 'Zonneplan';
-      const baseRatePerKwh = provider === 'Zonneplan' ? 38.25 : provider === 'Frank' ? 31.5 : provider === 'Tibber' ? 29.25 : provider === 'Anwb' ? 27.00 : 24.75;
+    if (batteryCap > 0 && !postIsVast && tech.batteryGridTrading !== false) {
+      const baseRatePerKwh = postDynamic.batteryTradingYieldPerKwh;
       const solarStorageShare = solarKwh > 0 ? Math.min(0.45, (solarKwh / (batteryCap * 600))) : 0;
       const correctedRatePerKwh = baseRatePerKwh * (1 - solarStorageShare * 0.35);
       batteryTradingYield = batteryCap * correctedRatePerKwh;
@@ -427,7 +454,7 @@ export default function App() {
     let postGridImportKwh = 0;
     let postElektraYr = 0;
 
-    if (isVast) {
+    if (postIsVast) {
       // VAST CONTRACT MET SALDERINGSREGELING (Jaarbalans 1-op-1)
       const postSaldeerd = Math.min(solarKwh, postHouseKwh);
       const postSurplus = Math.max(0, solarKwh - postHouseKwh);
@@ -438,9 +465,9 @@ export default function App() {
       postGridImportKwh = postImportAfterSaldering;
 
       postElektraYr = Math.round(
-        (postImportAfterSaldering * vastTarief) + 
-        (postFeedInKwh * vastTerugleverkosten) - 
-        (postSurplus * vastTerugleverVergoeding)
+        (postImportAfterSaldering * postVastTarief) + 
+        (postFeedInKwh * postVastTerugleverkosten) - 
+        (postSurplus * postVastTerugleverVergoeding)
       );
     } else {
       // DYNAMISCH CONTRACT (Uur-/Seizoensbasis zonder jaarsaldering)
@@ -470,16 +497,18 @@ export default function App() {
       postGridImportKwh = baseGridImport + wpGridImport + ((isLpBestaand || (tech.evKilometers || 0) > 0) ? evGridImport : 0);
 
       postElektraYr = Math.round(
-        (postGridImportKwh * dynInkoopTarief) - 
-        (postFeedInKwh * dynTerugleverTarief) - 
+        (postGridImportKwh * postDynInkoopTarief) - 
+        (postFeedInKwh * postDynTerugleverTarief) - 
         batteryTradingYield
       );
     }
     const postElektraMth = Math.round(postElektraYr / 12);
 
+    const isGasloos = postGasM3 === 0 && (house.verbruikM3 || 0) > 0;
+    const fixedGasSaving = (isGasloos && !isBaselineWpBestaand) ? 280 : 0;
     const postTotalYr = postGasYr + postElektraYr;
     const postTotalMth = Math.round(postTotalYr / 12);
-    const totalJaarbesparing = currentTotalYr - postTotalYr;
+    const totalJaarbesparing = currentTotalYr - postTotalYr + fixedGasSaving;
 
     const presentBaselineItems: string[] = [];
     if (isBaselineWpBestaand) {
@@ -570,23 +599,29 @@ export default function App() {
       ? 'Na Verduurzaming (Geen nieuwe maatregelen geselecteerd)'
       : `Na Verduurzaming (Met ${presentVerduurzamingItems.join(' + ')})`;
 
+    const baselineProviderName = baselineIsVast ? (tech.baselineFixedProvider || 'Essent') : (tech.baselineDynamicProvider || 'Zonneplan');
+    const postProviderName = postIsVast ? (tech.fixedProvider || 'Essent') : (tech.dynamicProvider || 'Zonneplan');
+    const baselineContractSubtle = `${baselineIsVast ? 'vast contract' : 'dynamisch contract'} • ${baselineProviderName}`;
+    const postContractSubtle = `${postIsVast ? 'vast contract' : 'dynamisch contract'} • ${postProviderName}`;
+
     const liveRekenoverzichtData = [
       { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Registratiecode", Waarde: resident.registratiecode || 'PM-CONCEPT', Details: "" },
       { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Woningadres", Waarde: `${resident.straat || ''} ${resident.huisnummer || ''}, ${resident.postcode || ''} ${resident.plaats || ''}`.trim(), Details: "" },
       { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Woningtype & Label", Waarde: `${house.soortWoning || 'Hoekwoning'} (Label ${house.energielabel || 'C'})`, Details: "" },
       { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Berekend Stookgedrag", Waarde: `${calculation.house.stookgedragBerekend || 'Normaal'} (${(calculation.house.stookgedragFactor || 1.0).toFixed(1)}x factor)`, Details: "" },
-      { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Contracttype", Waarde: `${tech.typeContract || 'Vast'}${tech.typeContract === 'Dynamisch' ? ` (${tech.dynamicProvider || 'Zonneplan'})` : ''}`, Details: "" },
+      { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Contract 0-meting (Huidig)", Waarde: `${tech.baselineTypeContract || 'Vast'} (${baselineProviderName})`, Details: "" },
+      { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Contract Na Verduurzaming", Waarde: `${tech.typeContract || 'Vast'} (${postProviderName})`, Details: "" },
       
       { Categorie: "", Onderdeel: "", Waarde: "", Details: "" },
       { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: "SITUATIE", Waarde: "JAARKOSTEN (€)", Details: "MAANDKOSTEN (€)" },
-      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: `${baselineSituatieLabel} - Gas`, Waarde: `€ ${currentGasYr}`, Details: `€ ${currentGasMth} / mnd (${currentGasM3} m³ à €${gPrice.toFixed(2)})` },
-      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: `${baselineSituatieLabel} - Elektra`, Waarde: currentElektraYr < 0 ? `-€ ${Math.abs(currentElektraYr)} (opbrengst)` : `€ ${currentElektraYr}`, Details: `€ ${currentElektraMth} / mnd (${houseKwh} kWh stroomvraag)` },
-      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: `${baselineSituatieLabel} - TOTAAL`, Waarde: currentTotalYr < 0 ? `-€ ${Math.abs(currentTotalYr)} (netto opbrengst)` : `€ ${currentTotalYr}`, Details: `€ ${currentTotalMth} / mnd` },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: `${baselineSituatieLabel} (${baselineContractSubtle}) - Gas`, Waarde: `€ ${currentGasYr}`, Details: `€ ${currentGasMth} / mnd (${currentGasM3} m³ à €${gPrice.toFixed(2)})` },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: `${baselineSituatieLabel} (${baselineContractSubtle}) - Elektra`, Waarde: currentElektraYr < 0 ? `-€ ${Math.abs(currentElektraYr)} (opbrengst)` : `€ ${currentElektraYr}`, Details: `€ ${currentElektraMth} / mnd (${houseKwh} kWh stroomvraag)` },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: `${baselineSituatieLabel} (${baselineContractSubtle}) - TOTAAL`, Waarde: currentTotalYr < 0 ? `-€ ${Math.abs(currentTotalYr)} (netto opbrengst)` : `€ ${currentTotalYr}`, Details: `€ ${currentTotalMth} / mnd` },
       
-      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: `${naVerduurzamingLabel} - Gas`, Waarde: postGasM3 === 0 ? "€ 0 (Gasloos)" : `€ ${postGasYr}`, Details: postGasM3 === 0 ? "0 m³ gas" : `€ ${postGasMth} / mnd (${postGasM3} m³)` },
-      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: `${naVerduurzamingLabel} - Elektra`, Waarde: postElektraYr < 0 ? `-€ ${Math.abs(postElektraYr)} (opbrengst)` : `€ ${postElektraYr}`, Details: `€ ${postElektraMth} / mnd (incl. zonnestroom, accu, WP & EV)` },
-      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: `${naVerduurzamingLabel} - TOTAAL`, Waarde: postTotalYr < 0 ? `-€ ${Math.abs(postTotalYr)} (opbrengst)` : `€ ${postTotalYr}`, Details: `€ ${postTotalMth} / mnd` },
-      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: "TOTALE NETTO JAARBESPARING", Waarde: `€ ${totalJaarbesparing} / jaar`, Details: `€ ${Math.round(totalJaarbesparing / 12)} / mnd voordeel` },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: `${naVerduurzamingLabel} (${postContractSubtle}) - Gas`, Waarde: postGasM3 === 0 ? "€ 0 (Gasloos)" : `€ ${postGasYr}`, Details: postGasM3 === 0 ? "0 m³ gas" : `€ ${postGasMth} / mnd (${postGasM3} m³)` },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: `${naVerduurzamingLabel} (${postContractSubtle}) - Elektra`, Waarde: postElektraYr < 0 ? `-€ ${Math.abs(postElektraYr)} (opbrengst)` : `€ ${postElektraYr}`, Details: `€ ${postElektraMth} / mnd (incl. zonnestroom, accu, WP & EV)` },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: `${naVerduurzamingLabel} (${postContractSubtle}) - TOTAAL`, Waarde: postTotalYr < 0 ? `-€ ${Math.abs(postTotalYr)} (opbrengst)` : `€ ${postTotalYr}`, Details: `€ ${postTotalMth} / mnd` },
+      { Categorie: "ENERGIEKOSTEN BALANS", Onderdeel: "TOTALE NETTO JAARBESPARING", Waarde: `€ ${totalJaarbesparing} / jaar`, Details: `€ ${Math.round(totalJaarbesparing / 12)} / mnd voordeel${fixedGasSaving > 0 ? ' (inclusief €280/jr besparing op vervallen gasaansluiting/vastrecht)' : ''}` },
 
       { Categorie: "", Onderdeel: "", Waarde: "", Details: "" },
       { Categorie: "STROOMBALANS & TERUGLEVERING (VÓÓR VS NA WARMTEPOMP)", Onderdeel: "📌 Uitgangspunt Rekenmodel", Waarde: "Gemeten/Berekende Teruglevering", Details: `De berekening gebruikt de bestaande teruglevering van ${Math.round(baselineFeedInKwh)} kWh als uitgangspunt. De warmtepomp is een extra verbruiker; PV en batterij worden niet opnieuw als aparte besparing opgeteld.` },
@@ -598,14 +633,14 @@ export default function App() {
       { Categorie: "STROOMBALANS & TERUGLEVERING (VÓÓR VS NA WARMTEPOMP)", Onderdeel: "6. Nieuwe Situatie: Resterende Teruglevering aan het net", Waarde: `${Math.round(postFeedInKwh)} kWh/jaar`, Details: `Daalt met ${Math.max(0, Math.round(baselineFeedInKwh - postFeedInKwh))} kWh door inzet voor de warmtepomp` },
       { Categorie: "STROOMBALANS & TERUGLEVERING (VÓÓR VS NA WARMTEPOMP)", Onderdeel: "7. Nieuwe Situatie: Nieuwe Stroomrekening", Waarde: postElektraYr < 0 ? `-€ ${Math.abs(postElektraYr)} (opbrengst)` : `€ ${postElektraYr} / jr`, Details: `€ ${postElektraMth} / mnd` },
       { Categorie: "STROOMBALANS & TERUGLEVERING (VÓÓR VS NA WARMTEPOMP)", Onderdeel: "8. Netto effect Warmtepomp op Elektra", Waarde: (postElektraYr - currentElektraYr) > 0 ? `€ + ${postElektraYr - currentElektraYr} / jr (extra stroomkosten)` : `€ ${postElektraYr - currentElektraYr} / jr (minder opbrengst)`, Details: "Verschil in stroomrekening" },
-      { Categorie: "STROOMBALANS & TERUGLEVERING (VÓÓR VS NA WARMTEPOMP)", Onderdeel: "9. Netto effect Warmtepomp op Gas", Waarde: `€ - ${currentGasYr - postGasYr} / jr`, Details: `${Math.round(currentGasM3 - postGasM3)} m³ gas uitgespaard` },
-      { Categorie: "STROOMBALANS & TERUGLEVERING (VÓÓR VS NA WARMTEPOMP)", Onderdeel: "10. Netto Woningvoordeel Warmtepomp", Waarde: `€ ${Math.round((currentGasYr - postGasYr) - (postElektraYr - currentElektraYr))} / jaar`, Details: "Gasbesparing minus extra elektra = werkelijke netto jaarwinst" },
+      { Categorie: "STROOMBALANS & TERUGLEVERING (VÓÓR VS NA WARMTEPOMP)", Onderdeel: "9. Netto effect Warmtepomp op Gas", Waarde: fixedGasSaving > 0 ? `€ - ${currentGasYr - postGasYr + fixedGasSaving} / jr (incl. €${fixedGasSaving} vastrecht)` : `€ - ${currentGasYr - postGasYr} / jr`, Details: `${Math.round(currentGasM3 - postGasM3)} m³ gas uitgespaard${fixedGasSaving > 0 ? ' + vervallen vastrecht gasmeter' : ''}` },
+      { Categorie: "STROOMBALANS & TERUGLEVERING (VÓÓR VS NA WARMTEPOMP)", Onderdeel: "10. Netto Woningvoordeel Warmtepomp", Waarde: `€ ${chosenHpOptionForSheet0 ? Math.round(chosenHpOptionForSheet0.netSavingsEuro) : Math.round((currentGasYr - postGasYr) + fixedGasSaving - (postElektraYr - currentElektraYr))} / jaar`, Details: "Gasbesparing (incl. evt. vastrecht) minus extra elektra = werkelijke netto jaarwinst" },
 
       { Categorie: "", Onderdeel: "", Waarde: "", Details: "" },
       { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "🏠 Isolatiebesparing", Waarde: `€ ${Math.round(calculation.totals.savingsEuro || 0)} / jaar`, Details: `${Math.round(totalGasSavingsM3)} m³ gasbesparing` },
       { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "☀️ Zonnepanelen Opbrengst", Waarde: `€ ${Math.round((solarKwh * ePrice))} / jaar`, Details: `${tech.aantalZonnepanelen || 0} panelen (~${Math.round(solarKwh)} kWh/jr opbrengst)${isSolarBestaand ? ' [Reeds aanwezig]' : ''}` },
       { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "🔋 Thuisbatterij Output", Waarde: `€ ${Math.round(batteryTradingYield)} / jaar`, Details: `${batteryCap} kWh accu (${Math.round(selfConsPct)}% eigenverbruik + handelsrendement)${isBatteryBestaand ? ' [Reeds aanwezig]' : ''}` },
-      { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "♨️ Warmtepomp Rendement", Waarde: `€ ${chosenHpOptionForSheet0 ? Math.round(chosenHpOptionForSheet0.netSavingsEuro) : Math.round(Math.max(0, (currentGasYr - postGasYr) - Math.round(postAddElektraKwh * ePrice)))} / jaar`, Details: `${isVolledigWp ? 'All-Electric' : isHybrideWp ? 'Hybride' : 'Geen'} (uitgespaard gas minus extra stroom)${isWpBestaand ? ' [Reeds aanwezig]' : ''}` },
+      { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "♨️ Warmtepomp Rendement", Waarde: `€ ${chosenHpOptionForSheet0 ? Math.round(chosenHpOptionForSheet0.netSavingsEuro) : Math.round(Math.max(0, (currentGasYr - postGasYr) + fixedGasSaving - Math.round(postAddElektraKwh * ePrice)))} / jaar`, Details: `${isVolledigWp ? 'All-Electric' : isHybrideWp ? 'Hybride' : 'Geen'} (uitgespaard gas${fixedGasSaving > 0 ? ' + vastrecht' : ''} minus extra stroom)${isWpBestaand ? ' [Reeds aanwezig]' : ''}` },
       { Categorie: "BESPARINGSOPBOUW PER MAATREGEL", Onderdeel: "🚗 EV / Laadpaal Brandstofverplaatsing", Waarde: `€ ${laadpaalSavings} / jaar`, Details: hasEv ? `${evKm} km/jr (besparing brandstof vs thuisstroom & ERE)${isLpBestaand ? ' [Reeds aanwezig]' : ''}` : 'Geen EV' },
 
       { Categorie: "", Onderdeel: "", Waarde: "", Details: "" },
@@ -908,9 +943,10 @@ export default function App() {
     hpLpData.push({});
     hpLpData.push({ Onderdeel: "STAP-VOOR-STAP WARMTEPOMP BEREKENING", Waarde: "", Details: "" });
 
+    const effectiveWpGasPrice = (selWpType === 'All-Electric' ? postEffectiveGasTarief : currentEffectiveGasTarief) || gPrice;
     const calculatedGasSavingsM3 = chosenHpOption ? Math.round(chosenHpOption.gasSavingsM3) : (selWpType === 'All-Electric' ? Math.round(remainingGasAfterInsulation) : Math.round(remainingGasAfterInsulation * 0.75));
-    const calculatedGasSavingsEuro = Math.round(calculatedGasSavingsM3 * gPrice);
-    const fixedGasSavingEuro = selWpType === 'All-Electric' ? 280 : 0;
+    const calculatedGasSavingsEuro = chosenHpOption ? Math.round(chosenHpOption.gasSavingsEuro) : Math.round(calculatedGasSavingsM3 * effectiveWpGasPrice);
+    const fixedGasSavingEuro = (selWpType === 'All-Electric' && (house.verbruikM3 || 0) > 0) ? 280 : 0;
 
     hpLpData.push({
       Onderdeel: "1. Verwachte Gasbesparing (m³)",
@@ -920,13 +956,13 @@ export default function App() {
     hpLpData.push({
       Onderdeel: "2. Financiële Besparing op Gas (€)",
       Waarde: `€ ${calculatedGasSavingsEuro} / jaar`,
-      Details: `Formule: ${calculatedGasSavingsM3} m³ × €${gPrice.toFixed(2)}/m³`
+      Details: `Formule: ${calculatedGasSavingsM3} m³ × €${effectiveWpGasPrice.toFixed(2)}/m³`
     });
     if (fixedGasSavingEuro > 0) {
       hpLpData.push({
         Onderdeel: "3. Besparing Vastrecht Gasaansluiting (€)",
         Waarde: `€ ${fixedGasSavingEuro} / jaar`,
-        Details: "Volledige verwijdering gasaansluiting & meter"
+        Details: "Volledige verwijdering gasaansluiting & meter (~€280/jaar)"
       });
     }
 
@@ -935,7 +971,7 @@ export default function App() {
     const calculatedAddElecKwh = chosenHpOption ? Math.round(chosenHpOption.elecIncreaseKwh) : Math.round(calculatedGasSavingsM3 * copFactor);
     const wpSolarCoverage = chosenHpOption ? Math.round(chosenHpOption.solarCoverageKwh) : 0;
     const wpGridImport = chosenHpOption ? Math.round(chosenHpOption.gridImportKwh) : calculatedAddElecKwh;
-    const calculatedElecCostEuro = chosenHpOption ? Math.round(chosenHpOption.elecCostEuro) : Math.round(calculatedAddElecKwh * (isVast ? vastTarief : dynInkoopTarief));
+    const calculatedElecCostEuro = chosenHpOption ? Math.round(chosenHpOption.elecCostEuro) : Math.round(calculatedAddElecKwh * (postIsVast ? postVastTarief : postDynInkoopTarief));
 
     hpLpData.push({
       Onderdeel: "4. Afgiftesysteem & SCOP Factor",
@@ -951,26 +987,26 @@ export default function App() {
     hpLpData.push({
       Onderdeel: "6. Zonnestroom Compensatie voor Warmtepomp",
       Waarde: `${wpSolarCoverage} kWh/jaar`,
-      Details: isVast
+      Details: postIsVast
         ? `Onder de salderingsregeling 1-op-1 verrekend met het beschikbare zonne-overschot (${wpSolarCoverage} kWh)`
         : `Real-time zonnestroom dekking (~25-35% in voorjaar/zomer/milde maanden voor o.a. tapwater)`
     });
     hpLpData.push({
       Onderdeel: "7. Netto Netimport voor Warmtepomp",
       Waarde: `${wpGridImport} kWh/jaar`,
-      Details: isVast
+      Details: postIsVast
         ? (wpGridImport === 0 ? "0 kWh netto import na jaarsaldering (volledig gedekt door overschot)" : `${wpGridImport} kWh netto stroomimport na saldering`)
         : `${wpGridImport} kWh import van het net in de donkere winter-/stookmaanden`
     });
     hpLpData.push({
       Onderdeel: "8. Extra Elektriciteitskosten Warmtepomp (€)",
       Waarde: `€ ${calculatedElecCostEuro} / jaar`,
-      Details: isVast
-        ? `Formule: ${wpGridImport} kWh import à €${vastTarief.toFixed(2)} + ${wpSolarCoverage} kWh gemiste teruglevering à €${vastTerugleverVergoeding.toFixed(2)}`
-        : `Formule: ${wpGridImport} kWh import à €${dynInkoopTarief.toFixed(2)} + ${wpSolarCoverage} kWh gemiste teruglevering à €${dynTerugleverTarief.toFixed(2)}`
+      Details: postIsVast
+        ? `Formule: ${wpGridImport} kWh import à €${postVastTarief.toFixed(2)} + ${wpSolarCoverage} kWh gemiste teruglevering à €${postVastTerugleverVergoeding.toFixed(2)}`
+        : `Formule: ${wpGridImport} kWh import à €${postDynInkoopTarief.toFixed(2)} + ${wpSolarCoverage} kWh gemiste teruglevering à €${postDynTerugleverTarief.toFixed(2)}`
     });
 
-    const calculatedNetSavingsEuro = Math.round(calculatedGasSavingsEuro + fixedGasSavingEuro - calculatedElecCostEuro);
+    const calculatedNetSavingsEuro = chosenHpOption ? Math.round(chosenHpOption.netSavingsEuro) : Math.round(calculatedGasSavingsEuro + fixedGasSavingEuro - calculatedElecCostEuro);
 
     hpLpData.push({
       Onderdeel: "9. Jaarlijkse NETTO Financiele Besparing Warmtepomp (€)",
@@ -981,7 +1017,7 @@ export default function App() {
     const hpBrutoInv = chosenHpOption ? Math.round(chosenHpOption.brutoInvestment) : (wpInv + wpIsde);
     const hpSubsidie = chosenHpOption ? Math.round(chosenHpOption.subsidy) : wpIsde;
     const hpNettoInv = chosenHpOption ? Math.round(chosenHpOption.netInvestment) : wpInv;
-    const hpTvt = calculatedNetSavingsEuro > 0 ? (hpNettoInv / calculatedNetSavingsEuro) : 99;
+    const hpTvt = chosenHpOption ? chosenHpOption.tvt : (calculatedNetSavingsEuro > 0 ? (hpNettoInv / calculatedNetSavingsEuro) : 99);
 
     hpLpData.push({
       Onderdeel: "10. Bruto Investeringskosten Warmtepomp",
@@ -1122,8 +1158,10 @@ export default function App() {
     });
     stroombalansData.push({
       Onderdeel: "14. Effect op Gasrekening",
-      Waarde: `€ - ${currentGasYr - postGasYr} / jaar (besparing)`,
-      Toelichting: `${Math.round(currentGasM3 - postGasM3)} m³ gas uitgespaard`
+      Waarde: fixedGasSaving > 0 
+        ? `€ - ${currentGasYr - postGasYr + fixedGasSaving} / jaar (besparing incl. €${fixedGasSaving} vastrecht)`
+        : `€ - ${currentGasYr - postGasYr} / jaar (besparing)`,
+      Toelichting: `${Math.round(currentGasM3 - postGasM3)} m³ gas uitgespaard${fixedGasSaving > 0 ? ' + vervallen vastrecht gasmeter' : ''}`
     });
     stroombalansData.push({
       Onderdeel: "15. NETTO JAARBESPARING WONING",
@@ -1196,7 +1234,7 @@ export default function App() {
               <Leaf className="w-8 h-8 fill-emerald-400/20" />
             </div>
             <div>
-              <h1 className="text-xl md:text-2xl font-bold tracking-tight">Energieplanner Peel en Maas</h1>
+              <h1 className="text-xl md:text-2xl font-bold tracking-tight">Energie planner Peel en Maas</h1>
               <p className="text-xs text-emerald-200/90 font-medium">
                 Onafhankelijk, lokaal en betrouwbaar berekenen en besparen
               </p>
@@ -1267,7 +1305,7 @@ export default function App() {
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
               <span className="bg-emerald-600 text-white text-xs w-5 h-5 rounded-full inline-flex items-center justify-center font-bold">2</span>
-              Energieplanner Peel en Maas - Totaalvoorstel &amp; Advies
+              Energie planner Peel en Maas - Totaalvoorstel &amp; Advies
             </h2>
             {calculation.addedMeasureForOptimization && (
               <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-full animate-pulse">
@@ -1355,7 +1393,7 @@ export default function App() {
       {/* Footer */}
       <footer className="bg-slate-900 text-slate-400 py-8 px-4 text-center text-xs mt-12 border-t border-slate-800">
         <div className="max-w-7xl mx-auto space-y-3">
-          <p>© 2026 Energieplanner Peel en Maas. Alle rechten voorbehouden.</p>
+          <p>© 2026 Energie planner Peel en Maas. Alle rechten voorbehouden.</p>
           <p className="max-w-2xl mx-auto text-slate-500 leading-relaxed font-normal">
             De opgestelde adviezen en subsidies zijn indicatief en gebaseerd op praktijkrichtlijnen, de gemeentelijke regelingen voor Peel en Maas en de landelijke ISDE-subsidieregels 2026. Er kunnen geen rechten worden ontleend aan de prognoses.
           </p>

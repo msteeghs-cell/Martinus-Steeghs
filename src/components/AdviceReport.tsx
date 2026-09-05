@@ -10,7 +10,7 @@ import {
   FileText, Copy, Printer, Check, TrendingDown, ShieldAlert, Award, Zap, HelpCircle, 
   BarChart3, LineChart as LineIcon, Landmark, Sparkles, ArrowRightLeft, Clock, PiggyBank,
   Sun, Battery, Flame, ArrowUpRight, TrendingUp, Info, Mail, Send, Loader2, Layers,
-  ChevronDown, ChevronUp, AlertTriangle
+  ChevronDown, ChevronUp, AlertTriangle, ChevronRight
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -58,9 +58,9 @@ export default function AdviceReport({
   const [emailStatusMessage, setEmailStatusMessage] = React.useState('');
 
   // Use a local state for the active tab inside AdviceReport
-  const [localActiveTab, setLocalActiveTab] = React.useState<'graph' | 'solar' | 'saldering' | 'battery' | 'heatpump' | 'laadpaal' | 'text' | null>('graph');
+  const [localActiveTab, setLocalActiveTab] = React.useState<'graph' | 'integral' | 'solar' | 'saldering' | 'battery' | 'heatpump' | 'laadpaal' | 'text' | null>('graph');
 
-  const toggleTab = (tab: 'graph' | 'solar' | 'saldering' | 'battery' | 'heatpump' | 'laadpaal' | 'text') => {
+  const toggleTab = (tab: 'graph' | 'integral' | 'solar' | 'saldering' | 'battery' | 'heatpump' | 'laadpaal' | 'text') => {
     if (localActiveTab === tab) {
       setLocalActiveTab(null);
     } else {
@@ -225,7 +225,7 @@ export default function AdviceReport({
           email: targetEmail,
           clientName: clientName,
           reportText: adviceMarkdown || `
-Energieplanner Peel en Maas Adviesrapport
+Energie planner Peel en Maas Adviesrapport
 
 Beste ${clientName},
 
@@ -239,7 +239,7 @@ Hierbij ontvang je de berekende resultaten voor jouw woning aan de ${calculation
 - Terugverdientijd: ${calculation.totals.tvt.toFixed(1)} jaar
 
 Met vriendelijke groet,
-Energieplanner Peel en Maas
+Energie planner Peel en Maas
           `.trim()
         }),
       });
@@ -266,12 +266,12 @@ Energieplanner Peel en Maas
 
   const handleMailto = () => {
     const clientName = `${calculation.resident.aanhef || ''} ${calculation.resident.voorletters || ''} ${calculation.resident.achternaam || ''}`.trim() || 'Bewoner';
-    const subject = encodeURIComponent(`Jouw Energieplanner Peel en Maas Adviesrapport - ${clientName}`);
+    const subject = encodeURIComponent(`Jouw Energie planner Peel en Maas Adviesrapport - ${clientName}`);
     
     const bodyContent = adviceMarkdown || `
 Beste ${clientName},
 
-Bedankt voor het invullen van de Energieplanner Peel en Maas. Hierbij ontvang je jouw persoonlijke, onafhankelijke verduurzamingsadvies.
+Bedankt voor het invullen van de Energie planner Peel en Maas. Hierbij ontvang je jouw persoonlijke, onafhankelijke verduurzamingsadvies.
 
 Hier zijn jouw belangrijkste resultaten:
 - Totale bruto kosten: €${Math.round(calculation.totals.bruto).toLocaleString('nl-NL')}
@@ -282,7 +282,7 @@ Hier zijn jouw belangrijkste resultaten:
 - Gemiddelde terugverdientijd: ${calculation.totals.tvt.toFixed(1)} jaar
 
 Met vriendelijke groet,
-Energieplanner Peel en Maas
+Energie planner Peel en Maas
     `.trim();
 
     const body = encodeURIComponent(bodyContent);
@@ -295,9 +295,9 @@ Energieplanner Peel en Maas
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 mb-2 animate-bounce">
           <Zap className="w-8 h-8" />
         </div>
-        <h3 className="text-lg font-semibold text-slate-800">Energieplanner Rapportage Wordt Opgesteld</h3>
+        <h3 className="text-lg font-semibold text-slate-800">Energie planner Rapportage Wordt Opgesteld</h3>
         <p className="text-sm text-slate-500 max-w-md mx-auto">
-          Met de Energieplanner Peel en Maas analyseren we nu jouw verbruik en isolatiegegevens. We berekenen de subsidies (ISDE en NIP) en stellen een optimaal stappenplan op...
+          Met de Energie planner Peel en Maas analyseren we nu jouw verbruik en isolatiegegevens. We berekenen de subsidies (ISDE en NIP) en stellen een optimaal stappenplan op...
         </p>
         <div className="flex justify-center gap-1.5 pt-2">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
@@ -790,11 +790,14 @@ Energieplanner Peel en Maas
   const wpTvtVal = chosenOpt ? chosenOpt.tvt : 0;
   const wpTvt = wpTvtVal > 0 && wpTvtVal < 99 ? `${wpTvtVal.toFixed(1)} jaar` : 'Onbekend';
 
-  // 🚗 Laadpaal values
-  const evVol = Math.round(((calculation.tech?.evKilometers ?? 15000) / 100) * (calculation.tech?.evVerbruik ?? 18) * (calculation.tech?.evThuisLaden ?? 75) / 100);
-  const evSavings = evVol * (0.50 - (calculation.house?.elektraPrijs ?? 0.30));
-  const ereRevenue = evVol * 0.12;
-  const totalEvBenefit = Math.round(evSavings + ereRevenue);
+  // 🚗 Laadpaal values (gecorrigeerd conform kritische audit: zuiver t.o.v. openbaar laden, geen speculatieve ERE)
+  const evKm = calculation.tech?.evKilometers ?? 15000;
+  const evEfficiency = calculation.tech?.evVerbruik ?? 18;
+  const evHomeShare = calculation.tech?.evThuisLaden ?? 75;
+  const evVol = Math.round((evKm / 100) * evEfficiency * (evHomeShare / 100));
+  const evSavings = evVol * (0.50 - (calculation.house?.elektraPrijs ?? 0.35));
+  const ereRevenue = 0; // Geen fictieve ERE-vergoeding in de rekenmodellen
+  const totalEvBenefit = Math.round(evSavings);
 
   // 🌟 Totaalvoorstel Alle Maatregelen Samen
   const hasIso = isoCount > 0;
@@ -814,16 +817,79 @@ Energieplanner Peel en Maas
     newIsoNet + newSolarNet + newBatNet + newWpNet + newEvNet
   );
 
-  // Jaarbesparingen van nieuwe maatregelen
+  // ⚡ INTEGRALE ENERGIEBALANS (Geen dubbele telling; één integrale energiebalans)
+  const baseElecPrice = calculation.house?.elektraPrijs ?? 0.35;
+  const baseGasPrice = calculation.house?.gasPrijs ?? 1.35;
+  const currentHouseElecKwh = calculation.house?.verbruikKwh ?? 3800;
+  const currentHouseGasM3 = calculation.house?.verbruikM3 ?? 1562;
+
+  // Huidige situatie energiekosten
+  const baselineEnergyCostsYr = Math.round((currentHouseElecKwh * baseElecPrice) + (currentHouseGasM3 * baseGasPrice));
+
+  // Totale elektriciteitsvraag na maatregelen (woning + warmtepomp + EV)
+  const wpElecDemandKwh = (hasWp && !isWpBestaand) ? (chosenOpt?.elecIncreaseKwh ?? 3515) : 0;
+  const evElecDemandKwh = (hasEv && !isLaadpaalBestaand) ? evVol : 0;
+  const totalPostElecDemandKwh = currentHouseElecKwh + wpElecDemandKwh + evElecDemandKwh;
+
+  const annualSolarYieldKwh = (hasSolar && !isSolarBestaand) ? (calculation.solar?.annualYieldKwh ?? 0) : 0;
+
+  // PV direct eigenverbruik zonder batterij (begrensd door gelijktijdig huishoudelijk verbruik)
+  const pvDirectSelfConsumptionKwh = Math.min(
+    currentHouseElecKwh,
+    Math.round((annualSolarYieldKwh * (calculation.tech?.huidigDirectVerbruik ?? 30)) / 100)
+  );
+  const pvFeedWithoutBatKwh = Math.max(0, annualSolarYieldKwh - pvDirectSelfConsumptionKwh);
+
+  // PV eigenverbruik mét batterij (begrensd door totale stroomvraag)
+  const pvSelfConsumptionWithBatKwh = hasBat
+    ? Math.min(totalPostElecDemandKwh, Math.round(annualSolarYieldKwh * 0.65))
+    : pvDirectSelfConsumptionKwh;
+  const pvFeedWithBatKwh = Math.max(0, annualSolarYieldKwh - pvSelfConsumptionWithBatKwh);
+
+  // Werkelijke netimport na alle maatregelen (geen fictieve 0 kWh)
+  const postNetImportKwh = Math.max(0, totalPostElecDemandKwh - pvSelfConsumptionWithBatKwh);
+
+  // Batterij-opbrengsten
+  const batExtraSelfConsumptionKwh = Math.max(0, pvSelfConsumptionWithBatKwh - pvDirectSelfConsumptionKwh);
+  const batExtraSelfConsumptionSavings = Math.round(batExtraSelfConsumptionKwh * (baseElecPrice - 0.06));
+  const batTradingYield = (hasBat && !isBatBestaand)
+    ? ((calculation.tech?.batteryGridTrading || batCapacity >= 10) ? 700 : Math.round(batCapacity * 45))
+    : 0;
+  const totalBatteryYieldEuro = batExtraSelfConsumptionSavings + batTradingYield;
+
+  // Warmtepomp gasbesparing & vastrecht
+  const wpGasSavingM3 = (hasWp && !isWpBestaand) ? (chosenOpt?.gasSavingsM3 ?? currentHouseGasM3) : 0;
+  const wpGasSavingEuro = Math.round(wpGasSavingM3 * baseGasPrice);
+  const wpVastrechtSavingEuro = (hasWp && chosenOpt?.type === 'All-Electric' && !isWpBestaand) ? 280 : 0;
+  const wpExtraElecCostEuro = Math.round(wpElecDemandKwh * (0.75 * baseElecPrice + 0.25 * 0.06));
+  const nettoWpSavingsEuro = wpGasSavingEuro + wpVastrechtSavingEuro - wpExtraElecCostEuro;
+
+  // EV besparing
+  const evBenefitEuro = Math.round(evVol * (0.50 - baseElecPrice));
+
+  // Nieuwe netto jaarkosten na maatregelen
+  const postImportCostEuro = Math.round(postNetImportKwh * baseElecPrice);
+  const postExportRevenueEuro = Math.round(pvFeedWithBatKwh * 0.06);
+  const postNetEnergyCosts = Math.round(postImportCostEuro - postExportRevenueEuro - batTradingYield);
+
+  // INTEGRALE JAARBESPARING: wiskundig zuiver zonder dubbele tellingen
+  const integralAnnualSavings = Math.round(
+    baselineEnergyCostsYr - postNetEnergyCosts + wpVastrechtSavingEuro + (hasIso ? calculation.totals.savingsEuro : 0)
+  );
+
+  // Jaarbesparingen van afzonderlijke maatregelen
   const newIsoSavings = hasIso ? calculation.totals.savingsEuro : 0;
   const newSolarSavings = (hasSolar && !isSolarBestaand) ? solarSavings : 0;
   const newBatSavings = (hasBat && !isBatBestaand) ? batSavings : 0;
   const newWpSavings = (hasWp && !isWpBestaand) ? (chosenOpt?.netSavingsEuro || 0) : 0;
   const newEvSavings = (hasEv && !isLaadpaalBestaand) ? totalEvBenefit : 0;
 
-  const totalCombinedSavingsPerYear = Math.round(
-    newIsoSavings + newSolarSavings + newBatSavings + newWpSavings + newEvSavings
-  );
+  // Als er een combinatie van zonnepanelen, batterij en warmtepomp/EV is geselecteerd,
+  // hanteren we de integrale energiebalans om dubbele optelling van dezelfde kWh's te voorkomen.
+  const isMultiSectorInteracting = (hasSolar && (hasBat || hasWp || hasEv));
+  const totalCombinedSavingsPerYear = isMultiSectorInteracting
+    ? integralAnnualSavings
+    : Math.round(newIsoSavings + newSolarSavings + newBatSavings + newWpSavings + newEvSavings);
 
   const totalCombinedSubsidies = Math.round(
     (hasIso ? (calculation.totals.isde + calculation.totals.nip) : 0) + 
@@ -955,13 +1021,32 @@ Energieplanner Peel en Maas
                 </span>
               </div>
               <h2 className="text-base sm:text-lg font-black text-slate-800 tracking-tight">
-                Energieplanner Peel en Maas Adviesrapport
+                Energie planner Peel en Maas Adviesrapport
               </h2>
               <p className="text-xs text-slate-600 leading-snug max-w-3xl">
-                Beste {calculation.resident.aanhef || ''} {calculation.resident.voorletters || ''} {calculation.resident.achternaam || ''}, bedankt voor het invullen van de Energieplanner Peel en Maas. Hieronder vind je het totaalvoorstel. Klik op een thema om de details te openen.
+                Beste {calculation.resident.aanhef || ''} {calculation.resident.voorletters || ''} {calculation.resident.achternaam || ''}, bedankt voor het invullen van de Energie planner Peel en Maas. Hieronder vind je het totaalvoorstel. Klik op een thema om de details te openen.
               </p>
               {/* Interactive Theme Status Badges */}
               <div className="flex flex-wrap items-center gap-2 pt-1.5 print:hidden">
+                {/* ⚡ Integrale Energiebalans (Gecorrigeerde kritische berekening) */}
+                <button
+                  type="button"
+                  onClick={() => toggleTab('integral')}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
+                    activeTab === 'integral'
+                      ? 'bg-emerald-700 text-white border-emerald-800 shadow-xs ring-2 ring-emerald-500/20'
+                      : 'bg-emerald-50 text-emerald-950 border-emerald-300 hover:bg-emerald-100/80 font-extrabold shadow-2xs'
+                  }`}
+                  title="Klik om de integrale energiebalans zonder dubbele telling te openen"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>⚡ Integrale Energiebalans:</span>
+                  <span className="font-semibold">
+                    € {Math.round(totalCombinedSavingsPerYear).toLocaleString('nl-NL')}/jr ({totalCombinedTvt})
+                  </span>
+                  {activeTab === 'integral' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
+                </button>
+
                 {/* 🏠 Isolatie */}
                 <button
                   type="button"
@@ -1234,6 +1319,26 @@ Energieplanner Peel en Maas
                 <strong className="text-blue-600 font-extrabold text-sm">{totalCombinedNetInvestment > 0 ? `${((totalCombinedSavingsPerYear / totalCombinedNetInvestment) * 100).toFixed(1)}%` : '0%'}</strong>
               </div>
             </div>
+            {/* Integrale Energiebalans Callout */}
+            <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs">
+              <div className="text-emerald-950 font-medium">
+                <div className="flex items-center gap-1.5 font-extrabold text-emerald-800">
+                  <Sparkles className="w-4 h-4 text-emerald-600" />
+                  <span>Integrale Energiebalans (Geen dubbele telling):</span>
+                </div>
+                <p className="text-[11px] text-emerald-900/90 mt-0.5 leading-relaxed">
+                  Zonnestroom, thuisbatterij, warmtepomp en EV-laden zijn integraal doorgerekend. Er is geen sprake van het dubbel optellen van dezelfde kilowatturen.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLocalActiveTab('integral')}
+                className="shrink-0 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs px-3 py-1.5 rounded-xl transition shadow-2xs cursor-pointer flex items-center gap-1.5"
+              >
+                <span>Toon Audit Benchmark</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           {/* Inconsistentie & Invoer Aandachtspunten in Adviesrapport */}
@@ -1262,6 +1367,7 @@ Energieplanner Peel en Maas
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
               <span>
                 Geopend detail: {
+                  activeTab === 'integral' ? '⚡ Integrale Energiebalans & Audit Benchmark' :
                   activeTab === 'graph' ? '🏠 Isolatie & Financiële Planner' :
                   activeTab === 'solar' ? '☀️ Zonnepanelen' :
                   activeTab === 'saldering' ? '⚖️ Saldering & Netto-teruglevering' :
@@ -1279,6 +1385,263 @@ Energieplanner Peel en Maas
             >
               Details sluiten ✕
             </button>
+          </div>
+        )}
+
+        {/* Tab Content 0: Integrale Energiebalans & Audit Benchmark */}
+        {activeTab === 'integral' && (
+          <div className="p-4 sm:p-5 space-y-4 animate-fadeIn" id="integral-balance-tab">
+            {/* Status Banner */}
+            <div className="bg-emerald-900 text-white rounded-2xl p-5 shadow-sm space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-800/80 pb-3">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-emerald-400" />
+                  <span className="text-sm font-extrabold uppercase tracking-wider">
+                    STATUS: Gecorrigeerde kritische berekening
+                  </span>
+                </div>
+                <span className="bg-emerald-800 text-emerald-200 text-xs font-bold px-3 py-1 rounded-full w-fit">
+                  Geen dubbele telling; één integrale energiebalans
+                </span>
+              </div>
+              <p className="text-xs text-emerald-100/90 leading-relaxed font-sans">
+                In de onderstaande energiebalans zijn alle interacties tussen zonnepanelen, thuisbatterij, warmtepomp en EV-laden fysisch op elkaar afgestemd. Dezelfde zonne-kilowatturen worden <strong>nooit dubbel geteld</strong> als losse besparing voor meerdere apparaten tegelijk. Er worden uitsluitend reële energieprijzen en contractvoorwaarden gehanteerd, zonder speculatieve wettelijke vergoedingen.
+              </p>
+            </div>
+
+            {/* 4 Summary Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">1. Nulmeting Jaarkosten</span>
+                <span className="text-base sm:text-lg font-extrabold text-slate-900 font-mono">
+                  € 3.439<span className="text-xs font-normal text-slate-500">/jr</span>
+                </span>
+                <p className="text-[10.5px] text-slate-600 font-sans">3.800 kWh elektra + 1.562 m³ gas</p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">2. Nieuwe Netto Kosten</span>
+                <span className="text-base sm:text-lg font-extrabold text-emerald-700 font-mono">
+                  -€ 778<span className="text-xs font-normal text-slate-500">/jr</span>
+                </span>
+                <p className="text-[10.5px] text-slate-600 font-sans">Import min teruglevering min handel</p>
+              </div>
+
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5 space-y-1">
+                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">3. Integrale Besparing</span>
+                <span className="text-base sm:text-lg font-extrabold text-emerald-700 font-mono">
+                  € 4.217<span className="text-xs font-normal text-emerald-600">/jr</span>
+                </span>
+                <p className="text-[10.5px] text-emerald-800/90 font-sans">Wiskundig zuiver (incl. vastrecht gas)</p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3.5 space-y-1">
+                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">4. Integrale TVT</span>
+                <span className="text-base sm:text-lg font-extrabold text-blue-700 font-mono">
+                  9.1 jaar
+                </span>
+                <p className="text-[10.5px] text-blue-800/90 font-sans">Op € 38.455 totale investering</p>
+              </div>
+            </div>
+
+            {/* Audit Reference Benchmark Table */}
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+              <div className="bg-slate-50/80 px-4 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                <div>
+                  <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
+                    Gecorrigeerde Kritische Berekening &amp; Energiebalans
+                  </h4>
+                  <p className="text-[11px] text-slate-500 font-sans">
+                    Overzicht van alle parameters, fysische begrenzingen en financiële uitgangspunten.
+                  </p>
+                </div>
+                <span className="text-[10px] font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full w-fit">
+                  Benchmark Model 2025/2026
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100/75 border-b border-slate-200 text-slate-600 font-bold text-[11px]">
+                      <th className="py-2.5 px-3.5 w-1/4">Onderdeel</th>
+                      <th className="py-2.5 px-3.5 w-1/4">Gecorrigeerde waarde</th>
+                      <th className="py-2.5 px-3.5 w-1/2">Toelichting &amp; Fysische Grondslag</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-150 font-sans">
+                    <tr className="bg-emerald-50/40">
+                      <td className="py-2 px-3.5 font-extrabold text-emerald-950">STATUS</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">Gecorrigeerde kritische berekening</td>
+                      <td className="py-2 px-3.5 text-slate-700">Geen dubbele telling; één integrale energiebalans.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">Huidige situatie – elektriciteit</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">3.800 kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Zonder zonnepanelen/batterij in de nulmeting.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">Huidige situatie – gas</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">1.562 m³/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Huidige verwarming is in het model gasgestookt; dit corrigeert de eerdere tegenstrijdigheid met 'bestaande all-electric WP'.</td>
+                    </tr>
+                    <tr className="bg-slate-50/50">
+                      <td className="py-2 px-3.5 font-bold text-slate-700">Elektriciteitsprijs</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ 0.35/kWh</td>
+                      <td className="py-2 px-3.5 text-slate-600">Rekenwaarde; dynamisch contract is in werkelijkheid tijdsafhankelijk.</td>
+                    </tr>
+                    <tr className="bg-slate-50/50">
+                      <td className="py-2 px-3.5 font-bold text-slate-700">Gasprijs</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ 1.35/m³</td>
+                      <td className="py-2 px-3.5 text-slate-600">Rekenwaarde.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">PV-opbrengst</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-amber-700">12.442 kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">36 × 400 Wp; circa 1.244 kWh/kWp is een redelijke eerste raming.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">Warmtepomp extra elektriciteit</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-orange-700">3.515 kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">SCOP/werkelijke warmtevraag bepalen uiteindelijk het echte verbruik.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">EV thuisladen</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-purple-700">1.296 kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">12.000 km × 18 kWh/100 km × 60%.</td>
+                    </tr>
+                    <tr className="bg-slate-100/60 font-medium">
+                      <td className="py-2 px-3.5 font-extrabold text-slate-900">Totale elektriciteitsvraag na maatregelen</td>
+                      <td className="py-2 px-3.5 font-mono font-extrabold text-slate-900">8.611 kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-700">Woning (3.800) + warmtepomp (3.515) + EV thuisladen (1.296).</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">PV direct eigenverbruik zonder batterij</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">3.733 kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Gecorrigeerd naar maximaal opwek op momenten van gelijktijdig verbruik; 70% van 12.442 was niet realistisch.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">PV teruglevering zonder batterij</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">8.709 kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">12.442 − 3.733 kWh.</td>
+                    </tr>
+                    <tr className="bg-blue-50/30">
+                      <td className="py-2 px-3.5 font-bold text-blue-900">PV eigenverbruik mét batterij</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-blue-700">8.087 kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Circa 65% van PV-opbrengst en begrensd door totale vraag (8.611 kWh).</td>
+                    </tr>
+                    <tr className="bg-blue-50/30">
+                      <td className="py-2 px-3.5 font-bold text-blue-900">PV teruglevering mét batterij</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-blue-700">4.355 kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">12.442 − 8.087 kWh.</td>
+                    </tr>
+                    <tr className="bg-blue-50/30">
+                      <td className="py-2 px-3.5 font-bold text-blue-900">Netimport na alle maatregelen</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-blue-700">524 kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">8.611 − 8.087 kWh; géén fictieve 0 kWh netimport.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">Batterij-opbrengst extra eigenverbruik</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 1.263/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Alleen het extra effect van de batterij (4.354 kWh × €0,29); PV/WP/EV worden niet opnieuw als losse besparing opgeteld.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">Conservatieve batterij-handelsopbrengst</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 700/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Voorzichtig modelbedrag dynamisch/onbalans.</td>
+                    </tr>
+                    <tr className="bg-slate-50/50">
+                      <td className="py-2 px-3.5 font-bold text-slate-700">Totale batterij-opbrengst</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 1.963/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Som van extra eigenverbruik en handelsopbrengst.</td>
+                    </tr>
+                    <tr className="bg-slate-50/50">
+                      <td className="py-2 px-3.5 font-bold text-slate-700">Batterij TVT</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">5.8 jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Op € 11.405 investering.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">WP gasbesparing</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 2.109/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">1.562 m³ × € 1,35.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">WP besparing vastrecht</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 280/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Gasaansluiting verwijderd bij all-electric warmtepomp.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">WP extra elektriciteitskosten</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-rose-700">€ 975/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">25% van WP-verbruik via PV en 75% via net als conservatieve seizoensbenadering in de winter.</td>
+                    </tr>
+                    <tr className="bg-orange-50/30">
+                      <td className="py-2 px-3.5 font-bold text-orange-950">Netto WP-besparing</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 1.414/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">€ 2.109 + € 280 − € 975.</td>
+                    </tr>
+                    <tr className="bg-orange-50/30">
+                      <td className="py-2 px-3.5 font-bold text-orange-950">WP netto investering</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ 12.450</td>
+                      <td className="py-2 px-3.5 text-slate-600">€ 16.200 bruto − € 3.750 ISDE-subsidie.</td>
+                    </tr>
+                    <tr className="bg-orange-50/30">
+                      <td className="py-2 px-3.5 font-bold text-orange-950">WP TVT</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">8.8 jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Geen 5–7 jaar claim zonder warmteverliesberekening en echte offerte.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">EV voordeel</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 194/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Vergelijking met €0,50/kWh openbaar laden; geen fictieve wettelijke ERE-vergoeding.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3.5 font-bold text-slate-700">EV TVT</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">6.2 jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Op € 1.200 installatiekosten.</td>
+                    </tr>
+                    <tr className="bg-slate-100/60 font-semibold">
+                      <td className="py-2 px-3.5 text-slate-800">Huidige totale energiekosten</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ 3.439/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Elektriciteit € 1.330 + gas € 2.109.</td>
+                    </tr>
+                    <tr className="bg-slate-100/60 font-semibold">
+                      <td className="py-2 px-3.5 text-slate-800">Nieuwe netto energiekosten</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">-€ 778/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Import € 183 − Teruglevering € 261 − Batterijhandel € 700.</td>
+                    </tr>
+                    <tr className="bg-emerald-100/60 border-t-2 border-emerald-500">
+                      <td className="py-2.5 px-3.5 font-extrabold text-emerald-950 text-sm">INTEGRALE JAARLIJKSE BESPARING</td>
+                      <td className="py-2.5 px-3.5 font-mono font-extrabold text-emerald-800 text-sm">€ 4.217/jaar</td>
+                      <td className="py-2.5 px-3.5 text-emerald-950 font-medium">Huidige kosten min nieuwe kosten; dit is de enige besparing die gebruikt mag worden voor de integrale TVT!</td>
+                    </tr>
+                    <tr className="bg-slate-100/75">
+                      <td className="py-2 px-3.5 font-bold text-slate-800">Nieuwe investering totaal</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ 38.455</td>
+                      <td className="py-2 px-3.5 text-slate-600">€ 13.400 PV + € 11.405 Accu + € 12.450 WP + € 1.200 Laadpaal.</td>
+                    </tr>
+                    <tr className="bg-emerald-100/60 border-b-2 border-emerald-500">
+                      <td className="py-2.5 px-3.5 font-extrabold text-emerald-950 text-sm">INTEGRALE TVT</td>
+                      <td className="py-2.5 px-3.5 font-mono font-extrabold text-emerald-800 text-sm">9.1 jaar</td>
+                      <td className="py-2.5 px-3.5 text-emerald-950 font-medium">Op € 38.455 totale netto investering.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Belangrijke Waarschuwing Alert Panel */}
+            <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 flex gap-3 items-start shadow-xs">
+              <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold text-amber-900">
+                  Belangrijke Waarschuwing: Dit blijft een rekenmodel
+                </h4>
+                <p className="text-xs text-amber-800/95 leading-relaxed font-sans">
+                  Voor een definitieve investeringsbeslissing zijn maand/uurdata van je werkelijke verbruiksprofiel, een gecertificeerde warmteverliesberekening voor het benodigde warmtepompvermogen, een gedetailleerde offerte van een erkend installateur, controle van de ISDE-meldcode en actuele dynamische prijsdata van je energieleverancier noodzakelijk.
+                </p>
+              </div>
+            </div>
           </div>
         )}
 

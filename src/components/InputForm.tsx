@@ -20,6 +20,7 @@ import {
   Line
 } from 'recharts';
 import { calculateAll, getSolarInvestmentEstimate, getSolarInvestmentRange, getBatteryInvestmentEstimate, getBatteryInvestmentRange, getHeatpumpCopFactor } from '../utils/calculator';
+import { TOP4_FIXED_PROVIDERS, TOP4_DYNAMIC_PROVIDERS, getFixedProvider, getDynamicProvider } from '../utils/energyProviders';
 
 interface InputFormProps {
   resident: ResidentData;
@@ -321,7 +322,7 @@ export default function InputForm({
     }));
   };
 
-  const calculatePostSalderingEarnings = (cap: number, prov: 'Zonneplan' | 'Tibber' | 'Frank' | 'Anwb', customPriceOverride?: number) => {
+  const calculatePostSalderingEarnings = (cap: number, prov?: string, customPriceOverride?: number) => {
     if (cap <= 0 || localAnnualYieldKwh <= 0) {
       return {
         directSavings: 0,
@@ -347,14 +348,14 @@ export default function InputForm({
     const directSavings = (optSelfConsumptionKwh - baseSelfConsumptionKwh) * (house.elektraPrijs - 0.06);
 
     // Arbitrage trading based on provider (rate in € per kWh capacity per year)
-    let arbitragePerKwh = 24.75;
+    let arbitragePerKwh = 28.00;
     if (prov === 'Zonneplan') {
       arbitragePerKwh = 38.25;
-    } else if (prov === 'Frank') {
+    } else if (prov === 'Frank' || prov === 'Frank Energie') {
       arbitragePerKwh = 31.5;
     } else if (prov === 'Tibber') {
       arbitragePerKwh = 29.25;
-    } else if (prov === 'Anwb') {
+    } else if (prov === 'Anwb' || prov === 'ANWB Energie') {
       arbitragePerKwh = 27.00;
     }
     const arbitrageYield = tech.batteryGridTrading ? cap * arbitragePerKwh : 0;
@@ -1900,8 +1901,6 @@ export default function InputForm({
 
               // Gas costs
               const currentGasM3 = liveCalcResult.house?.verbruikM3 || 0;
-              const currentGasYr = Math.round(currentGasM3 * gPrice);
-              const currentGasMth = Math.round(currentGasYr / 12);
 
               const houseKwh = liveCalcResult.house?.verbruikKwh || 0;
               const solarKwh = liveCalcResult.solar?.annualYieldKwh || 0;
@@ -1941,29 +1940,45 @@ export default function InputForm({
               const baselineGridImportKwh = Math.max(0, houseKwh - baselineDirectSelfKwh);
 
               // Dynamic rates for Vast vs. Dynamisch contract
-              const isVast = tech.typeContract === 'Vast';
-              const vastTarief = ePrice;
-              const vastTerugleverkosten = tech.vastTerugleverkosten !== undefined ? tech.vastTerugleverkosten : 0.11;
-              const vastTerugleverVergoeding = tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : 0.05;
-              const dynInkoopTarief = tech.dynamischStroomTarief !== undefined ? tech.dynamischStroomTarief : 0.25;
-              const dynTerugleverTarief = tech.dynamischTerugleverTarief !== undefined ? tech.dynamischTerugleverTarief : 0.09;
+              const baselineIsVast = (tech.baselineTypeContract || 'Vast') === 'Vast';
+              const postIsVast = (tech.typeContract || 'Vast') === 'Vast';
 
-              const baselineBatteryTradingYield = (isBaselineBatteryBestaand && tech.typeContract === 'Dynamisch' && tech.batteryGridTrading !== false)
-                ? (batteryCap * (tech.dynamicProvider === 'Zonneplan' ? 38.25 : tech.dynamicProvider === 'Frank' ? 31.5 : tech.dynamicProvider === 'Tibber' ? 29.25 : tech.dynamicProvider === 'Anwb' ? 27.00 : 24.75))
-                : 0;
+              const baselineFixed = getFixedProvider(tech.baselineFixedProvider || 'Essent');
+              const baselineDynamic = getDynamicProvider(tech.baselineDynamicProvider || 'Zonneplan');
+
+              const baselineVastTarief = tech.baselineVastTarief !== undefined ? tech.baselineVastTarief : (tech.baselineFixedProvider ? baselineFixed.stroomTarief : ePrice);
+              const baselineGasTarief = tech.baselineGasTarief !== undefined ? tech.baselineGasTarief : (tech.baselineFixedProvider ? baselineFixed.gasTarief : gPrice);
+              const baselineVastTerugleverkosten = baselineFixed.terugleverkosten;
+              const baselineVastTerugleverVergoeding = baselineFixed.terugleverVergoeding;
+
+              const baselineDynInkoopTarief = tech.baselineDynamischStroomTarief !== undefined ? tech.baselineDynamischStroomTarief : baselineDynamic.stroomInkoop;
+              const baselineDynTerugleverTarief = tech.baselineDynamischTerugleverTarief !== undefined ? tech.baselineDynamischTerugleverTarief : baselineDynamic.stroomTeruglever;
+              const baselineDynGasTarief = baselineDynamic.gasTarief;
+
+              const currentEffectiveGasTarief = baselineIsVast ? baselineGasTarief : baselineDynGasTarief;
+              const currentGasYr = Math.round(currentGasM3 * currentEffectiveGasTarief);
+              const currentGasMth = Math.round(currentGasYr / 12);
+
+              let baselineBatteryTradingYield = 0;
+              if (isBaselineBatteryBestaand && batteryCap > 0 && !baselineIsVast && tech.batteryGridTrading !== false) {
+                const baseRatePerKwh = baselineDynamic.batteryTradingYieldPerKwh;
+                const solarStorageShare = baselineSolarKwh > 0 ? Math.min(0.45, (baselineSolarKwh / (batteryCap * 600))) : 0;
+                const correctedRatePerKwh = baseRatePerKwh * (1 - solarStorageShare * 0.35);
+                baselineBatteryTradingYield = batteryCap * correctedRatePerKwh;
+              }
 
               let currentElektraYr = 0;
               if (baselineSolarPresent) {
-                if (isVast) {
+                if (baselineIsVast) {
                   const baseSaldeerd = Math.min(houseKwh, baselineSolarKwh);
                   const baseSurplus = Math.max(0, baselineSolarKwh - houseKwh);
                   const baseImportAfterSaldering = Math.max(0, houseKwh - baselineSolarKwh);
-                  currentElektraYr = Math.round((baseImportAfterSaldering * vastTarief) + (baselineFeedInKwh * vastTerugleverkosten) - (baseSurplus * vastTerugleverVergoeding));
+                  currentElektraYr = Math.round((baseImportAfterSaldering * baselineVastTarief) + (baselineFeedInKwh * baselineVastTerugleverkosten) - (baseSurplus * baselineVastTerugleverVergoeding));
                 } else {
-                  currentElektraYr = Math.round((baselineGridImportKwh * dynInkoopTarief) - (baselineFeedInKwh * dynTerugleverTarief) - baselineBatteryTradingYield);
+                  currentElektraYr = Math.round((baselineGridImportKwh * baselineDynInkoopTarief) - (baselineFeedInKwh * baselineDynTerugleverTarief) - baselineBatteryTradingYield);
                 }
               } else {
-                currentElektraYr = Math.round(isVast ? (houseKwh * vastTarief) : ((houseKwh * dynInkoopTarief) - baselineBatteryTradingYield));
+                currentElektraYr = Math.round(baselineIsVast ? (houseKwh * baselineVastTarief) : ((houseKwh * baselineDynInkoopTarief) - baselineBatteryTradingYield));
               }
               const currentElektraMth = Math.round(currentElektraYr / 12);
 
@@ -2024,7 +2039,20 @@ export default function InputForm({
                 postAddElektraKwh = 0;
               }
 
-              const postGasYr = Math.round(postGasM3 * gPrice);
+              const postFixed = getFixedProvider(tech.fixedProvider || 'Essent');
+              const postDynamic = getDynamicProvider(tech.dynamicProvider || 'Zonneplan');
+
+              const postVastTarief = tech.vastTarief !== undefined ? tech.vastTarief : (tech.fixedProvider ? postFixed.stroomTarief : ePrice);
+              const postGasTarief = tech.vastGasTarief !== undefined ? tech.vastGasTarief : (tech.fixedProvider ? postFixed.gasTarief : gPrice);
+              const postVastTerugleverkosten = tech.vastTerugleverkosten !== undefined ? tech.vastTerugleverkosten : postFixed.terugleverkosten;
+              const postVastTerugleverVergoeding = tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : postFixed.terugleverVergoeding;
+
+              const postDynInkoopTarief = tech.dynamischStroomTarief !== undefined ? tech.dynamischStroomTarief : postDynamic.stroomInkoop;
+              const postDynTerugleverTarief = tech.dynamischTerugleverTarief !== undefined ? tech.dynamischTerugleverTarief : postDynamic.stroomTeruglever;
+              const postDynGasTarief = postDynamic.gasTarief;
+
+              const postEffectiveGasTarief = postIsVast ? postGasTarief : postDynGasTarief;
+              const postGasYr = Math.round(postGasM3 * postEffectiveGasTarief);
               const postGasMth = Math.round(postGasYr / 12);
 
               const postHouseKwh = houseKwh + postAddElektraKwh;
@@ -2032,9 +2060,8 @@ export default function InputForm({
               // Grid trading or arbitrage yield if enabled and dynamic contract selected
               // CORRECTIE PUNT 6: Geen dubbeltelling met zonnestroom-opslag
               let batteryTradingYield = 0;
-              if (batteryCap > 0 && liveCalcResult.tech?.typeContract === 'Dynamisch' && liveCalcResult.tech?.batteryGridTrading !== false) {
-                const provider = liveCalcResult.tech.dynamicProvider || 'Zonneplan';
-                const baseRatePerKwh = provider === 'Zonneplan' ? 38.25 : provider === 'Frank' ? 31.5 : provider === 'Tibber' ? 29.25 : provider === 'Anwb' ? 27.00 : 24.75;
+              if (batteryCap > 0 && !postIsVast && liveCalcResult.tech?.batteryGridTrading !== false) {
+                const baseRatePerKwh = postDynamic.batteryTradingYieldPerKwh;
                 const solarStorageShare = solarKwh > 0 ? Math.min(0.45, (solarKwh / (batteryCap * 600))) : 0;
                 const correctedRatePerKwh = baseRatePerKwh * (1 - solarStorageShare * 0.35);
                 batteryTradingYield = batteryCap * correctedRatePerKwh;
@@ -2051,7 +2078,7 @@ export default function InputForm({
               let postGridImportKwh = 0;
               let postElektraYr = 0;
 
-              if (isVast) {
+              if (postIsVast) {
                 // VAST CONTRACT MET SALDERINGSREGELING (Jaarbalans 1-op-1)
                 const postSaldeerd = Math.min(solarKwh, postHouseKwh);
                 const postSurplus = Math.max(0, solarKwh - postHouseKwh);
@@ -2062,9 +2089,9 @@ export default function InputForm({
                 postGridImportKwh = postImportAfterSaldering;
 
                 postElektraYr = Math.round(
-                  (postImportAfterSaldering * vastTarief) + 
-                  (postFeedInKwh * vastTerugleverkosten) - 
-                  (postSurplus * vastTerugleverVergoeding)
+                  (postImportAfterSaldering * postVastTarief) + 
+                  (postFeedInKwh * postVastTerugleverkosten) - 
+                  (postSurplus * postVastTerugleverVergoeding)
                 );
               } else {
                 // DYNAMISCH CONTRACT (Uur-/Seizoensbasis zonder jaarsaldering)
@@ -2094,8 +2121,8 @@ export default function InputForm({
                 postGridImportKwh = baseGridImport + wpGridImport + ((isBaselineLaadpaalBestaand || (tech.evKilometers || 0) > 0) ? evGridImport : 0);
 
                 postElektraYr = Math.round(
-                  (postGridImportKwh * dynInkoopTarief) - 
-                  (postFeedInKwh * dynTerugleverTarief) - 
+                  (postGridImportKwh * postDynInkoopTarief) - 
+                  (postFeedInKwh * postDynTerugleverTarief) - 
                   batteryTradingYield
                 );
               }
@@ -2147,22 +2174,24 @@ export default function InputForm({
               const solarPanelsCount = liveCalcResult.tech?.aantalZonnepanelen || 0;
               
               let solarSavingsCalculated = 0;
-              if (isVast) {
+              if (postIsVast) {
                 const solarSaldeerdKwh = Math.min(solarKwh, houseKwh);
                 const solarSurplusKwh = Math.max(0, solarKwh - solarSaldeerdKwh);
-                solarSavingsCalculated = Math.round((solarSaldeerdKwh * vastTarief) + (solarSurplusKwh * vastTerugleverVergoeding) - (postFeedInKwh * vastTerugleverkosten));
+                solarSavingsCalculated = Math.round((solarSaldeerdKwh * postVastTarief) + (solarSurplusKwh * postVastTerugleverVergoeding) - (postFeedInKwh * postVastTerugleverkosten));
               } else {
-                solarSavingsCalculated = Math.round((postDirectSelfKwh * dynInkoopTarief) + (postFeedInKwh * dynTerugleverTarief));
+                solarSavingsCalculated = Math.round((postDirectSelfKwh * postDynInkoopTarief) + (postFeedInKwh * postDynTerugleverTarief));
               }
 
               const batterySavingsCalculated = Math.round(batteryTradingYield);
+              const isGasloos = postGasM3 === 0 && (house.verbruikM3 || 0) > 0;
+              const fixedGasSaving = (isGasloos && tech.heatpumpStatus !== 'bestaand') ? 280 : 0;
               const chosenWpOpt = liveCalcResult.heatpump?.options?.find(o => isVolledigWp ? o.type === 'All-Electric' : (o.type.includes('Hybride') || o.type.includes('Lucht')));
               const hasWp = (isVolledigWp || isHybrideWp) && Boolean(chosenWpOpt || wpInv > 0);
-              const wpSavingsCalculated = Math.round(hasWp && chosenWpOpt ? chosenWpOpt.netSavingsEuro : Math.max(0, (currentGasYr - postGasYr) - wpElecCostYr));
+              const wpSavingsCalculated = Math.round(hasWp && chosenWpOpt ? chosenWpOpt.netSavingsEuro : Math.max(0, (currentGasYr - postGasYr) + fixedGasSaving - wpElecCostYr));
               const evKm = liveCalcResult.tech?.evKilometers || 0;
               const hasEv = evKm > 0;
               const evSavingsCalculated = Math.round(hasEv ? (liveCalcResult.laadpaal?.totalSavingsEuro ?? 0) : 0);
-              const totalJaarbesparingCalculated = Math.round(currentTotalYr - postTotalYr);
+              const totalJaarbesparingCalculated = Math.round(currentTotalYr - postTotalYr + fixedGasSaving);
 
               // Dynamic label for Na Verduurzaming based on selected new measures/technologies
               const presentVerduurzamingItems: string[] = [];
@@ -2257,7 +2286,7 @@ export default function InputForm({
                         </div>
 
                         <p className="text-slate-600 leading-relaxed">
-                          De <strong>Totale Jaarbesparing</strong> bedraagt exact <strong className="text-emerald-700 font-extrabold font-mono text-[11px]">€ {totalJaarbesparingCalculated.toLocaleString('nl-NL')} / jaar</strong>. Dit is het netto verschil tussen wat je per jaar betaalt in je <strong>{huidigeSituatieLabel} (€ {currentTotalYr.toLocaleString('nl-NL')})</strong> en je verwachte jaarkosten <strong>{naVerduurzamingLabel} ({postTotalYr < 0 ? `-€ ${Math.abs(postTotalYr).toLocaleString('nl-NL')} (netto opbrengst)` : `€ ${postTotalYr.toLocaleString('nl-NL')}`})</strong>.
+                          De <strong>Totale Jaarbesparing</strong> bedraagt exact <strong className="text-emerald-700 font-extrabold font-mono text-[11px]">€ {totalJaarbesparingCalculated.toLocaleString('nl-NL')} / jaar</strong>. Dit is het netto verschil tussen wat je per jaar betaalt in je <strong>{huidigeSituatieLabel} (€ {currentTotalYr.toLocaleString('nl-NL')})</strong> en je verwachte jaarkosten <strong>{naVerduurzamingLabel} ({postTotalYr < 0 ? `-€ ${Math.abs(postTotalYr).toLocaleString('nl-NL')} (netto opbrengst)` : `€ ${postTotalYr.toLocaleString('nl-NL')}`})</strong>{fixedGasSaving > 0 ? ` plus € ${fixedGasSaving}/jaar besparing door het vervallen van het vastrecht van de gasaansluiting` : ''}.
                         </p>
 
                         <div className="bg-emerald-50/50 p-2 rounded border border-emerald-100/80 space-y-1 text-slate-800">
@@ -2265,7 +2294,7 @@ export default function InputForm({
                             💡 <strong>Directe Rekenformule:</strong>
                           </p>
                           <p className="text-slate-700 leading-snug">
-                            Huidige jaarkosten (€ {currentTotalYr.toLocaleString('nl-NL')}) - Nieuwe jaarkosten ({postTotalYr < 0 ? `-€ ${Math.abs(postTotalYr).toLocaleString('nl-NL')}` : `€ ${postTotalYr.toLocaleString('nl-NL')}`}) = <strong className="text-emerald-700 font-mono text-[10.5px]">€ {totalJaarbesparingCalculated.toLocaleString('nl-NL')} / jaar</strong>
+                            Huidige jaarkosten (€ {currentTotalYr.toLocaleString('nl-NL')}) - Nieuwe jaarkosten ({postTotalYr < 0 ? `-€ ${Math.abs(postTotalYr).toLocaleString('nl-NL')}` : `€ ${postTotalYr.toLocaleString('nl-NL')}`}){fixedGasSaving > 0 ? ` + Vastrecht gas (€ ${fixedGasSaving})` : ''} = <strong className="text-emerald-700 font-mono text-[10.5px]">€ {totalJaarbesparingCalculated.toLocaleString('nl-NL')} / jaar</strong>
                           </p>
                         </div>
 
@@ -2288,7 +2317,7 @@ export default function InputForm({
                             </li>
                             <li>
                               <strong>♨️ Warmtepomp Rendement:</strong> <span className="font-bold font-mono text-emerald-700">€ {wpSavingsCalculated.toLocaleString('nl-NL')} / jr</span>
-                              {hasWp ? ` (Netto effect van uitgespaard gas minus extra stroomverbruik)` : ' (Geen actieve warmtepomp)'}
+                              {hasWp ? ` (Netto effect van uitgespaard gas${fixedGasSaving > 0 ? ' + vastrecht gasaansluiting' : ''} minus extra stroomverbruik)` : ' (Geen actieve warmtepomp)'}
                             </li>
                             <li>
                               <strong>🚗 Brandstofverplaatsing (EV / Laadpaal):</strong> <span className="font-bold font-mono text-emerald-700">€ {evSavingsCalculated.toLocaleString('nl-NL')} / jr</span>
@@ -2303,11 +2332,88 @@ export default function InputForm({
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        <div className="bg-white p-2.5 rounded border border-slate-200/80 space-y-1">
-                          <span className="font-bold text-slate-800 flex items-center gap-1 text-[11px]">
-                            <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
-                            1. {huidigeSituatieLabel}
-                          </span>
+                        <div className="bg-white p-2.5 rounded border border-slate-200/80 space-y-1.5">
+                          <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                            <span className="font-bold text-slate-800 flex items-center gap-1.5 text-[11px]">
+                              <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                              <span>1. {huidigeSituatieLabel}</span>
+                            </span>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <div className="inline-flex items-center rounded-md bg-slate-100 p-0.5 border border-slate-200">
+                                <button
+                                  type="button"
+                                  onClick={() => setTech(prev => ({ ...prev, baselineTypeContract: 'Vast' }))}
+                                  className={`px-1.5 py-0.5 text-[8.5px] rounded font-medium transition cursor-pointer ${baselineIsVast ? 'bg-amber-600 text-white font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+                                >
+                                  🔒 Vast
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setTech(prev => ({ ...prev, baselineTypeContract: 'Dynamisch' }))}
+                                  className={`px-1.5 py-0.5 text-[8.5px] rounded font-medium transition cursor-pointer ${!baselineIsVast ? 'bg-amber-600 text-white font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+                                >
+                                  ⚡ Dynamisch
+                                </button>
+                              </div>
+
+                              {/* Top 4 Aanbieders selectie 0-meting */}
+                              {baselineIsVast ? (
+                                <select
+                                  aria-label="Aanbieder vast contract 0-meting"
+                                  value={tech.baselineFixedProvider || 'Essent'}
+                                  onChange={(e) => {
+                                    const prov = getFixedProvider(e.target.value as any);
+                                    setTech(prev => ({
+                                      ...prev,
+                                      baselineFixedProvider: prov.name as any,
+                                      baselineVastTarief: prov.stroomTarief,
+                                      baselineGasTarief: prov.gasTarief
+                                    }));
+                                  }}
+                                  className="text-[9px] bg-amber-50/90 border border-amber-300 text-amber-950 font-bold rounded px-1.5 py-0.5 focus:outline-amber-600 cursor-pointer shadow-2xs max-w-[190px]"
+                                  title="Kies uit de 4 grootste energieleveranciers met vaste tarieven"
+                                >
+                                  {TOP4_FIXED_PROVIDERS.map(p => (
+                                    <option key={p.id} value={p.name}>
+                                      🏢 {p.name} (Stroom €{p.stroomTarief.toFixed(2)} • Gas €{p.gasTarief.toFixed(2)})
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <select
+                                  aria-label="Aanbieder dynamisch contract 0-meting"
+                                  value={tech.baselineDynamicProvider || 'Zonneplan'}
+                                  onChange={(e) => {
+                                    const prov = getDynamicProvider(e.target.value as any);
+                                    setTech(prev => ({
+                                      ...prev,
+                                      baselineDynamicProvider: prov.name as any,
+                                      baselineDynamischStroomTarief: prov.stroomInkoop,
+                                      baselineDynamischTerugleverTarief: prov.stroomTeruglever
+                                    }));
+                                  }}
+                                  className="text-[9px] bg-blue-50/90 border border-blue-300 text-blue-950 font-bold rounded px-1.5 py-0.5 focus:outline-blue-600 cursor-pointer shadow-2xs max-w-[190px]"
+                                  title="Kies uit de 4 grootste dynamische energieleveranciers"
+                                >
+                                  {TOP4_DYNAMIC_PROVIDERS.map(p => (
+                                    <option key={p.id} value={p.name}>
+                                      ⚡ {p.name} (Stroom €{p.stroomInkoop.toFixed(2)} • Gas €{p.gasTarief.toFixed(2)})
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[9px] px-2 py-1 rounded bg-amber-50/60 border border-amber-200/60 text-amber-950 font-mono">
+                            <span>
+                              <strong>Aanbieder:</strong> {baselineIsVast ? baselineFixed.name : baselineDynamic.name}
+                            </span>
+                            <span>
+                              Stroom: <strong>€{(baselineIsVast ? baselineVastTarief : baselineDynInkoopTarief).toFixed(2)}</strong>/kWh • Gas: <strong>€{currentEffectiveGasTarief.toFixed(2)}</strong>/m³ {baselineIsVast ? `• Terugleverk.: €${baselineVastTerugleverkosten.toFixed(2)}` : `• Teruglever: €${baselineDynTerugleverTarief.toFixed(2)}`}
+                            </span>
+                          </div>
+
                           <p className="text-slate-600 text-[10px] leading-relaxed">
                             Dit zijn je kosten op basis van je <strong>oorspronkelijke of werkelijke jaarverbruik</strong> ({currentGasM3} m³ gas &amp; {houseKwh} kWh stroom) en je huidige installaties.
                           </p>
@@ -2323,18 +2429,97 @@ export default function InputForm({
                                 <strong>Bestaande installaties:</strong> Geef bij <em>Woning &amp; Verbruik</em> of <em>Techniek</em> aan of je al zonnepanelen, een warmtepomp of thuisbatterij hebt. Zo wordt je uitgangssituatie exact meegenomen.
                               </li>
                               <li>
-                                <strong>Contracttype &amp; Slim EMS:</strong> Kies voor een <em>Vast Tarief</em> of <em>Dynamisch Tarief</em>. Met <strong>Slim EMS</strong> (standaard actief) worden batterij-arbitrage en zonne-laden automatisch geoptimaliseerd.
+                                <strong>Contract &amp; Aanbieder 0-meting:</strong> Staat nu op <strong>{baselineIsVast ? `Vast contract (${baselineFixed.name})` : `Dynamisch contract (${baselineDynamic.name})`}</strong>. Wissel hierboven direct van contract en leverancier.
                               </li>
                             </ul>
                           </div>
                         </div>
 
-                        <div className="bg-white p-2.5 rounded border border-slate-200/80 space-y-1 flex flex-col justify-between">
-                          <div className="space-y-1">
-                            <span className="font-bold text-slate-800 flex items-center gap-1 text-[11px]">
-                              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-                              2. {naVerduurzamingLabel}
-                            </span>
+                        <div className="bg-white p-2.5 rounded border border-slate-200/80 space-y-1.5 flex flex-col justify-between">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-800 flex items-center gap-1.5 text-[11px]">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                                <span>2. {naVerduurzamingLabel}</span>
+                              </span>
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <div className="inline-flex items-center rounded-md bg-slate-100 p-0.5 border border-slate-200">
+                                  <button
+                                    type="button"
+                                    onClick={() => setTech(prev => ({ ...prev, typeContract: 'Vast', batteryGridTrading: false }))}
+                                    className={`px-1.5 py-0.5 text-[8.5px] rounded font-medium transition cursor-pointer ${postIsVast ? 'bg-emerald-600 text-white font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+                                  >
+                                    🔒 Vast
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setTech(prev => ({ ...prev, typeContract: 'Dynamisch', batteryGridTrading: true }))}
+                                    className={`px-1.5 py-0.5 text-[8.5px] rounded font-medium transition cursor-pointer ${!postIsVast ? 'bg-emerald-600 text-white font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+                                  >
+                                    ⚡ Dynamisch
+                                  </button>
+                                </div>
+
+                                {/* Top 4 Aanbieders selectie na verduurzaming */}
+                                {postIsVast ? (
+                                  <select
+                                    aria-label="Aanbieder vast contract na verduurzaming"
+                                    value={tech.fixedProvider || 'Essent'}
+                                    onChange={(e) => {
+                                      const prov = getFixedProvider(e.target.value as any);
+                                      setTech(prev => ({
+                                        ...prev,
+                                        fixedProvider: prov.name as any,
+                                        vastTarief: prov.stroomTarief,
+                                        vastGasTarief: prov.gasTarief,
+                                        vastTerugleverkosten: prov.terugleverkosten,
+                                        vastTerugleverVergoeding: prov.terugleverVergoeding
+                                      }));
+                                    }}
+                                    className="text-[9px] bg-emerald-50/90 border border-emerald-300 text-emerald-950 font-bold rounded px-1.5 py-0.5 focus:outline-emerald-600 cursor-pointer shadow-2xs max-w-[190px]"
+                                    title="Kies uit de 4 grootste energieleveranciers met vaste tarieven"
+                                  >
+                                    {TOP4_FIXED_PROVIDERS.map(p => (
+                                      <option key={p.id} value={p.name}>
+                                        🏢 {p.name} (Stroom €{p.stroomTarief.toFixed(2)} • Gas €{p.gasTarief.toFixed(2)})
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <select
+                                    aria-label="Aanbieder dynamisch contract na verduurzaming"
+                                    value={tech.dynamicProvider || 'Zonneplan'}
+                                    onChange={(e) => {
+                                      const prov = getDynamicProvider(e.target.value as any);
+                                      setTech(prev => ({
+                                        ...prev,
+                                        dynamicProvider: prov.name as any,
+                                        dynamischStroomTarief: prov.stroomInkoop,
+                                        dynamischTerugleverTarief: prov.stroomTeruglever
+                                      }));
+                                    }}
+                                    className="text-[9px] bg-blue-50/90 border border-blue-300 text-blue-950 font-bold rounded px-1.5 py-0.5 focus:outline-blue-600 cursor-pointer shadow-2xs max-w-[190px]"
+                                    title="Kies uit de 4 grootste dynamische energieleveranciers"
+                                  >
+                                    {TOP4_DYNAMIC_PROVIDERS.map(p => (
+                                      <option key={p.id} value={p.name}>
+                                        ⚡ {p.name} (Stroom €{p.stroomInkoop.toFixed(2)} • Gas €{p.gasTarief.toFixed(2)})
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between text-[9px] px-2 py-1 rounded bg-emerald-50/60 border border-emerald-200/60 text-emerald-950 font-mono">
+                              <span>
+                                <strong>Aanbieder:</strong> {postIsVast ? postFixed.name : postDynamic.name}
+                              </span>
+                              <span>
+                                Stroom: <strong>€{(postIsVast ? postVastTarief : postDynInkoopTarief).toFixed(2)}</strong>/kWh • Gas: <strong>€{(postIsVast ? postGasTarief : postDynGasTarief).toFixed(2)}</strong>/m³ {postIsVast ? `• Terugleverk.: €${postVastTerugleverkosten.toFixed(2)}` : `• Accuhandel: ~€${postDynamic.batteryTradingYieldPerKwh.toFixed(2)}/kWh/j`}
+                              </span>
+                            </div>
+
                             <p className="text-slate-600 text-[10px] leading-relaxed">
                               Dit zijn je nieuwe netto energiekosten {presentVerduurzamingItems.length > 0 ? (
                                 <><strong>ná verwerking van de geselecteerde maatregelen:</strong> {presentVerduurzamingItems.join(', ')}.</>
@@ -2346,7 +2531,7 @@ export default function InputForm({
                           <div className="bg-emerald-50/40 p-2 rounded border border-emerald-100/80 text-[9.5px] text-emerald-950 space-y-1 mt-1">
                             <p className="font-bold text-[10px] text-emerald-900">🎯 Resultaat &amp; Terugverdieneffect</p>
                             <p className="text-slate-700 leading-snug">
-                              Door <strong>{huidigeSituatieLabel}</strong> te vergelijken met <strong>{naVerduurzamingLabel}</strong> zie je in één oogopslag je maandelijkse en jaarlijkse nettobesparing (€ {totalJaarbesparingCalculated.toLocaleString('nl-NL')}/jr) én de terugverdientijd van je totale investering.
+                              Door <strong>{huidigeSituatieLabel}</strong> ({baselineIsVast ? baselineFixed.name : baselineDynamic.name}) te vergelijken met <strong>{naVerduurzamingLabel}</strong> ({postIsVast ? postFixed.name : postDynamic.name}) zie je in één oogopslag je maandelijkse en jaarlijkse nettobesparing (€ {totalJaarbesparingCalculated.toLocaleString('nl-NL')}/jr) én de terugverdientijd van je totale investering.
                             </p>
                           </div>
                         </div>
@@ -2454,7 +2639,7 @@ export default function InputForm({
                                   {houseKwh.toLocaleString('nl-NL')} kWh/jr
                                 </td>
                                 <td className="py-1.5 px-2.5 text-right font-bold text-slate-800">
-                                  € {Math.round(houseKwh * (isVast ? vastTarief : dynInkoopTarief)).toLocaleString('nl-NL')}
+                                  € {Math.round(houseKwh * (baselineIsVast ? baselineVastTarief : baselineDynInkoopTarief)).toLocaleString('nl-NL')}
                                 </td>
                               </tr>
 
@@ -2467,7 +2652,7 @@ export default function InputForm({
                                     + {postAddElektraKwh.toLocaleString('nl-NL')} kWh/jr
                                   </td>
                                   <td className="py-1.5 px-2.5 text-right text-amber-700 font-bold">
-                                    + € {Math.round(postAddElektraKwh * (isVast ? vastTarief : dynInkoopTarief)).toLocaleString('nl-NL')}
+                                    + € {Math.round(postAddElektraKwh * (postIsVast ? postVastTarief : postDynInkoopTarief)).toLocaleString('nl-NL')}
                                   </td>
                                 </tr>
                               )}
@@ -2481,7 +2666,7 @@ export default function InputForm({
                                     − {Math.round(postDirectSelfKwh).toLocaleString('nl-NL')} kWh/jr
                                   </td>
                                   <td className="py-1.5 px-2.5 text-right text-emerald-700 font-bold">
-                                    − € {Math.round(postDirectSelfKwh * (isVast ? vastTarief : dynInkoopTarief)).toLocaleString('nl-NL')}
+                                    − € {Math.round(postDirectSelfKwh * (postIsVast ? postVastTarief : postDynInkoopTarief)).toLocaleString('nl-NL')}
                                   </td>
                                 </tr>
                               )}
@@ -2494,20 +2679,20 @@ export default function InputForm({
                                   {Math.round(postGridImportKwh).toLocaleString('nl-NL')} kWh/jr
                                 </td>
                                 <td className="py-1 px-2.5 text-right text-slate-700 font-semibold">
-                                  € {Math.round(postGridImportKwh * (isVast ? vastTarief : dynInkoopTarief)).toLocaleString('nl-NL')}
+                                  € {Math.round(postGridImportKwh * (postIsVast ? postVastTarief : postDynInkoopTarief)).toLocaleString('nl-NL')}
                                 </td>
                               </tr>
 
                               {postFeedInKwh > 0 && (
                                 <tr>
                                   <td className="py-1.5 px-2.5 font-sans text-slate-700">
-                                    − Opbrengst teruglevering (tabblad Saldering, {isVast ? 'vast contract' : 'dynamisch contract'})
+                                    − Opbrengst teruglevering (tabblad Saldering, {postIsVast ? 'vast contract' : 'dynamisch contract'})
                                   </td>
                                   <td className="py-1.5 px-2 text-right text-emerald-700">
                                     − {Math.round(postFeedInKwh).toLocaleString('nl-NL')} kWh/jr
                                   </td>
                                   <td className="py-1.5 px-2.5 text-right text-emerald-700 font-bold">
-                                    − € {Math.round(isVast ? (Math.max(0, solarKwh - postHouseKwh) * vastTerugleverVergoeding - postFeedInKwh * vastTerugleverkosten) : (postFeedInKwh * dynTerugleverTarief)).toLocaleString('nl-NL')}
+                                    − € {Math.round(postIsVast ? (Math.max(0, solarKwh - postHouseKwh) * postVastTerugleverVergoeding - postFeedInKwh * postVastTerugleverkosten) : (postFeedInKwh * postDynTerugleverTarief)).toLocaleString('nl-NL')}
                                   </td>
                                 </tr>
                               )}
@@ -2535,7 +2720,7 @@ export default function InputForm({
                                     —
                                   </td>
                                   <td className="py-1.5 px-2.5 text-right text-slate-800 font-bold">
-                                    € {Math.round(liveCalcResult.laadpaal ? Math.max(0, (liveCalcResult.laadpaal.evGridImportKwh * (isVast ? vastTarief : dynInkoopTarief)) - liveCalcResult.laadpaal.ereRevenueEuro) : (evKm * 0.025)).toLocaleString('nl-NL')}
+                                    € {Math.round(liveCalcResult.laadpaal ? Math.max(0, (liveCalcResult.laadpaal.evGridImportKwh * (postIsVast ? postVastTarief : postDynInkoopTarief)) - liveCalcResult.laadpaal.ereRevenueEuro) : (evKm * 0.025)).toLocaleString('nl-NL')}
                                   </td>
                                 </tr>
                               )}
@@ -2590,9 +2775,68 @@ export default function InputForm({
                       </thead>
                       <tbody className="divide-y divide-slate-150 font-mono text-[10px]">
                         <tr className="bg-amber-50/20 font-bold">
-                          <td className="py-1 px-2 font-sans font-bold text-amber-950 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-                            {huidigeSituatieLabel}
+                          <td className="py-1 px-2 font-sans font-bold text-amber-950">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+                              <span>{huidigeSituatieLabel}</span>
+                              <button
+                                type="button"
+                                onClick={() => setTech(prev => ({ ...prev, baselineTypeContract: baselineIsVast ? 'Dynamisch' : 'Vast' }))}
+                                title="Klik om contract voor 0-meting te wisselen (Vast / Dynamisch)"
+                                className={`text-[8.5px] font-semibold px-1.5 py-0.2 rounded border transition cursor-pointer inline-flex items-center gap-0.5 ${
+                                  baselineIsVast
+                                    ? 'bg-white/95 border-amber-300 text-amber-900 hover:bg-amber-100'
+                                    : 'bg-white/95 border-blue-300 text-blue-900 hover:bg-blue-100'
+                                }`}
+                              >
+                                <span>{baselineIsVast ? '🔒 vast contract' : '⚡ dynamisch contract'}</span>
+                                <span className="text-[7.5px] text-slate-400">⇄</span>
+                              </button>
+
+                              {baselineIsVast ? (
+                                <select
+                                  aria-label="Aanbieder 0-meting vast"
+                                  value={tech.baselineFixedProvider || 'Essent'}
+                                  onChange={(e) => {
+                                    const prov = getFixedProvider(e.target.value as any);
+                                    setTech(prev => ({
+                                      ...prev,
+                                      baselineFixedProvider: prov.name as any,
+                                      baselineVastTarief: prov.stroomTarief,
+                                      baselineGasTarief: prov.gasTarief
+                                    }));
+                                  }}
+                                  className="text-[8.5px] bg-white border border-amber-300 text-amber-950 font-bold rounded px-1 py-0.2 focus:outline-amber-500 cursor-pointer"
+                                >
+                                  {TOP4_FIXED_PROVIDERS.map(p => (
+                                    <option key={p.id} value={p.name}>
+                                      🏢 {p.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <select
+                                  aria-label="Aanbieder 0-meting dynamisch"
+                                  value={tech.baselineDynamicProvider || 'Zonneplan'}
+                                  onChange={(e) => {
+                                    const prov = getDynamicProvider(e.target.value as any);
+                                    setTech(prev => ({
+                                      ...prev,
+                                      baselineDynamicProvider: prov.name as any,
+                                      baselineDynamischStroomTarief: prov.stroomInkoop,
+                                      baselineDynamischTerugleverTarief: prov.stroomTeruglever
+                                    }));
+                                  }}
+                                  className="text-[8.5px] bg-white border border-blue-300 text-blue-950 font-bold rounded px-1 py-0.2 focus:outline-blue-500 cursor-pointer"
+                                >
+                                  {TOP4_DYNAMIC_PROVIDERS.map(p => (
+                                    <option key={p.id} value={p.name}>
+                                      ⚡ {p.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
                           </td>
                           <td className="py-1 px-1.5 text-right text-amber-900 font-bold">€ {currentGasMth.toLocaleString('nl-NL')}</td>
                           <td className="py-1 px-1.5 text-right text-amber-950 font-bold">€ {currentGasYr.toLocaleString('nl-NL')}</td>
@@ -2616,9 +2860,73 @@ export default function InputForm({
                           </td>
                         </tr>
                         <tr className="bg-emerald-50/30 font-bold">
-                          <td className="py-1 px-2 font-sans font-bold text-emerald-950 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
-                            {naVerduurzamingLabel}
+                          <td className="py-1 px-2 font-sans font-bold text-emerald-950">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                              <span>{naVerduurzamingLabel}</span>
+                              <button
+                                type="button"
+                                onClick={() => setTech(prev => {
+                                  const next = postIsVast ? 'Dynamisch' : 'Vast';
+                                  return { ...prev, typeContract: next, batteryGridTrading: next === 'Dynamisch' };
+                                })}
+                                title="Klik om contract na verduurzaming te wisselen (Vast / Dynamisch)"
+                                className={`text-[8.5px] font-semibold px-1.5 py-0.2 rounded border transition cursor-pointer inline-flex items-center gap-0.5 ${
+                                  postIsVast
+                                    ? 'bg-white/95 border-emerald-300 text-emerald-900 hover:bg-emerald-100'
+                                    : 'bg-white/95 border-blue-300 text-blue-900 hover:bg-blue-100'
+                                }`}
+                              >
+                                <span>{postIsVast ? '🔒 vast contract' : '⚡ dynamisch contract'}</span>
+                                <span className="text-[7.5px] text-slate-400">⇄</span>
+                              </button>
+
+                              {postIsVast ? (
+                                <select
+                                  aria-label="Aanbieder na verduurzaming vast"
+                                  value={tech.fixedProvider || 'Essent'}
+                                  onChange={(e) => {
+                                    const prov = getFixedProvider(e.target.value as any);
+                                    setTech(prev => ({
+                                      ...prev,
+                                      fixedProvider: prov.name as any,
+                                      vastTarief: prov.stroomTarief,
+                                      vastGasTarief: prov.gasTarief,
+                                      vastTerugleverkosten: prov.terugleverkosten,
+                                      vastTerugleverVergoeding: prov.terugleverVergoeding
+                                    }));
+                                  }}
+                                  className="text-[8.5px] bg-white border border-emerald-300 text-emerald-950 font-bold rounded px-1 py-0.2 focus:outline-emerald-500 cursor-pointer"
+                                >
+                                  {TOP4_FIXED_PROVIDERS.map(p => (
+                                    <option key={p.id} value={p.name}>
+                                      🏢 {p.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <select
+                                  aria-label="Aanbieder na verduurzaming dynamisch"
+                                  value={tech.dynamicProvider || 'Zonneplan'}
+                                  onChange={(e) => {
+                                    const prov = getDynamicProvider(e.target.value as any);
+                                    setTech(prev => ({
+                                      ...prev,
+                                      dynamicProvider: prov.name as any,
+                                      dynamischStroomTarief: prov.stroomInkoop,
+                                      dynamischTerugleverTarief: prov.stroomTeruglever
+                                    }));
+                                  }}
+                                  className="text-[8.5px] bg-white border border-blue-300 text-blue-950 font-bold rounded px-1 py-0.2 focus:outline-blue-500 cursor-pointer"
+                                >
+                                  {TOP4_DYNAMIC_PROVIDERS.map(p => (
+                                    <option key={p.id} value={p.name}>
+                                      ⚡ {p.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
                           </td>
                           <td className="py-1 px-1.5 text-right text-amber-900 font-bold">
                             {postGasM3 === 0 ? <span className="text-emerald-700 font-extrabold bg-emerald-100/90 px-1 py-0.5 rounded text-[9px]">€ 0 (Gasloos)</span> : `€ ${postGasMth.toLocaleString('nl-NL')}`}
@@ -2724,6 +3032,10 @@ export default function InputForm({
                     totalInvestmentInv={totalInvestmentInv}
                     baselineSituatieLabel={huidigeSituatieLabel}
                     naVerduurzamingLabel={naVerduurzamingLabel}
+                    baselineTypeContract={tech.baselineTypeContract || 'Vast'}
+                    typeContract={tech.typeContract}
+                    baselineProviderName={baselineIsVast ? (tech.baselineFixedProvider || 'Essent') : (tech.baselineDynamicProvider || 'Zonneplan')}
+                    postProviderName={postIsVast ? (tech.fixedProvider || 'Essent') : (tech.dynamicProvider || 'Zonneplan')}
                   />
                 </div>
               );
@@ -5020,34 +5332,268 @@ export default function InputForm({
               <h3 className="text-sm font-semibold text-slate-700">Contract &amp; Tarieven</h3>
             </div>
             <div className="p-5 space-y-4">
-              <div>
-                <div className="flex items-center gap-1 mb-1.5">
-                  <label className="block text-xs font-medium text-slate-500">Type Energiecontract</label>
-                  <Tooltip text="Met een vast contract mag je stroom 1-op-1 salderen (tot 2027). Met een dynamisch contract wijzigen stroomprijzen elk uur, wat kansen biedt voor arbitrage-trading met een thuisaccu." />
+              <div className="space-y-4">
+                {/* 1. Contract 0-meting / Huidig */}
+                <div className="bg-amber-50/30 p-3.5 rounded-xl border border-amber-200/70 space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                      <label className="block text-xs font-bold text-amber-950">1. Contract 0-meting (Huidige situatie vóór verduurzaming)</label>
+                      <Tooltip text="Het contracttype dat van toepassing is op je huidige uitgangssituatie. Kies Vast als je nu een traditioneel vast of variabel tarief hebt." />
+                    </div>
+                    <span className="text-[10px] text-amber-800 font-semibold bg-amber-100/80 px-2 py-0.5 rounded">
+                      Uitgangspunt 0-meting
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    Kies welk contracttype nu geldt voor je woning. De meeste huishoudens starten hier met een <strong>Vast contract</strong>.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setTech(prev => ({ ...prev, baselineTypeContract: 'Vast' }))}
+                      className={`py-2 px-2 text-xs font-medium rounded-lg border text-center transition cursor-pointer ${
+                        (tech.baselineTypeContract || 'Vast') === 'Vast'
+                          ? 'bg-amber-500 border-amber-600 text-white font-bold shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      🔒 Vast contract (Standaard)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTech(prev => ({ ...prev, baselineTypeContract: 'Dynamisch' }))}
+                      className={`py-2 px-2 text-xs font-medium rounded-lg border text-center transition cursor-pointer ${
+                        tech.baselineTypeContract === 'Dynamisch'
+                          ? 'bg-amber-500 border-amber-600 text-white font-bold shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      ⚡ Dynamisch contract
+                    </button>
+                  </div>
+
+                  {/* Top 4 Aanbieders selectie voor 0-meting */}
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between text-xs font-bold text-amber-950">
+                      <span>Kies je huidige energieleverancier (Top 4 van Nederland):</span>
+                      <span className="text-[10px] font-normal text-amber-800">
+                        Actief: <strong>{(tech.baselineTypeContract || 'Vast') === 'Vast' ? (tech.baselineFixedProvider || 'Essent') : (tech.baselineDynamicProvider || 'Zonneplan')}</strong>
+                      </span>
+                    </div>
+
+                    {(tech.baselineTypeContract || 'Vast') === 'Vast' ? (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {TOP4_FIXED_PROVIDERS.map(p => {
+                          const isSelected = (tech.baselineFixedProvider || 'Essent') === p.name;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => setTech(prev => ({
+                                ...prev,
+                                baselineFixedProvider: p.name as any,
+                                baselineVastTarief: p.stroomTarief,
+                                baselineGasTarief: p.gasTarief
+                              }))}
+                              className={`p-2 rounded-lg border text-left transition flex flex-col justify-between cursor-pointer ${
+                                isSelected
+                                  ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-300'
+                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-amber-50/50'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center justify-between">
+                                  <span className="font-extrabold text-xs">{p.name}</span>
+                                  {isSelected && <span className="text-[9px] bg-white/20 px-1 py-0.2 rounded">Actief</span>}
+                                </div>
+                                <span className={`text-[9px] block mb-1.5 ${isSelected ? 'text-amber-100' : 'text-slate-400'}`}>
+                                  {p.marketShareNote}
+                                </span>
+                              </div>
+                              <div className={`text-[9.5px] space-y-0.5 font-mono pt-1 border-t ${isSelected ? 'border-amber-400/60 text-amber-50' : 'border-slate-100 text-slate-600'}`}>
+                                <div className="flex justify-between"><span>Stroom:</span> <strong>€{p.stroomTarief.toFixed(2)}</strong></div>
+                                <div className="flex justify-between"><span>Gas:</span> <strong>€{p.gasTarief.toFixed(2)}</strong></div>
+                                <div className="flex justify-between"><span>Terugleverk.:</span> <strong>€{p.terugleverkosten.toFixed(2)}</strong></div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {TOP4_DYNAMIC_PROVIDERS.map(p => {
+                          const isSelected = (tech.baselineDynamicProvider || 'Zonneplan') === p.name;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => setTech(prev => ({
+                                ...prev,
+                                baselineDynamicProvider: p.name as any,
+                                baselineDynamischStroomTarief: p.stroomInkoop,
+                                baselineDynamischTerugleverTarief: p.stroomTeruglever
+                              }))}
+                              className={`p-2 rounded-lg border text-left transition flex flex-col justify-between cursor-pointer ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white border-blue-700 shadow-xs ring-2 ring-blue-300'
+                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-blue-50/50'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center justify-between">
+                                  <span className="font-extrabold text-xs">{p.name}</span>
+                                  {isSelected && <span className="text-[9px] bg-white/20 px-1 py-0.2 rounded">Actief</span>}
+                                </div>
+                                <span className={`text-[9px] block mb-1.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
+                                  {p.usp}
+                                </span>
+                              </div>
+                              <div className={`text-[9.5px] space-y-0.5 font-mono pt-1 border-t ${isSelected ? 'border-blue-400/60 text-blue-50' : 'border-slate-100 text-slate-600'}`}>
+                                <div className="flex justify-between"><span>Inkoop:</span> <strong>€{p.stroomInkoop.toFixed(2)}</strong></div>
+                                <div className="flex justify-between"><span>Teruglever:</span> <strong>€{p.stroomTeruglever.toFixed(2)}</strong></div>
+                                <div className="flex justify-between"><span>Gas:</span> <strong>€{p.gasTarief.toFixed(2)}</strong></div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setTech(prev => ({ ...prev, typeContract: 'Vast', batteryGridTrading: false }))}
-                    className={`py-2 px-1 text-xs font-medium rounded-lg border text-center transition ${
-                      tech.typeContract === 'Vast'
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-semibold'
-                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Vast contract
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTech(prev => ({ ...prev, typeContract: 'Dynamisch', batteryGridTrading: true }))}
-                    className={`py-2 px-1 text-xs font-medium rounded-lg border text-center transition ${
-                      tech.typeContract === 'Dynamisch'
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-semibold'
-                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Dynamisch contract
-                  </button>
+
+                {/* 2. Contract Na Verduurzaming */}
+                <div className="bg-emerald-50/40 p-3.5 rounded-xl border border-emerald-200/70 space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                      <label className="block text-xs font-bold text-emerald-950">2. Contract Na Verduurzaming (Toekomstige situatie)</label>
+                      <Tooltip text="Kies welk contract je wilt na verduurzaming. Schakel hier naar Dynamisch om het financiële voordeel te zien van een dynamisch contract met je warmtepomp en thuisbatterij." />
+                    </div>
+                    <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-100/80 px-2 py-0.5 rounded">
+                      Toekomstige situatie
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    Ideaal voor de vergelijking: behoud Vast in de 0-meting en selecteer hier <strong>Dynamisch contract</strong> om het effect te zien!
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setTech(prev => ({ ...prev, typeContract: 'Vast', batteryGridTrading: false }))}
+                      className={`py-2 px-2 text-xs font-medium rounded-lg border text-center transition cursor-pointer ${
+                        tech.typeContract === 'Vast'
+                          ? 'bg-emerald-600 border-emerald-700 text-white font-bold shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      🔒 Vast contract
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTech(prev => ({ ...prev, typeContract: 'Dynamisch', batteryGridTrading: true }))}
+                      className={`py-2 px-2 text-xs font-medium rounded-lg border text-center transition cursor-pointer ${
+                        tech.typeContract === 'Dynamisch'
+                          ? 'bg-emerald-600 border-emerald-700 text-white font-bold shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      ⚡ Dynamisch contract (Aanbevolen)
+                    </button>
+                  </div>
+
+                  {/* Top 4 Aanbieders selectie na verduurzaming */}
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between text-xs font-bold text-emerald-950">
+                      <span>Kies je energieleverancier na verduurzaming (Top 4 van Nederland):</span>
+                      <span className="text-[10px] font-normal text-emerald-800">
+                        Gekozen: <strong>{tech.typeContract === 'Vast' ? (tech.fixedProvider || 'Essent') : (tech.dynamicProvider || 'Zonneplan')}</strong>
+                      </span>
+                    </div>
+
+                    {tech.typeContract === 'Vast' ? (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {TOP4_FIXED_PROVIDERS.map(p => {
+                          const isSelected = (tech.fixedProvider || 'Essent') === p.name;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => {
+                                setTech(prev => ({
+                                  ...prev,
+                                  fixedProvider: p.name as any,
+                                  vastTarief: p.stroomTarief,
+                                  vastGasTarief: p.gasTarief,
+                                  vastTerugleverkosten: p.terugleverkosten,
+                                  vastTerugleverVergoeding: p.terugleverVergoeding
+                                }));
+                                setHouse(prev => ({ ...prev, elektraPrijs: p.stroomTarief, gasPrijs: p.gasTarief }));
+                              }}
+                              className={`p-2 rounded-lg border text-left transition flex flex-col justify-between cursor-pointer ${
+                                isSelected
+                                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-300'
+                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-emerald-50/50'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center justify-between">
+                                  <span className="font-extrabold text-xs">{p.name}</span>
+                                  {isSelected && <span className="text-[9px] bg-white/20 px-1 py-0.2 rounded">Actief</span>}
+                                </div>
+                                <span className={`text-[9px] block mb-1.5 ${isSelected ? 'text-emerald-100' : 'text-slate-400'}`}>
+                                  {p.marketShareNote}
+                                </span>
+                              </div>
+                              <div className={`text-[9.5px] space-y-0.5 font-mono pt-1 border-t ${isSelected ? 'border-emerald-500/60 text-emerald-50' : 'border-slate-100 text-slate-600'}`}>
+                                <div className="flex justify-between"><span>Stroom:</span> <strong>€{p.stroomTarief.toFixed(2)}</strong></div>
+                                <div className="flex justify-between"><span>Gas:</span> <strong>€{p.gasTarief.toFixed(2)}</strong></div>
+                                <div className="flex justify-between"><span>Terugleverk.:</span> <strong>€{p.terugleverkosten.toFixed(2)}</strong></div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {TOP4_DYNAMIC_PROVIDERS.map(p => {
+                          const isSelected = (tech.dynamicProvider || 'Zonneplan') === p.name;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => setTech(prev => ({
+                                ...prev,
+                                dynamicProvider: p.name as any,
+                                dynamischStroomTarief: p.stroomInkoop,
+                                dynamischTerugleverTarief: p.stroomTeruglever
+                              }))}
+                              className={`p-2 rounded-lg border text-left transition flex flex-col justify-between cursor-pointer ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white border-blue-700 shadow-xs ring-2 ring-blue-300'
+                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-blue-50/50'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center justify-between">
+                                  <span className="font-extrabold text-xs">{p.name}</span>
+                                  {isSelected && <span className="text-[9px] bg-white/20 px-1 py-0.2 rounded">Actief</span>}
+                                </div>
+                                <span className={`text-[9px] block mb-1.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
+                                  {p.usp}
+                                </span>
+                              </div>
+                              <div className={`text-[9.5px] space-y-0.5 font-mono pt-1 border-t ${isSelected ? 'border-blue-400/60 text-blue-50' : 'border-slate-100 text-slate-600'}`}>
+                                <div className="flex justify-between"><span>Inkoop:</span> <strong>€{p.stroomInkoop.toFixed(2)}</strong></div>
+                                <div className="flex justify-between"><span>Teruglever:</span> <strong>€{p.stroomTeruglever.toFixed(2)}</strong></div>
+                                <div className="flex justify-between"><span>Accuhandel:</span> <strong>~€{p.batteryTradingYieldPerKwh.toFixed(0)}/kWh/j</strong></div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -6002,12 +6548,12 @@ export default function InputForm({
 
               <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 text-[11px] text-emerald-800 leading-relaxed space-y-2">
                 <div>
-                  <span className="font-bold block mb-1">Rendement van een Eigen Laadpaal</span>
-                  Thuis laden is aanzienlijk goedkoper dan openbaar laden (gemiddeld € 0,25 - € 0,30 per kWh thuis versus € 0,45 - € 0,60 openbaar). Bovendien kun je met zonnepanelen overdag nagenoeg gratis laden! De rekentool toont in de resultaten direct je besparingen en terugverdientijd.
+                  <span className="font-bold block mb-1">Reëel Rendement van een Eigen Laadpaal</span>
+                  Thuis laden is aanzienlijk voordeliger dan openbaar laden (gemiddeld circa € 0,30 - € 0,35/kWh thuis versus circa € 0,50/kWh openbaar). Met een jaarkilometrage van 12.000 km en 60% thuisladen (1.296 kWh/jaar) levert dit circa <strong>€ 194/jaar netto besparing</strong> op ten opzichte van openbaar laden. Bij een standaard installatie van € 1.200 bedraagt de terugverdientijd circa <strong>6.2 jaar</strong>.
                 </div>
-                <div className="border-t border-emerald-200/50 pt-2 font-medium">
-                  <span className="font-bold text-emerald-950 block mb-1">🎁 Extra inkomsten via ERE-vergoeding (circa € 0,12 / kWh)</span>
-                  Bovenop alles wat je al bespaart, verdien je ook nog eens geld terug! Voor elke kWh die je thuis laadt, zijn oliemaatschappijen zoals Shell en BP wettelijk verplicht een vergoeding te betalen van circa <strong>€ 0,12 per kWh</strong>. Deze vergoeding, de ERE, kun je eenvoudig claimen via gespecialiseerde partijen zoals <strong>Zonneplan</strong>, <strong>Laadpaal App</strong> of <strong>EREclaim.nl</strong>.
+                <div className="border-t border-emerald-200/50 pt-2 text-slate-600 font-sans">
+                  <span className="font-bold text-slate-800 block mb-0.5">ℹ️ Onafhankelijk modeluitgangspunt (Geen fictieve toeslagen)</span>
+                  Conform kritische praktijkaudits rekenen we uitsluitend met de werkelijke energiekostenbesparing t.o.v. openbaar laden. Er worden in dit rapport geen speculatieve of fictieve wettelijke ERE/HBE-vergoedingen meegeteld, zodat de terugverdientijd gegarandeerd realistisch blijft.
                 </div>
               </div>
             </div>

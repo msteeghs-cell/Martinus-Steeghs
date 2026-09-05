@@ -100,7 +100,7 @@ app.post('/api/generate-advice', async (req, res) => {
 
     // Build the prompt for Gemini
     const systemPrompt = `
-Je bent een energiecoach (NTA 8800 methodiek) gespecialiseerd in bestaande woningen in Nederland (met een focus op de regio Limburg). Je bent werkzaam bij de 'Energieplanner Peel en Maas'.
+Je bent een energiecoach (NTA 8800 methodiek) gespecialiseerd in bestaande woningen in Nederland (met een focus op de regio Limburg). Je bent werkzaam bij de 'Energie planner Peel en Maas'.
 Je geeft een uiterst vakkundig, onafhankelijk en deskundig adviesrapport in helder, begrijpelijk Nederlands om de bewoner te helpen maximale energie- en gasbesparing te realiseren met een minimale eigen bijdrage.
 Je past strikt de ISSO-publicaties toe, rekent volgens Nederlandse praktijkregels en adviseert conform nationale kwaliteitsplatforms zoals Verbeterjehuis.nl, de Rijksdienst voor Ondernemend Nederland (RVO), het Nationaal Isolatieprogramma (NIP) en de ISDE-subsidieregeling.
 
@@ -306,19 +306,19 @@ app.post('/api/send-email', async (req, res) => {
       });
 
       const info = await transporter.sendMail({
-        from: `"Energieplanner Peel en Maas" <${from}>`,
+        from: `"Energie planner Peel en Maas" <${from}>`,
         to: email,
-        subject: `Jouw Energieplanner Peel en Maas Adviesrapport - ${clientName || 'Bewoner'}`,
+        subject: `Jouw Energie planner Peel en Maas Adviesrapport - ${clientName || 'Bewoner'}`,
         text: reportText || 'Hierbij ontvangt u uw adviesrapport.',
         html: `
           <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #334155; line-height: 1.6;">
             <div style="background-color: #10b981; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-              <h1 style="margin: 0; font-size: 24px;">Energieplanner Peel en Maas</h1>
+              <h1 style="margin: 0; font-size: 24px;">Energie planner Peel en Maas</h1>
               <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">Jouw persoonlijke verduurzamingsadvies</p>
             </div>
             <div style="padding: 24px; background-color: #ffffff; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px;">
               <p>Beste <strong>${clientName || 'bewoner'}</strong>,</p>
-              <p>Bedankt voor het invullen van de Energieplanner Peel en Maas. Op basis van jouw ingevoerde gegevens hebben we een onafhankelijk en deskundig adviesrapport opgesteld om je te helpen besparen op gas en elektriciteit en maximaal te profiteren van beschikbare subsidies zoals het NIP en ISDE.</p>
+              <p>Bedankt voor het invullen van de Energie planner Peel en Maas. Op basis van jouw ingevoerde gegevens hebben we een onafhankelijk en deskundig adviesrapport opgesteld om je te helpen besparen op gas en elektriciteit en maximaal te profiteren van beschikbare subsidies zoals het NIP en ISDE.</p>
               
               <div style="background-color: #f8fafc; border-left: 4px solid #10b981; padding: 15px; margin: 20px 0; font-size: 14px; color: #475569;">
                 <strong>Verwachte resultaten:</strong>
@@ -336,10 +336,10 @@ app.post('/api/send-email', async (req, res) => {
 
               <p style="margin-top: 25px;">Heb je vragen over dit rapport of wil je hulp bij de vervolgstappen? Neem gerust contact op met de Energiecoaches van Peel en Maas.</p>
               
-              <p style="margin-bottom: 0;">Met vriendelijke groet,<br><strong>Energieplanner Peel en Maas</strong></p>
+              <p style="margin-bottom: 0;">Met vriendelijke groet,<br><strong>Energie planner Peel en Maas</strong></p>
             </div>
             <div style="text-align: center; font-size: 11px; color: #94a3b8; margin-top: 20px; padding: 10px;">
-              Dit is een automatisch gegenereerd rapport opgesteld door de Energieplanner Peel en Maas zelfscan.
+              Dit is een automatisch gegenereerd rapport opgesteld door de Energie planner Peel en Maas zelfscan.
             </div>
           </div>
         `
