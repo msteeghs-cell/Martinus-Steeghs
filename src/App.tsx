@@ -76,6 +76,102 @@ const defaultInsulation: InsulationData = {
   glasTripleHout: 0,
 };
 
+const emptyResident: ResidentData = {
+  naam: '',
+  registratiecode: 'PM-NIEUW',
+  brutoGezinsinkomen: 0,
+  coach: 'Online Zelfscan',
+  datum: new Date().toISOString().split('T')[0],
+  aanhef: 'De heer',
+  voorletters: '',
+  achternaam: '',
+  straat: '',
+  huisnummer: '',
+  toevoeging: '',
+  postcode: '',
+  plaats: '',
+  aantalPersonen: 1,
+  telefoon: '',
+  email: '',
+  akkoord: true
+};
+
+const emptyHouse: HouseData = {
+  wozWaarde: 0,
+  energielabel: 'Geen',
+  verbruikKwh: 0,
+  verbruikM3: 0,
+  soortWoning: 'Tussenwoning',
+  bouwjaar: 1980,
+  woonoppervlakte: 0,
+  verwarming: 'CV-ketel',
+  afgiftesysteem: 'Radiatoren',
+  tapwater: 'CV-ketel',
+  koken: 'Gas',
+  ventilatie: 'Natuurlijk (Type A)',
+  zonnepanelenPresent: 'Nee',
+  elektraPrijs: 0.35,
+  elektraTeruglevering: 0,
+  gasPrijs: 1.50,
+  stookgedragOverride: 'auto',
+  stookgedragBerekend: 'Normaal (1.0x)',
+  stookgedragFactor: 1.0,
+  isoDak: 'slecht',
+  isoGevel: 'slecht',
+  isoGlasBg: 'slecht',
+  isoGlasVd: 'slecht',
+  isoVloer: 'slecht',
+  isoKieren: 'Nee, onderhoud nodig',
+  inkomenCheck: true
+};
+
+const emptyInsulation: InsulationData = {
+  vloer: 0,
+  bodem: 0,
+  spouw: 0,
+  zolderVliering: 0,
+  dakBinnenzijde: 0,
+  gevelBuitenzijde: 0,
+  glasEnkelHR: 0,
+  glasDubbelHR: 0,
+  glasTripleHout: 0,
+};
+
+const emptyTech: TechData = {
+  aantalZonnepanelen: 0,
+  vermogenPerPaneel: 400,
+  dakOrientatie: 0,
+  dakHellingshoek: 35,
+  huidigDirectVerbruik: 30,
+  capaciteitAccu: 0,
+  omzettingsverliezen: 20,
+  pvCurtailmentMode: true,
+  baselineTypeContract: 'Vast',
+  baselineFixedProvider: 'Essent',
+  baselineDynamicProvider: 'Zonneplan',
+  typeContract: 'Vast',
+  fixedProvider: 'Essent',
+  dynamicProvider: 'Zonneplan',
+  evKilometers: 0,
+  evVerbruik: 18,
+  evThuisLaden: 70,
+  laadvermogen: 11,
+  opslagLeverancier: 0.02,
+  selectedWarmtepompModel: 'Standard',
+  selectedWarmtepompType: undefined,
+  solarStatus: 'nieuw',
+  heatpumpStatus: 'nieuw',
+  batteryStatus: 'nieuw',
+  laadpaalStatus: 'nieuw',
+  customAccuPrijs: undefined,
+  customZonnepanelenPrijs: undefined,
+  customWarmtepompPrijs: undefined,
+  customLaadpaalPrijs: undefined,
+  userAnnualSolar: undefined,
+  userAnnualWp: undefined,
+  userAnnualLp: undefined,
+};
+
 const defaultTech: TechData = {
   aantalZonnepanelen: 4,
   vermogenPerPaneel: 400,
@@ -112,6 +208,8 @@ export default function App() {
   // Synchronized active tab across inputs & results
   const [activeTab, setActiveTab] = useState<'isolatie' | 'zon' | 'accu' | 'saldering' | 'warmtepomp' | 'laadpaal'>('isolatie');
   const [linkCopied, setLinkCopied] = useState(false);
+  const [showWisModal, setShowWisModal] = useState(false);
+  const [formKey, setFormKey] = useState(0);
 
   const deelLink = () => {
     // Determine public URL by converting dev preview domain (ais-dev-) to public domain (ais-pre-)
@@ -288,10 +386,28 @@ export default function App() {
 
   // Clear data function
   const wisFormulier = () => {
-    if (confirm("Weet je zeker dat je alle gegevens wilt wissen om met een nieuwe bewoner te starten?")) {
-      safeStorage.clear();
-      window.location.reload();
+    setShowWisModal(true);
+  };
+
+  const handleResetForm = (completelyEmpty: boolean) => {
+    safeStorage.clear();
+    if (completelyEmpty) {
+      setResident(emptyResident);
+      setHouse(emptyHouse);
+      setInsulation(emptyInsulation);
+      setTech(emptyTech);
+    } else {
+      setResident(defaultResident);
+      setHouse(defaultHouse);
+      setInsulation(defaultInsulation);
+      setTech(defaultTech);
     }
+    setOpmerkingenOffertes('');
+    setOpmerkingenAlgemeen('');
+    setAdviceMarkdown(null);
+    setFormKey(prev => prev + 1);
+    setActiveTab('isolatie');
+    setShowWisModal(false);
   };
 
   // JSON download
@@ -1282,6 +1398,7 @@ export default function App() {
           </div>
 
           <InputForm
+            key={formKey}
             resident={resident}
             setResident={setResident}
             house={house}
@@ -1399,6 +1516,56 @@ export default function App() {
           </p>
         </div>
       </footer>
+
+      {/* Wis / Nieuw formulier Bevestigingsdialoog */}
+      {showWisModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Formulier wissen / Nieuw formulier</h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Wil je alle ingevoerde gegevens wissen om met een schone lei te beginnen voor een nieuwe bewoner, of wil je het standaard voorbeeld herstellen?
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                id="btn-confirm-wis-leeg"
+                onClick={() => handleResetForm(true)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 transition cursor-pointer shadow-sm"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Wis alles (Start met een leeg formulier)</span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-confirm-wis-voorbeeld"
+                onClick={() => handleResetForm(false)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 transition cursor-pointer"
+              >
+                <RefreshCw className="w-4 h-4 text-slate-500" />
+                <span>Herstel standaard voorbeeld (Janssen)</span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-cancel-wis"
+                onClick={() => setShowWisModal(false)}
+                className="w-full py-2 text-xs font-medium text-slate-500 hover:text-slate-700 transition cursor-pointer text-center"
+              >
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -130,6 +130,8 @@ export interface SolarPrognose {
   gridFeedBaseKwh: number;
   gridFeedWithBatteryKwh: number;
   disclaimer: string;
+  isUserYieldOverride?: boolean;
+  calculatedYieldKwh?: number;
 }
 
 export interface BatteryOption {

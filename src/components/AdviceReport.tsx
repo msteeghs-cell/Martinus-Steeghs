@@ -426,7 +426,9 @@ Energie planner Peel en Maas
       savings: solarSavings,
       tvt: solarTvt,
       color: '#f59e0b', // Amber
-      details: solarPanelsCount > 0 ? `${solarPanelsCount} panelen (${Math.round(calculation.solar.annualYieldKwh)} kWh/jr)` : 'Geen zonnepanelen ingevoerd'
+      details: (solarPanelsCount > 0 || (calculation.solar?.annualYieldKwh || 0) > 0)
+        ? `${solarPanelsCount > 0 ? `${solarPanelsCount} panelen ` : ''}(${Math.round(calculation.solar.annualYieldKwh)} kWh/jr${calculation.solar.isUserYieldOverride ? ' - leidend' : ''})`
+        : 'Geen zonnepanelen ingevoerd'
     },
     {
       name: 'Thuisbatterij',
@@ -842,7 +844,7 @@ Energie planner Peel en Maas
 
   // 🌟 Totaalvoorstel Alle Maatregelen Samen
   const hasIso = isoCount > 0;
-  const hasSolar = solarPanels > 0;
+  const hasSolar = solarPanels > 0 || (calculation.solar?.annualYieldKwh || 0) > 0;
   const hasBat = batCapacity > 0;
   const hasWp = Boolean(calculation.tech?.selectedWarmtepompModel) && Boolean(chosenOpt);
   const hasEv = Boolean((calculation.tech?.evKilometers || 0) > 0);
@@ -868,11 +870,19 @@ Energie planner Peel en Maas
   const baselineEnergyCostsYr = Math.round((currentHouseElecKwh * baseElecPrice) + (currentHouseGasM3 * baseGasPrice));
 
   // Totale elektriciteitsvraag na maatregelen (woning + warmtepomp + EV)
-  const wpElecDemandKwh = (hasWp && !isWpBestaand) ? (chosenOpt?.elecIncreaseKwh ?? 3515) : 0;
-  const evElecDemandKwh = (hasEv && !isLaadpaalBestaand) ? evVol : 0;
+  const wpElecDemandKwh = hasWp ? (chosenOpt?.elecIncreaseKwh ?? (calculation.tech?.userAnnualWp || 3515)) : 0;
+  const evElecDemandKwh = hasEv ? evVol : 0;
   const totalPostElecDemandKwh = currentHouseElecKwh + wpElecDemandKwh + evElecDemandKwh;
 
-  const annualSolarYieldKwh = (hasSolar && !isSolarBestaand) ? (calculation.solar?.annualYieldKwh ?? 0) : 0;
+  // Fysische zonne-opwekking op het dak (ongeacht of panelen bestaand of nieuw zijn)
+  const annualSolarYieldKwh = hasSolar ? (calculation.solar?.annualYieldKwh ?? 0) : 0;
+  const solarPanelCountVal = calculation.tech?.aantalZonnepanelen || 0;
+  const solarWpPerPanelVal = calculation.tech?.vermogenPerPaneel || 400;
+  const solarTotalWpVal = solarPanelCountVal * solarWpPerPanelVal;
+  const isSolarYieldOverride = Boolean(
+    calculation.solar?.isUserYieldOverride ||
+    (calculation.tech?.userAnnualSolar !== undefined && calculation.tech.userAnnualSolar > 0)
+  );
 
   // PV direct eigenverbruik zonder batterij (begrensd door gelijktijdig huishoudelijk verbruik)
   const pvDirectSelfConsumptionKwh = Math.min(
@@ -893,13 +903,17 @@ Energie planner Peel en Maas
   // Batterij-opbrengsten
   const batExtraSelfConsumptionKwh = Math.max(0, pvSelfConsumptionWithBatKwh - pvDirectSelfConsumptionKwh);
   const batExtraSelfConsumptionSavings = Math.round(batExtraSelfConsumptionKwh * (baseElecPrice - 0.06));
-  const batTradingYield = (hasBat && !isBatBestaand)
-    ? ((calculation.tech?.batteryGridTrading || batCapacity >= 10) ? 700 : Math.round(batCapacity * 45))
+  const isTradingActive = calculation.tech?.batteryGridTrading !== false;
+  const tradingProvider = calculation.tech?.dynamicProvider || 'Zonneplan';
+  const tradingRatePerKwh = tradingProvider === 'Zonneplan' ? 45 : tradingProvider === 'Frank' ? 40 : tradingProvider === 'Tibber' ? 35 : 30;
+  // Zowel nieuwe als bestaande thuisbatterijen genereren operationele nethandelsbaten bij actieve handelssturing
+  const batTradingYield = (hasBat && isTradingActive)
+    ? Math.round(batCapacity * tradingRatePerKwh)
     : 0;
   const totalBatteryYieldEuro = batExtraSelfConsumptionSavings + batTradingYield;
 
   // Warmtepomp gasbesparing & vastrecht
-  const wpGasSavingM3 = (hasWp && !isWpBestaand) ? (chosenOpt?.gasSavingsM3 ?? currentHouseGasM3) : 0;
+  const wpGasSavingM3 = hasWp ? (chosenOpt?.gasSavingsM3 ?? currentHouseGasM3) : 0;
   const wpGasSavingEuro = Math.round(wpGasSavingM3 * baseGasPrice);
   const wpVastrechtSavingEuro = (hasWp && chosenOpt?.type === 'All-Electric' && !isWpBestaand) ? 280 : 0;
   const wpExtraElecCostEuro = Math.round(wpElecDemandKwh * (0.75 * baseElecPrice + 0.25 * 0.06));
@@ -929,7 +943,9 @@ Energie planner Peel en Maas
   // hanteren we de integrale energiebalans om dubbele optelling van dezelfde kWh's te voorkomen.
   const isMultiSectorInteracting = (hasSolar && (hasBat || hasWp || hasEv));
   const totalCombinedSavingsPerYear = isMultiSectorInteracting
-    ? integralAnnualSavings
+    ? (isSolarBestaand 
+        ? Math.round(newIsoSavings + newBatSavings + newWpSavings + newEvSavings) 
+        : integralAnnualSavings)
     : Math.round(newIsoSavings + newSolarSavings + newBatSavings + newWpSavings + newEvSavings);
 
   const totalCombinedSubsidies = Math.round(
@@ -1455,33 +1471,33 @@ Energie planner Peel en Maas
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-1">
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">1. Nulmeting Jaarkosten</span>
                 <span className="text-base sm:text-lg font-extrabold text-slate-900 font-mono">
-                  € 3.439<span className="text-xs font-normal text-slate-500">/jr</span>
+                  € {baselineEnergyCostsYr.toLocaleString('nl-NL')}<span className="text-xs font-normal text-slate-500">/jr</span>
                 </span>
-                <p className="text-[10.5px] text-slate-600 font-sans">3.800 kWh elektra + 1.562 m³ gas</p>
+                <p className="text-[10.5px] text-slate-600 font-sans">{currentHouseElecKwh.toLocaleString('nl-NL')} kWh elektra + {currentHouseGasM3.toLocaleString('nl-NL')} m³ gas</p>
               </div>
 
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-1">
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">2. Nieuwe Netto Kosten</span>
                 <span className="text-base sm:text-lg font-extrabold text-emerald-700 font-mono">
-                  -€ 778<span className="text-xs font-normal text-slate-500">/jr</span>
+                  {postNetEnergyCosts < 0 ? `-€ ${Math.abs(postNetEnergyCosts).toLocaleString('nl-NL')}` : `€ ${postNetEnergyCosts.toLocaleString('nl-NL')}`}<span className="text-xs font-normal text-slate-500">/jr</span>
                 </span>
-                <p className="text-[10.5px] text-slate-600 font-sans">Import min teruglevering min handel</p>
+                <p className="text-[10.5px] text-slate-600 font-sans">Import min teruglevering{batTradingYield > 0 ? ' min handel' : ''}</p>
               </div>
 
               <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5 space-y-1">
                 <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">3. Integrale Besparing</span>
                 <span className="text-base sm:text-lg font-extrabold text-emerald-700 font-mono">
-                  € 4.217<span className="text-xs font-normal text-emerald-600">/jr</span>
+                  € {Math.round(totalCombinedSavingsPerYear).toLocaleString('nl-NL')}<span className="text-xs font-normal text-emerald-600">/jr</span>
                 </span>
-                <p className="text-[10.5px] text-emerald-800/90 font-sans">Wiskundig zuiver (incl. vastrecht gas)</p>
+                <p className="text-[10.5px] text-emerald-800/90 font-sans">Wiskundig zuiver zonder dubbeltelling</p>
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3.5 space-y-1">
                 <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">4. Integrale TVT</span>
                 <span className="text-base sm:text-lg font-extrabold text-blue-700 font-mono">
-                  9.1 jaar
+                  {totalCombinedTvt}
                 </span>
-                <p className="text-[10.5px] text-blue-800/90 font-sans">Op € 38.455 totale investering</p>
+                <p className="text-[10.5px] text-blue-800/90 font-sans">Op € {Math.round(totalCombinedNetInvestment).toLocaleString('nl-NL')} nieuwe investering</p>
               </div>
             </div>
 
@@ -1497,7 +1513,7 @@ Energie planner Peel en Maas
                   </p>
                 </div>
                 <span className="text-[10px] font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full w-fit">
-                  Benchmark Model 2025/2026
+                  Dynamisch Model 2025/2026
                 </span>
               </div>
 
@@ -1518,153 +1534,211 @@ Energie planner Peel en Maas
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">Huidige situatie – elektriciteit</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">3.800 kWh/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Zonder zonnepanelen/batterij in de nulmeting.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">{currentHouseElecKwh.toLocaleString('nl-NL')} kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Huishoudelijk basisverbruik volgens invoer.</td>
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">Huidige situatie – gas</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">1.562 m³/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Huidige verwarming is in het model gasgestookt; dit corrigeert de eerdere tegenstrijdigheid met 'bestaande all-electric WP'.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">{currentHouseGasM3.toLocaleString('nl-NL')} m³/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Huidig gasverbruik volgens invoer ({calculation.house?.verwarming || 'CV-ketel'}).</td>
                     </tr>
                     <tr className="bg-slate-50/50">
                       <td className="py-2 px-3.5 font-bold text-slate-700">Elektriciteitsprijs</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ 0.35/kWh</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ {baseElecPrice.toFixed(2)}/kWh</td>
                       <td className="py-2 px-3.5 text-slate-600">Rekenwaarde; dynamisch contract is in werkelijkheid tijdsafhankelijk.</td>
                     </tr>
                     <tr className="bg-slate-50/50">
                       <td className="py-2 px-3.5 font-bold text-slate-700">Gasprijs</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ 1.35/m³</td>
-                      <td className="py-2 px-3.5 text-slate-600">Rekenwaarde.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ {baseGasPrice.toFixed(2)}/m³</td>
+                      <td className="py-2 px-3.5 text-slate-600">Rekenwaarde gasprijs.</td>
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">PV-opbrengst</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-amber-700">12.442 kWh/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">36 × 400 Wp; circa 1.244 kWh/kWp is een redelijke eerste raming.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-amber-700">
+                        {annualSolarYieldKwh > 0 ? `${annualSolarYieldKwh.toLocaleString('nl-NL')} kWh/jaar` : 'Geen PV'}
+                      </td>
+                      <td className="py-2 px-3.5 text-slate-600">
+                        {annualSolarYieldKwh > 0 ? (
+                          isSolarYieldOverride ? (
+                            <span>
+                              {solarPanelCountVal > 0 ? `${solarPanelCountVal} × ${solarWpPerPanelVal} Wp (${solarTotalWpVal.toLocaleString('nl-NL')} Wp); ` : ''}Opgegeven werkelijke jaaropwekking conform omvormer/app: <strong>{annualSolarYieldKwh.toLocaleString('nl-NL')} kWh/jaar</strong> (100% leidend).{isSolarBestaand ? ' Reeds aanwezig op dak (€0 adviesinvestering).' : ''}
+                            </span>
+                          ) : (
+                            <span>
+                              {solarPanelCountVal} × {solarWpPerPanelVal} Wp ({solarTotalWpVal.toLocaleString('nl-NL')} Wp); circa {solarTotalWpVal > 0 ? Math.round(annualSolarYieldKwh / (solarTotalWpVal / 1000)) : 950} kWh/kWp is een redelijke eerste raming.{isSolarBestaand ? ' Reeds aanwezig op dak (€0 adviesinvestering).' : ''}
+                            </span>
+                          )
+                        ) : (
+                          'Geen zonnepanelen ingevoerd.'
+                        )}
+                      </td>
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">Warmtepomp extra elektriciteit</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-orange-700">3.515 kWh/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">SCOP/werkelijke warmtevraag bepalen uiteindelijk het echte verbruik.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-orange-700">
+                        {hasWp ? `${wpElecDemandKwh.toLocaleString('nl-NL')} kWh/jaar` : '0 kWh/jaar'}
+                      </td>
+                      <td className="py-2 px-3.5 text-slate-600">
+                        {hasWp ? `${isWpBestaand ? 'Bestaande warmtepomp; ' : ''}SCOP/werkelijke warmtevraag bepalen uiteindelijk het echte verbruik (~${chosenOpt ? (chosenOpt.type === 'All-Electric' ? 4.2 : 3.8) : 4.0} SCOP).` : 'Geen warmtepomp geselecteerd.'}
+                      </td>
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">EV thuisladen</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-purple-700">1.296 kWh/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">12.000 km × 18 kWh/100 km × 60%.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-purple-700">
+                        {hasEv ? `${evElecDemandKwh.toLocaleString('nl-NL')} kWh/jaar` : '0 kWh/jaar'}
+                      </td>
+                      <td className="py-2 px-3.5 text-slate-600">
+                        {hasEv ? `${(calculation.tech?.evKilometers || 12000).toLocaleString('nl-NL')} km × ${calculation.tech?.evVerbruik || 18} kWh/100 km × ${calculation.tech?.evThuisLaden ?? 60}%.` : 'Geen EV geselecteerd.'}
+                      </td>
                     </tr>
                     <tr className="bg-slate-100/60 font-medium">
                       <td className="py-2 px-3.5 font-extrabold text-slate-900">Totale elektriciteitsvraag na maatregelen</td>
-                      <td className="py-2 px-3.5 font-mono font-extrabold text-slate-900">8.611 kWh/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-700">Woning (3.800) + warmtepomp (3.515) + EV thuisladen (1.296).</td>
+                      <td className="py-2 px-3.5 font-mono font-extrabold text-slate-900">{totalPostElecDemandKwh.toLocaleString('nl-NL')} kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-700">Woning ({currentHouseElecKwh.toLocaleString('nl-NL')}){wpElecDemandKwh > 0 ? ` + warmtepomp (${wpElecDemandKwh.toLocaleString('nl-NL')})` : ''}{evElecDemandKwh > 0 ? ` + EV thuisladen (${evElecDemandKwh.toLocaleString('nl-NL')})` : ''}.</td>
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">PV direct eigenverbruik zonder batterij</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">3.733 kWh/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Gecorrigeerd naar maximaal opwek op momenten van gelijktijdig verbruik; 70% van 12.442 was niet realistisch.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">{pvDirectSelfConsumptionKwh.toLocaleString('nl-NL')} kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Gecorrigeerd naar gelijktijdig verbruik op momenten van opwek ({calculation.tech?.huidigDirectVerbruik ?? 30}% van {annualSolarYieldKwh.toLocaleString('nl-NL')} kWh).</td>
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">PV teruglevering zonder batterij</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">8.709 kWh/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">12.442 − 3.733 kWh.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">{pvFeedWithoutBatKwh.toLocaleString('nl-NL')} kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">{annualSolarYieldKwh.toLocaleString('nl-NL')} − {pvDirectSelfConsumptionKwh.toLocaleString('nl-NL')} kWh.</td>
                     </tr>
                     <tr className="bg-blue-50/30">
                       <td className="py-2 px-3.5 font-bold text-blue-900">PV eigenverbruik mét batterij</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-blue-700">8.087 kWh/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Circa 65% van PV-opbrengst en begrensd door totale vraag (8.611 kWh).</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-blue-700">{hasBat ? `${pvSelfConsumptionWithBatKwh.toLocaleString('nl-NL')} kWh/jaar` : `${pvDirectSelfConsumptionKwh.toLocaleString('nl-NL')} kWh/jaar`}</td>
+                      <td className="py-2 px-3.5 text-slate-600">{hasBat ? `Circa 65% van PV-opbrengst en begrensd door totale vraag (${totalPostElecDemandKwh.toLocaleString('nl-NL')} kWh).` : 'Geen batterij geselecteerd; direct eigenverbruik blijft gelden.'}</td>
                     </tr>
                     <tr className="bg-blue-50/30">
                       <td className="py-2 px-3.5 font-bold text-blue-900">PV teruglevering mét batterij</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-blue-700">4.355 kWh/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">12.442 − 8.087 kWh.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-blue-700">{hasBat ? `${pvFeedWithBatKwh.toLocaleString('nl-NL')} kWh/jaar` : `${pvFeedWithoutBatKwh.toLocaleString('nl-NL')} kWh/jaar`}</td>
+                      <td className="py-2 px-3.5 text-slate-600">{annualSolarYieldKwh.toLocaleString('nl-NL')} − {pvSelfConsumptionWithBatKwh.toLocaleString('nl-NL')} kWh.</td>
                     </tr>
                     <tr className="bg-blue-50/30">
                       <td className="py-2 px-3.5 font-bold text-blue-900">Netimport na alle maatregelen</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-blue-700">524 kWh/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">8.611 − 8.087 kWh; géén fictieve 0 kWh netimport.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-blue-700">{postNetImportKwh.toLocaleString('nl-NL')} kWh/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">{totalPostElecDemandKwh.toLocaleString('nl-NL')} − {pvSelfConsumptionWithBatKwh.toLocaleString('nl-NL')} kWh; géén fictieve 0 kWh netimport.</td>
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">Batterij-opbrengst extra eigenverbruik</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 1.263/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Alleen het extra effect van de batterij (4.354 kWh × €0,29); PV/WP/EV worden niet opnieuw als losse besparing opgeteld.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ {batExtraSelfConsumptionSavings.toLocaleString('nl-NL')}/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Alleen het extra effect van de batterij ({batExtraSelfConsumptionKwh.toLocaleString('nl-NL')} kWh × € {(baseElecPrice - 0.06).toFixed(2)}); PV/WP/EV worden niet opnieuw als losse besparing opgeteld.</td>
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">Conservatieve batterij-handelsopbrengst</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 700/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Voorzichtig modelbedrag dynamisch/onbalans.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ {batTradingYield.toLocaleString('nl-NL')}/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">
+                        {batTradingYield > 0 ? (
+                          <span>
+                            Voorzichtig modelbedrag dynamisch/onbalans ({batCapacity} kWh × € {tradingRatePerKwh}/kWh bij {tradingProvider}){isBatBestaand ? ' (bestaande thuisbatterij).' : '.'}
+                          </span>
+                        ) : !hasBat ? (
+                          isTradingActive ? (
+                            <span className="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded text-[11px] font-medium">
+                              Handelssturing staat ingeschakeld (Aan), maar er is momenteel <strong>geen thuisbatterij geselecteerd (0 kWh)</strong>. Kies een batterijgrootte om opbrengst te berekenen.
+                            </span>
+                          ) : (
+                            'Geen thuisbatterij geselecteerd (0 kWh).'
+                          )
+                        ) : !isTradingActive ? (
+                          'Handelssturing is uitgeschakeld in instellingen (100% zonne-focus; alleen eigen zonnestroom opslaan).'
+                        ) : (
+                          'Geen handelsopbrengst berekend.'
+                        )}
+                      </td>
                     </tr>
                     <tr className="bg-slate-50/50">
                       <td className="py-2 px-3.5 font-bold text-slate-700">Totale batterij-opbrengst</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 1.963/jaar</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ {totalBatteryYieldEuro.toLocaleString('nl-NL')}/jaar</td>
                       <td className="py-2 px-3.5 text-slate-600">Som van extra eigenverbruik en handelsopbrengst.</td>
                     </tr>
                     <tr className="bg-slate-50/50">
                       <td className="py-2 px-3.5 font-bold text-slate-700">Batterij TVT</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">5.8 jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Op € 11.405 investering.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">
+                        {hasBat ? (isBatBestaand ? 'Reeds gerealiseerd' : (totalBatteryYieldEuro > 0 ? `${(newBatNet / totalBatteryYieldEuro).toFixed(1)} jaar` : 'N.v.t.')) : 'N.v.t.'}
+                      </td>
+                      <td className="py-2 px-3.5 text-slate-600">
+                        {hasBat ? (isBatBestaand ? 'Bestaande batterij (€0 nieuwe investering).' : `Op € ${newBatNet.toLocaleString('nl-NL')} investering.`) : 'Geen batterij geselecteerd.'}
+                      </td>
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">WP gasbesparing</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 2.109/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">1.562 m³ × € 1,35.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ {wpGasSavingEuro.toLocaleString('nl-NL')}/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">{hasWp ? `${wpGasSavingM3.toLocaleString('nl-NL')} m³ × € ${baseGasPrice.toFixed(2)}.` : 'Geen warmtepomp geselecteerd.'}</td>
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">WP besparing vastrecht</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 280/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Gasaansluiting verwijderd bij all-electric warmtepomp.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ {wpVastrechtSavingEuro.toLocaleString('nl-NL')}/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">{wpVastrechtSavingEuro > 0 ? 'Gasaansluiting verwijderd bij all-electric warmtepomp.' : 'Geen vastrechtbesparing (hybride of geen WP).'}</td>
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">WP extra elektriciteitskosten</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-rose-700">€ 975/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">25% van WP-verbruik via PV en 75% via net als conservatieve seizoensbenadering in de winter.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-rose-700">€ {wpExtraElecCostEuro.toLocaleString('nl-NL')}/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">{hasWp ? '25% van WP-verbruik via PV en 75% via net als conservatieve seizoensbenadering in de winter.' : 'Geen warmtepomp.'}</td>
                     </tr>
                     <tr className="bg-orange-50/30">
                       <td className="py-2 px-3.5 font-bold text-orange-950">Netto WP-besparing</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 1.414/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">€ 2.109 + € 280 − € 975.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ {nettoWpSavingsEuro.toLocaleString('nl-NL')}/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">{hasWp ? `€ ${wpGasSavingEuro.toLocaleString('nl-NL')} + € ${wpVastrechtSavingEuro.toLocaleString('nl-NL')} − € ${wpExtraElecCostEuro.toLocaleString('nl-NL')}.` : 'Geen warmtepomp.'}</td>
                     </tr>
                     <tr className="bg-orange-50/30">
                       <td className="py-2 px-3.5 font-bold text-orange-950">WP netto investering</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ 12.450</td>
-                      <td className="py-2 px-3.5 text-slate-600">€ 16.200 bruto − € 3.750 ISDE-subsidie.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ {newWpNet.toLocaleString('nl-NL')}</td>
+                      <td className="py-2 px-3.5 text-slate-600">{hasWp ? (isWpBestaand ? 'Bestaande warmtepomp (€0 adviesinvestering).' : `€ ${(chosenOpt?.brutoInvestment || 0).toLocaleString('nl-NL')} bruto − € ${(chosenOpt?.subsidy || 0).toLocaleString('nl-NL')} ISDE-subsidie.`) : 'Geen warmtepomp.'}</td>
                     </tr>
                     <tr className="bg-orange-50/30">
                       <td className="py-2 px-3.5 font-bold text-orange-950">WP TVT</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">8.8 jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Geen 5–7 jaar claim zonder warmteverliesberekening en echte offerte.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">
+                        {hasWp ? (isWpBestaand ? 'Reeds gerealiseerd' : (nettoWpSavingsEuro > 0 ? `${(newWpNet / nettoWpSavingsEuro).toFixed(1)} jaar` : 'N.v.t.')) : 'N.v.t.'}
+                      </td>
+                      <td className="py-2 px-3.5 text-slate-600">{hasWp ? (isWpBestaand ? 'Bestaande warmtepomp' : 'O.b.v. netto investering en gecorrigeerde netto besparing.') : 'Geen warmtepomp.'}</td>
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">EV voordeel</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ 194/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Vergelijking met €0,50/kWh openbaar laden; geen fictieve wettelijke ERE-vergoeding.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ {evBenefitEuro.toLocaleString('nl-NL')}/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">{hasEv ? 'Vergelijking met €0,50/kWh openbaar laden; geen fictieve vergoeding.' : 'Geen EV geselecteerd.'}</td>
                     </tr>
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">EV TVT</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">6.2 jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Op € 1.200 installatiekosten.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">
+                        {hasEv ? (isLaadpaalBestaand ? 'Reeds gerealiseerd' : (evBenefitEuro > 0 ? `${(newEvNet / evBenefitEuro).toFixed(1)} jaar` : 'N.v.t.')) : 'N.v.t.'}
+                      </td>
+                      <td className="py-2 px-3.5 text-slate-600">{hasEv ? (isLaadpaalBestaand ? 'Bestaande laadpaal.' : `Op € ${newEvNet.toLocaleString('nl-NL')} installatiekosten.`) : 'Geen laadpaal.'}</td>
                     </tr>
                     <tr className="bg-slate-100/60 font-semibold">
                       <td className="py-2 px-3.5 text-slate-800">Huidige totale energiekosten</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ 3.439/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Elektriciteit € 1.330 + gas € 2.109.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ {baselineEnergyCostsYr.toLocaleString('nl-NL')}/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Elektriciteit € {Math.round(currentHouseElecKwh * baseElecPrice).toLocaleString('nl-NL')} + gas € {Math.round(currentHouseGasM3 * baseGasPrice).toLocaleString('nl-NL')}.</td>
                     </tr>
                     <tr className="bg-slate-100/60 font-semibold">
                       <td className="py-2 px-3.5 text-slate-800">Nieuwe netto energiekosten</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">-€ 778/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Import € 183 − Teruglevering € 261 − Batterijhandel € 700.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">{postNetEnergyCosts < 0 ? `-€ ${Math.abs(postNetEnergyCosts).toLocaleString('nl-NL')}` : `€ ${postNetEnergyCosts.toLocaleString('nl-NL')}`}/jaar</td>
+                      <td className="py-2 px-3.5 text-slate-600">Import € {postImportCostEuro.toLocaleString('nl-NL')} − Teruglevering € {postExportRevenueEuro.toLocaleString('nl-NL')}{batTradingYield > 0 ? ` − Batterijhandel € ${batTradingYield.toLocaleString('nl-NL')}` : ''}.</td>
                     </tr>
                     <tr className="bg-emerald-100/60 border-t-2 border-emerald-500">
                       <td className="py-2.5 px-3.5 font-extrabold text-emerald-950 text-sm">INTEGRALE JAARLIJKSE BESPARING</td>
-                      <td className="py-2.5 px-3.5 font-mono font-extrabold text-emerald-800 text-sm">€ 4.217/jaar</td>
+                      <td className="py-2.5 px-3.5 font-mono font-extrabold text-emerald-800 text-sm">€ {Math.round(totalCombinedSavingsPerYear).toLocaleString('nl-NL')}/jaar</td>
                       <td className="py-2.5 px-3.5 text-emerald-950 font-medium">Huidige kosten min nieuwe kosten; dit is de enige besparing die gebruikt mag worden voor de integrale TVT!</td>
                     </tr>
                     <tr className="bg-slate-100/75">
                       <td className="py-2 px-3.5 font-bold text-slate-800">Nieuwe investering totaal</td>
-                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ 38.455</td>
-                      <td className="py-2 px-3.5 text-slate-600">€ 13.400 PV + € 11.405 Accu + € 12.450 WP + € 1.200 Laadpaal.</td>
+                      <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ {Math.round(totalCombinedNetInvestment).toLocaleString('nl-NL')}</td>
+                      <td className="py-2 px-3.5 text-slate-600">
+                        {[
+                          hasSolar && !isSolarBestaand ? `€ ${solarNetInvestment.toLocaleString('nl-NL')} PV` : null,
+                          hasBat && !isBatBestaand ? `€ ${newBatNet.toLocaleString('nl-NL')} Accu` : null,
+                          hasWp && !isWpBestaand ? `€ ${newWpNet.toLocaleString('nl-NL')} WP` : null,
+                          hasEv && !isLaadpaalBestaand ? `€ ${newEvNet.toLocaleString('nl-NL')} Laadpaal` : null,
+                          hasIso ? `€ ${isoNetCosts.toLocaleString('nl-NL')} Isolatie` : null
+                        ].filter(Boolean).join(' + ') || 'Geen nieuwe investeringen (€0 reeds gerealiseerd)'}
+                      </td>
                     </tr>
                     <tr className="bg-emerald-100/60 border-b-2 border-emerald-500">
                       <td className="py-2.5 px-3.5 font-extrabold text-emerald-950 text-sm">INTEGRALE TVT</td>
-                      <td className="py-2.5 px-3.5 font-mono font-extrabold text-emerald-800 text-sm">9.1 jaar</td>
-                      <td className="py-2.5 px-3.5 text-emerald-950 font-medium">Op € 38.455 totale netto investering.</td>
+                      <td className="py-2.5 px-3.5 font-mono font-extrabold text-emerald-800 text-sm">{totalCombinedTvt}</td>
+                      <td className="py-2.5 px-3.5 text-emerald-950 font-medium">Op € {Math.round(totalCombinedNetInvestment).toLocaleString('nl-NL')} totale netto investering.</td>
                     </tr>
                   </tbody>
                 </table>
@@ -2007,7 +2081,16 @@ Energie planner Peel en Maas
                 Zonnepanelen & Einde Salderingsregeling
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                Gepersonaliseerd advies gebaseerd op een jaaropbrengst van <strong>{Math.round(calculation.solar.annualYieldKwh)} kWh</strong> met <strong>{calculation.tech.aantalZonnepanelen} zonnepanelen</strong>, een oriëntatie van <strong>{calculation.tech.dakOrientatie}°</strong> en een hellingshoek van <strong>{calculation.tech.dakHellingshoek !== undefined ? calculation.tech.dakHellingshoek : 35}°</strong>.
+                {calculation.solar.isUserYieldOverride ? (
+                  <span>
+                    Gepersonaliseerd advies gebaseerd op je <strong className="text-amber-700">leidende jaaropbrengst van {Math.round(calculation.solar.annualYieldKwh).toLocaleString('nl-NL')} kWh</strong> (handmatig opgegeven conform omvormer/app; deze opgave is leidend voor alle berekeningen).
+                    {calculation.tech.aantalZonnepanelen > 0 ? ` Aanwezig op dak: ${calculation.tech.aantalZonnepanelen} panelen.` : ''}
+                  </span>
+                ) : (
+                  <span>
+                    Gepersonaliseerd advies gebaseerd op een berekende jaaropbrengst van <strong>{Math.round(calculation.solar.annualYieldKwh).toLocaleString('nl-NL')} kWh</strong> met <strong>{calculation.tech.aantalZonnepanelen} zonnepanelen</strong>, een oriëntatie van <strong>{calculation.tech.dakOrientatie}°</strong> en een hellingshoek van <strong>{calculation.tech.dakHellingshoek !== undefined ? calculation.tech.dakHellingshoek : 35}°</strong>.
+                  </span>
+                )}
               </p>
               {calculation.tech.pvCurtailmentMode && (
                 <div className="mt-3 bg-amber-50 border border-amber-200/80 rounded-xl p-3 text-xs text-amber-900 flex items-center gap-2">
@@ -2022,9 +2105,20 @@ Energie planner Peel en Maas
             {/* Grid statistics */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Jaarlijkse zonnestroom</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Jaarlijkse zonnestroom</span>
+                  {calculation.solar.isUserYieldOverride && (
+                    <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
+                      ⭐ Leidend
+                    </span>
+                  )}
+                </div>
                 <span className="text-xl font-extrabold text-slate-800">{Math.round(calculation.solar.annualYieldKwh).toLocaleString('nl-NL')} kWh</span>
-                <p className="text-xs text-slate-500">Zonne-energie opgewekt per jaar.</p>
+                <p className="text-xs text-slate-500">
+                  {calculation.solar.isUserYieldOverride
+                    ? 'Conform je eigen opgave (leidend voor alle adviezen).'
+                    : 'Zonne-energie berekend per jaar.'}
+                </p>
               </div>
               <div className="bg-slate-50 border border-slate-100 p-5 rounded-2xl space-y-1">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Direct eigen verbruik</span>
@@ -2039,7 +2133,7 @@ Energie planner Peel en Maas
             </div>
 
             {/* Financial statistics row */}
-            {solarPanelsCount > 0 && (
+            {(solarPanelsCount > 0 || (calculation.solar?.annualYieldKwh || 0) > 0) && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5" id="solar-financials-grid">
                 <div className="bg-amber-50/40 border border-amber-100/60 p-5 rounded-2xl space-y-1">
                   <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Netto investering zonnepanelen</span>

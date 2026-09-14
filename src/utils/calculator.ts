@@ -615,10 +615,14 @@ export function calculateAll(
   const paneelVermogen = tech.vermogenPerPaneel || 400;
   const totalWp = tech.aantalZonnepanelen * paneelVermogen;
   
-  // Apply persistent user override if present
-  const annualYieldKwh = (tech.userAnnualSolar !== undefined && tech.userAnnualSolar !== null && Number(tech.userAnnualSolar) > 0)
+  const calculatedYieldKwh = Math.round((totalWp / 1000) * 900 * orientationFactor * tiltFactor);
+  const isUserYieldOverride = Boolean(
+    tech.userAnnualSolar !== undefined && tech.userAnnualSolar !== null && Number(tech.userAnnualSolar) > 0
+  );
+  // Apply persistent user override if present (leidend voor alle berekeningen)
+  const annualYieldKwh = isUserYieldOverride
     ? Number(tech.userAnnualSolar)
-    : (totalWp / 1000) * 900 * orientationFactor * tiltFactor;
+    : calculatedYieldKwh;
 
   const selfConsumptionBase = tech.huidigDirectVerbruik;
 
@@ -853,7 +857,11 @@ export function calculateAll(
     // De auto verbruikt zonnestroom, waardoor deze niet meer teruggeleverd kan worden aan het net!
     gridFeedBaseKwh: Math.max(0, gridFeedBaseKwh - evSolarCoverageBaseKwh),
     gridFeedWithBatteryKwh: Math.max(0, gridFeedWithBatteryKwh - evSolarCoverageWithBatteryKwh),
-    disclaimer: 'Dit is een prognose. De werkelijke opbrengst hangt af van lokale beschaduwing, vervuiling en omvormerverliezen.',
+    disclaimer: isUserYieldOverride
+      ? 'De jaarlijkse zonne-opwekking is handmatig opgegeven door de gebruiker en is leidend voor alle berekeningen.'
+      : 'Dit is een prognose. De werkelijke opbrengst hangt af van lokale beschaduwing, vervuiling en omvormerverliezen.',
+    isUserYieldOverride,
+    calculatedYieldKwh,
   };
 
   const battery: BatteryImpact = {

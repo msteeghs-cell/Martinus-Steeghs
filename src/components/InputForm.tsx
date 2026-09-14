@@ -4,7 +4,7 @@ import {
   User, Home, Layers, Battery, Sun, HelpCircle, 
   Sparkles, RefreshCw, Calendar, CheckCircle2, Zap, Info,
   TrendingDown, Gauge, AlertTriangle, Trash2, Download, Check, Sliders,
-  FileSpreadsheet, PiggyBank, FileText, RotateCcw, ShieldCheck, ExternalLink
+  FileSpreadsheet, PiggyBank, FileText, RotateCcw, ShieldCheck
 } from 'lucide-react';
 import { EnergyCostPdfModal } from './EnergyCostPdfModal';
 import {
@@ -312,7 +312,9 @@ export default function InputForm({
 
     // Estimate yield for newVal panels to calculate new direct self-consumption default
     const singlePanelYield = (tech.vermogenPerPaneel || 400) * 0.90; // approx Wp yield factor
-    const newYield = newVal * singlePanelYield;
+    const newYield = (tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0)
+      ? tech.userAnnualSolar
+      : newVal * singlePanelYield;
     const verbruik = house.verbruikKwh || 3500;
     const ratio = newYield > 0 ? verbruik / newYield : 1;
 
@@ -1159,11 +1161,23 @@ export default function InputForm({
         <div className="space-y-6 animate-fadeIn">
           {/* Snelkoppelingen Presets */}
           <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-            <div className="flex items-center justify-between mb-1">
-              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-emerald-500" />
-                Snel woning-profiel Laden
-              </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-500" />
+                  Snel woning-profiel Laden
+                </h3>
+                <button
+                  onClick={onWis}
+                  type="button"
+                  id="btn-wis-alles-preset"
+                  title="Wis alle gegevens en begin met een leeg formulier"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200/90 rounded-xl transition shadow-2xs cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Nieuw formulier (Wis alles)</span>
+                </button>
+              </div>
               {activePreset && (
                 <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 rounded-full flex items-center gap-1">
                   <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
@@ -1505,9 +1519,11 @@ export default function InputForm({
                       </button>
                     </div>
                     <span className="font-semibold text-emerald-700 text-[10px]">
-                      {tech.aantalZonnepanelen > 0
-                        ? `${tech.aantalZonnepanelen} panelen`
-                        : 'Geen PV'}
+                      {tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0
+                        ? `${tech.userAnnualSolar.toLocaleString('nl-NL')} kWh/j (leidend)`
+                        : (tech.aantalZonnepanelen > 0
+                            ? `${tech.aantalZonnepanelen} panelen`
+                            : 'Geen PV')}
                     </span>
                   </div>
                   <div className="grid grid-cols-4 gap-1">
@@ -3814,36 +3830,17 @@ export default function InputForm({
 
               {/* Openklapbare sectie: Bestaande Zonnepanelen (Opwekking & Teruglevering) */}
               {(house.zonnepanelenPresent === 'Ja' || tech.aantalZonnepanelen > 0) && (
-                <div className="mt-4 pt-3 border-t border-slate-200/90 space-y-3" id="solar-isolation-sync-panel">
-                  <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white border border-amber-200/90 rounded-2xl p-4 space-y-4 shadow-2xs">
+                <div className="mt-3 pt-2.5 border-t border-slate-200/90" id="solar-isolation-sync-panel">
+                  <div className="bg-amber-50/70 border border-amber-200/90 rounded-xl p-3 space-y-2.5">
                     {/* Header */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-amber-200/70">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-300 flex items-center justify-center text-amber-600 shrink-0">
-                          <Sun className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="text-xs font-bold text-slate-900">Bestaande Zonnepanelen (Opwekking &amp; Teruglevering)</h4>
-                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                              {tech.solarStatus === 'bestaand' ? 'Reeds aanwezig (€ 0 advies)' : 'Actief in berekening'}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
-                            Vul hier je jaaropbrengst (omvormer app) en teruglevering (jaarnota) in. Blijft automatisch 100% synchroon met het tabblad Zonnepanelen.
-                          </p>
-                        </div>
+                    <div className="flex items-center justify-between pb-1.5 border-b border-amber-200/70">
+                      <div className="flex items-center gap-2">
+                        <Sun className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <h4 className="text-xs font-bold text-slate-900">Bestaande Zonnepanelen</h4>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('zon')}
-                        className="text-[11px] font-bold text-amber-900 hover:text-amber-950 bg-amber-100 hover:bg-amber-200/80 border border-amber-300 px-2.5 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 cursor-pointer"
-                        title="Open tabblad Zonnepanelen voor geavanceerde opties (dakoriëntatie, helling, Wp vermogen)"
-                      >
-                        <span>Naar tabblad Zonnepanelen</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </button>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        {tech.solarStatus === 'bestaand' ? 'Reeds aanwezig (€ 0 advies)' : 'Actief in berekening'}
+                      </span>
                     </div>
 
                     {/* Invoervelden Grid */}
@@ -3852,8 +3849,17 @@ export default function InputForm({
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                            <span>1. Jaarlijkse opwekking</span>
-                            <Tooltip text="De totale jaaropbrengst van je zonnepanelen in kWh (af te lezen in je SolarEdge, Enphase, Growatt of SMA omvormer-app). Laat leeg om automatisch te laten berekenen op basis van het aantal panelen." />
+                            <span>Jaaropwekking</span>
+                            <Tooltip text="De werkelijke jaaropbrengst van je zonnepanelen in kWh (af te lezen in je SolarEdge, Enphase, Growatt of SMA omvormer-app). Jouw opgave is 100% leidend voor alle berekeningen. Laat leeg om automatisch te rekenen o.b.v. aantal panelen." />
+                            {tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0 ? (
+                              <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
+                                ⭐ LEIDEND
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-medium text-slate-400">
+                                (berekend)
+                              </span>
+                            )}
                           </label>
                           {tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0 && (
                             <button
@@ -3862,7 +3868,7 @@ export default function InputForm({
                               className="text-[9.5px] text-rose-600 font-bold hover:underline cursor-pointer"
                               title="Herstel naar berekende schatting o.b.v. aantal panelen"
                             >
-                              Reset
+                              ↺ Herstel
                             </button>
                           )}
                         </div>
@@ -3871,43 +3877,52 @@ export default function InputForm({
                             type="number"
                             min="0"
                             step="50"
-                            value={tech.userAnnualSolar !== undefined ? tech.userAnnualSolar : (localAnnualYieldKwh > 0 ? localAnnualYieldKwh : '')}
+                            value={tech.userAnnualSolar !== undefined ? tech.userAnnualSolar : ''}
                             onChange={(e) => {
                               const raw = e.target.value;
                               const val = raw === '' ? undefined : Math.max(0, Number(raw));
                               setTech(prev => {
                                 const updated = { ...prev, userAnnualSolar: val };
                                 const yieldVal = val !== undefined ? val : calculatedYieldKwh;
-                                if (yieldVal > 0) {
+                                if (yieldVal >= 100) {
                                   const direct = Math.max(0, yieldVal - (house.elektraTeruglevering || 0));
                                   updated.huidigDirectVerbruik = Math.min(100, Math.max(0, Math.round((direct / yieldVal) * 100)));
                                 }
                                 return updated;
                               });
                             }}
-                            className={`w-full text-xs font-bold bg-white border rounded-lg px-2.5 py-2 font-mono focus:outline-emerald-500 pr-12 ${
-                              tech.userAnnualSolar !== undefined ? 'border-amber-400 text-amber-950 ring-1 ring-amber-300/60' : 'border-slate-200 text-slate-800'
+                            className={`w-full text-xs font-bold rounded-lg px-2.5 py-1.5 font-mono focus:outline-emerald-500 pr-12 transition ${
+                              tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0
+                                ? 'bg-amber-50/60 border-amber-400 text-amber-950 ring-1 ring-amber-300/80'
+                                : 'bg-white border border-slate-200 text-slate-800'
                             }`}
-                            placeholder={`${calculatedYieldKwh || 3600}`}
+                            placeholder={calculatedYieldKwh > 0 ? `${calculatedYieldKwh} (berekend)` : 'bijv. 3600'}
                             id="isolatie_solar_opwekking"
                           />
                           <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
                             kWh/j
                           </span>
                         </div>
-                        <div className="mt-1 flex items-center justify-between text-[10.5px]">
-                          {tech.userAnnualSolar !== undefined ? (
-                            <span className="text-amber-800 font-semibold">
-                              ✍️ Eigen opgave ({tech.userAnnualSolar.toLocaleString('nl-NL')} kWh)
+                        <div className="mt-1 text-[10px]">
+                          {tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0 ? (
+                            <span className="text-amber-900 font-bold block">
+                              ✓ {tech.userAnnualSolar.toLocaleString('nl-NL')} kWh/j is leidend (overschrijft {calculatedYieldKwh.toLocaleString('nl-NL')} kWh).
                             </span>
                           ) : (
-                            <span className="text-slate-500 font-medium">
-                              ⚡ Berekend: {calculatedYieldKwh.toLocaleString('nl-NL')} kWh
-                            </span>
+                            <div className="flex items-center justify-between gap-1 text-slate-500">
+                              <span>⚡ Berekend: {calculatedYieldKwh.toLocaleString('nl-NL')} kWh/j</span>
+                              {calculatedYieldKwh > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setTech(prev => ({ ...prev, userAnnualSolar: calculatedYieldKwh }))}
+                                  className="text-[9.5px] text-amber-700 hover:text-amber-900 font-bold underline cursor-pointer"
+                                  title="Neem deze berekende waarde over om aan te passen"
+                                >
+                                  ✍️ Pas aan
+                                </button>
+                              )}
+                            </div>
                           )}
-                          <span className="text-slate-400 text-[10px]">
-                            (~{Math.round(localAnnualYieldKwh / Math.max(1, tech.aantalZonnepanelen))} kWh/paneel)
-                          </span>
                         </div>
                       </div>
 
@@ -3915,7 +3930,7 @@ export default function InputForm({
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                            <span>2. Teruglevering aan net</span>
+                            <span>Teruglevering net</span>
                             <Tooltip text="De hoeveelheid zonnestroom in kWh die je jaarlijks daadwerkelijk teruglevert aan het net, conform de jaarafrekening van je energieleverancier." />
                           </label>
                         </div>
@@ -3935,7 +3950,7 @@ export default function InputForm({
                                 setTech(prev => ({ ...prev, huidigDirectVerbruik: pct }));
                               }
                             }}
-                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-2 font-mono text-slate-800 focus:outline-emerald-500 pr-12"
+                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-emerald-500 pr-12"
                             placeholder="bijv. 2000"
                             id="isolatie_solar_teruglevering"
                           />
@@ -3943,114 +3958,46 @@ export default function InputForm({
                             kWh/j
                           </span>
                         </div>
-                        <div className="mt-1 text-[10.5px]">
+                        <div className="mt-1 text-[10px]">
                           {(house.elektraTeruglevering || 0) > localAnnualYieldKwh && localAnnualYieldKwh > 0 ? (
-                            <span className="text-rose-600 font-bold">⚠️ Hoger dan opwekking ({localAnnualYieldKwh} kWh)!</span>
+                            <span className="text-rose-600 font-bold">⚠️ Hoger dan opwekking!</span>
                           ) : (
-                            <span className="text-slate-500 font-medium">
-                              📄 Overnemen van jaarafrekening
-                            </span>
+                            <span className="text-slate-500 font-medium">📄 Van jaarafrekening</span>
                           )}
                         </div>
                       </div>
 
-                      {/* 3. Aantal panelen & Snelkeuze */}
+                      {/* 3. Aantal panelen (alleen aantal in te geven) */}
                       <div>
                         <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs font-bold text-slate-700">
-                            Aantal zonnepanelen
+                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_aantal_panelen">
+                            <span>Aantal panelen</span>
+                            <Tooltip text="Het aantal bestaande zonnepanelen op het dak." />
                           </label>
-                          <span className="text-[10px] font-bold text-slate-500 font-mono">
-                            {tech.aantalZonnepanelen} stuks ({tech.aantalZonnepanelen * (tech.vermogenPerPaneel || 400)} Wp)
+                        </div>
+                        <div className="relative">
+                          <input
+                            id="isolatie_aantal_panelen"
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={tech.aantalZonnepanelen === 0 ? '' : tech.aantalZonnepanelen}
+                            onChange={(e) => {
+                              const val = Math.max(0, Number(e.target.value));
+                              handleAantalZonnepanelenChange(val);
+                              setTech(prev => ({ ...prev, solarStatus: 'bestaand' }));
+                            }}
+                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-emerald-500 pr-14"
+                            placeholder="bijv. 10"
+                          />
+                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
+                            stuks
                           </span>
                         </div>
-                        <div className="grid grid-cols-4 gap-1">
-                          {[6, 8, 10, 12].map(num => (
-                            <button
-                              key={num}
-                              type="button"
-                              onClick={() => {
-                                handleAantalZonnepanelenChange(num);
-                                setTech(prev => ({ ...prev, solarStatus: 'bestaand' }));
-                              }}
-                              className={`py-1 px-1 text-[11px] font-bold rounded-lg border text-center transition cursor-pointer ${
-                                tech.aantalZonnepanelen === num
-                                  ? 'bg-amber-500 text-white border-amber-600 shadow-2xs'
-                                  : 'bg-white text-slate-700 border-slate-200 hover:bg-amber-50'
-                              }`}
-                            >
-                              {num} st
-                            </button>
-                          ))}
-                        </div>
-                        <div className="mt-1.5 flex items-center justify-between">
-                          <span className="text-[10px] text-slate-400">Vrij invoeren:</span>
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleAantalZonnepanelenChange(Math.max(0, tech.aantalZonnepanelen - 1))}
-                              className="w-5 h-5 bg-white border border-slate-200 rounded text-slate-700 text-xs font-bold hover:bg-slate-100 flex items-center justify-center cursor-pointer"
-                            >
-                              -
-                            </button>
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              value={tech.aantalZonnepanelen}
-                              onChange={(e) => handleAantalZonnepanelenChange(Math.max(0, Number(e.target.value)))}
-                              className="w-11 text-center text-xs font-bold font-mono py-0.5 bg-white border border-slate-200 rounded"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleAantalZonnepanelenChange(tech.aantalZonnepanelen + 1)}
-                              className="w-5 h-5 bg-white border border-slate-200 rounded text-slate-700 text-xs font-bold hover:bg-slate-100 flex items-center justify-center cursor-pointer"
-                            >
-                              +
-                            </button>
-                          </div>
+                        <div className="mt-1 text-[10px] text-slate-500 font-mono">
+                          <span>⚡ {tech.aantalZonnepanelen * (tech.vermogenPerPaneel || 400)} Wp vermogen</span>
                         </div>
                       </div>
-                    </div>
-
-                    {/* Live Stroombalans Bar */}
-                    <div className="bg-white border border-amber-200/80 rounded-xl p-3 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between text-xs gap-2">
-                        <div className="flex items-center gap-1.5">
-                          <Zap className="w-3.5 h-3.5 text-amber-500" />
-                          <span className="font-bold text-slate-800">Resultaat stroombalans:</span>
-                        </div>
-                        <div className="flex items-center gap-3 text-[11px] font-mono">
-                          <span className="text-emerald-700 font-bold">
-                            Direct verbruik: {Math.max(0, localAnnualYieldKwh - (house.elektraTeruglevering || 0)).toLocaleString('nl-NL')} kWh ({tech.huidigDirectVerbruik}%)
-                          </span>
-                          <span className="text-slate-300">|</span>
-                          <span className="text-amber-700 font-bold">
-                            Teruglevering: {(house.elektraTeruglevering || 0).toLocaleString('nl-NL')} kWh ({100 - tech.huidigDirectVerbruik}%)
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Progress Bar */}
-                      <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden flex">
-                        <div
-                          className="bg-emerald-500 transition-all duration-300 h-full"
-                          style={{ width: `${Math.min(100, Math.max(0, tech.huidigDirectVerbruik))}%` }}
-                          title={`Direct verbruik: ${tech.huidigDirectVerbruik}%`}
-                        />
-                        <div
-                          className="bg-amber-400 transition-all duration-300 h-full"
-                          style={{ width: `${Math.min(100, Math.max(0, 100 - tech.huidigDirectVerbruik))}%` }}
-                          title={`Teruglevering: ${100 - tech.huidigDirectVerbruik}%`}
-                        />
-                      </div>
-
-                      <p className="text-[10.5px] text-slate-500 leading-normal flex items-center gap-1.5 pt-0.5">
-                        <span className="text-emerald-600 font-bold">✓ Live gesynchroniseerd:</span>
-                        <span>
-                          Elke wijziging hier werkt direct door in het adviesrapport, de stroomkosten, en het tabblad Zonnepanelen.
-                        </span>
-                      </p>
                     </div>
                   </div>
                 </div>
@@ -4571,11 +4518,21 @@ export default function InputForm({
             <div className="p-4 space-y-3">
               {tech.solarStatus === 'bestaand' && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-900 flex items-center justify-between">
-                  <span>💡 <strong>Reeds aanwezig:</strong> De opwekking van deze {tech.aantalZonnepanelen} panelen wordt meegenomen voor je stroombalans, maar de aanschafkosten staan op <strong>€0</strong> in het adviesrapport.</span>
+                  <div className="space-y-0.5">
+                    <span className="font-bold block">🏠 Bestaande zonnepanelen (€0 aanschafkosten)</span>
+                    <span className="text-[11px] text-emerald-800">
+                      De zonnestroom wordt meegenomen voor je stroombalans en thuisaccu.
+                      {tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0 ? (
+                        <strong> Jouw opgegeven jaaropwekking van {tech.userAnnualSolar.toLocaleString('nl-NL')} kWh/j is hierbij leidend.</strong>
+                      ) : (
+                        <span> Wijkt je werkelijke opbrengst af van de berekende {calculatedYieldKwh.toLocaleString('nl-NL')} kWh? Pas deze hieronder direct aan om hem leidend te maken.</span>
+                      )}
+                    </span>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setTech(prev => ({ ...prev, solarStatus: 'nieuw' }))}
-                    className="text-[11px] font-bold text-emerald-800 underline hover:text-emerald-950 shrink-0 ml-2"
+                    className="text-[11px] font-bold text-emerald-800 underline hover:text-emerald-950 shrink-0 ml-3"
                   >
                     Zet op nieuw
                   </button>
@@ -4816,7 +4773,7 @@ export default function InputForm({
                   )}
                 </div>
 
-                {tech.aantalZonnepanelen > 0 && (
+                {(tech.aantalZonnepanelen > 0 || tech.solarStatus === 'bestaand' || (tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0) || house.zonnepanelenPresent === 'Ja') && (
                   <div className="space-y-4">
                     {/* Teruglevering, Opwekking & Direct Verbruik Inputs (Gesynchroniseerd met Isolatie) */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white border border-slate-100 rounded-xl p-3 shadow-sm">
@@ -4825,16 +4782,25 @@ export default function InputForm({
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="zon_jaaropwekking">
                             <span>Jaaropwekking</span>
-                            <Tooltip text="De jaarlijkse zonne-opbrengst in kWh volgens je omvormer of monitoringsapp (SolarEdge, Enphase, Growatt, etc.). Laat leeg om te rekenen o.b.v. aantal panelen en oriëntatie." />
+                            <Tooltip text="De werkelijke jaarlijkse zonne-opbrengst in kWh volgens je omvormer of monitoringsapp (SolarEdge, Enphase, Growatt, etc.). Jouw opgave is 100% leidend voor alle adviezen en berekeningen. Laat leeg om te rekenen o.b.v. aantal panelen en oriëntatie." />
+                            {tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0 ? (
+                              <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
+                                ⭐ LEIDEND
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-medium text-slate-400">
+                                (berekend)
+                              </span>
+                            )}
                           </label>
                           {tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0 && (
                             <button
                               type="button"
                               onClick={() => setTech(prev => ({ ...prev, userAnnualSolar: undefined }))}
                               className="text-[9.5px] text-rose-600 font-bold hover:underline cursor-pointer"
-                              title="Herstel naar berekende waarde"
+                              title="Herstel naar berekende waarde o.b.v. aantal panelen"
                             >
-                              Reset
+                              ↺ Herstel
                             </button>
                           )}
                         </div>
@@ -4844,32 +4810,48 @@ export default function InputForm({
                             type="number"
                             min="0"
                             step="50"
-                            value={tech.userAnnualSolar !== undefined ? tech.userAnnualSolar : (localAnnualYieldKwh > 0 ? localAnnualYieldKwh : '')}
+                            value={tech.userAnnualSolar !== undefined ? tech.userAnnualSolar : ''}
                             onChange={(e) => {
                               const raw = e.target.value;
                               const val = raw === '' ? undefined : Math.max(0, Number(raw));
                               setTech(prev => {
                                 const updated = { ...prev, userAnnualSolar: val };
                                 const yieldVal = val !== undefined ? val : calculatedYieldKwh;
-                                if (yieldVal > 0) {
+                                if (yieldVal >= 100) {
                                   const direct = Math.max(0, yieldVal - (house.elektraTeruglevering || 0));
                                   updated.huidigDirectVerbruik = Math.min(100, Math.max(0, Math.round((direct / yieldVal) * 100)));
                                 }
                                 return updated;
                               });
                             }}
-                            className={`w-full text-xs font-bold bg-slate-50 border rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono pr-11 ${
-                              tech.userAnnualSolar !== undefined ? 'border-amber-400 text-amber-950 ring-1 ring-amber-300/60' : 'border-slate-200 text-slate-800'
+                            className={`w-full text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono pr-11 transition ${
+                              tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0
+                                ? 'bg-amber-50/60 border-amber-400 text-amber-950 ring-1 ring-amber-300/80'
+                                : 'bg-slate-50 border border-slate-200 text-slate-800'
                             }`}
-                            placeholder={`${calculatedYieldKwh || 3600}`}
+                            placeholder={calculatedYieldKwh > 0 ? `${calculatedYieldKwh} (berekend)` : 'bijv. 3600'}
                           />
                           <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">kWh</span>
                         </div>
                         <div className="mt-1 text-[10px]">
-                          {tech.userAnnualSolar !== undefined ? (
-                            <span className="text-amber-800 font-semibold">✍️ Eigen opgave</span>
+                          {tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0 ? (
+                            <span className="text-amber-900 font-bold block">
+                              ✓ {tech.userAnnualSolar.toLocaleString('nl-NL')} kWh/j is leidend (overschrijft {calculatedYieldKwh.toLocaleString('nl-NL')} kWh).
+                            </span>
                           ) : (
-                            <span className="text-slate-500">⚡ Berekend: {calculatedYieldKwh} kWh</span>
+                            <div className="flex items-center justify-between gap-1 text-slate-500">
+                              <span>⚡ Berekend: {calculatedYieldKwh.toLocaleString('nl-NL')} kWh</span>
+                              {calculatedYieldKwh > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setTech(prev => ({ ...prev, userAnnualSolar: calculatedYieldKwh }))}
+                                  className="text-[9.5px] text-amber-700 hover:text-amber-900 font-bold underline cursor-pointer"
+                                  title="Neem deze berekende waarde over om aan te passen"
+                                >
+                                  ✍️ Pas aan
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>
