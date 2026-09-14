@@ -4,7 +4,7 @@ import {
   User, Home, Layers, Battery, Sun, HelpCircle, 
   Sparkles, RefreshCw, Calendar, CheckCircle2, Zap, Info,
   TrendingDown, Gauge, AlertTriangle, Trash2, Download, Check, Sliders,
-  FileSpreadsheet, PiggyBank, FileText, RotateCcw, ShieldCheck
+  FileSpreadsheet, PiggyBank, FileText, RotateCcw, ShieldCheck, ExternalLink
 } from 'lucide-react';
 import { EnergyCostPdfModal } from './EnergyCostPdfModal';
 import {
@@ -43,11 +43,13 @@ interface InputFormProps {
 function Tooltip({
   text,
   align = 'left',
-  position = 'top'
+  position = 'top',
+  width = 'w-64'
 }: {
   text: React.ReactNode;
   align?: 'left' | 'right' | 'center';
   position?: 'top' | 'bottom';
+  width?: string;
 }) {
   let alignClasses = 'left-0 translate-x-0';
   let arrowAlignClasses = 'left-3';
@@ -71,7 +73,7 @@ function Tooltip({
   return (
     <span className="group relative inline-block text-slate-400 hover:text-slate-600 cursor-help ml-1.5 align-middle shrink-0 z-30 hover:z-[9999]">
       <HelpCircle className="w-3.5 h-3.5" />
-      <span className={`pointer-events-none absolute hidden group-hover:block w-64 bg-slate-900 text-white text-[11px] p-3 rounded-xl shadow-xl z-[9999] font-normal leading-relaxed normal-case text-left ${posClasses} ${alignClasses}`}>
+      <span className={`pointer-events-none absolute hidden group-hover:block ${width} bg-slate-900 text-white text-[11px] p-3 rounded-xl shadow-xl z-[9999] font-normal leading-relaxed normal-case text-left ${posClasses} ${alignClasses}`}>
         {text}
         <span className={`absolute ${arrowPosClasses} ${arrowAlignClasses}`} />
       </span>
@@ -116,6 +118,15 @@ export default function InputForm({
 
   const [showSimExplanation, setShowSimExplanation] = useState<boolean>(false);
   const [showEnergyPdfModal, setShowEnergyPdfModal] = useState<boolean>(false);
+  const [isGasFocused, setIsGasFocused] = useState<boolean>(false);
+  const [isGasFocusedParam, setIsGasFocusedParam] = useState<boolean>(false);
+
+  const isAllElectricOrBestaandWp = 
+    tech.heatpumpStatus === 'bestaand' || 
+    house.verwarming === 'Full electric' || 
+    house.verwarming === 'Volledige warmtepomp' || 
+    tech.selectedWarmtepompType === 'All-Electric' ||
+    house.verwarming === 'Andere';
 
   const isPresetModified = useMemo(() => {
     if (!activePreset || !presetSnapshot) return false;
@@ -279,7 +290,10 @@ export default function InputForm({
   }
   const tiltLocal = tech.dakHellingshoek !== undefined ? tech.dakHellingshoek : 35;
   const tiltFactorLocal = Math.max(0.5, 1 - 0.0001 * Math.pow(tiltLocal - 35, 2));
-  const localAnnualYieldKwh = Math.round((totalWpLocal / 1000) * 900 * orientationFactorLocal * tiltFactorLocal);
+  const calculatedYieldKwh = Math.round((totalWpLocal / 1000) * 900 * orientationFactorLocal * tiltFactorLocal);
+  const localAnnualYieldKwh = (tech.userAnnualSolar !== undefined && tech.userAnnualSolar !== null && Number(tech.userAnnualSolar) > 0)
+    ? Number(tech.userAnnualSolar)
+    : calculatedYieldKwh;
 
   // Auto update registration code when postcode, house number or addition changes
   useEffect(() => {
@@ -3770,7 +3784,25 @@ export default function InputForm({
                   <label className="block text-xs font-medium text-slate-500 mb-1">Al zonnepanelen aanwezig?</label>
                   <select
                     value={house.zonnepanelenPresent}
-                    onChange={(e) => setHouse(prev => ({ ...prev, zonnepanelenPresent: e.target.value as any }))}
+                    onChange={(e) => {
+                      const val = e.target.value as 'Ja' | 'Nee';
+                      setHouse(prev => ({ ...prev, zonnepanelenPresent: val }));
+                      if (val === 'Ja') {
+                        setTech(prev => ({
+                          ...prev,
+                          solarStatus: 'bestaand',
+                          aantalZonnepanelen: prev.aantalZonnepanelen > 0 ? prev.aantalZonnepanelen : 10,
+                        }));
+                      } else {
+                        setTech(prev => ({
+                          ...prev,
+                          aantalZonnepanelen: 0,
+                          userAnnualSolar: undefined,
+                          solarStatus: 'nieuw',
+                        }));
+                        setHouse(prev => ({ ...prev, elektraTeruglevering: 0 }));
+                      }
+                    }}
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
                     id="zonnepanelen"
                   >
@@ -3779,6 +3811,250 @@ export default function InputForm({
                   </select>
                 </div>
               </div>
+
+              {/* Openklapbare sectie: Bestaande Zonnepanelen (Opwekking & Teruglevering) */}
+              {(house.zonnepanelenPresent === 'Ja' || tech.aantalZonnepanelen > 0) && (
+                <div className="mt-4 pt-3 border-t border-slate-200/90 space-y-3" id="solar-isolation-sync-panel">
+                  <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white border border-amber-200/90 rounded-2xl p-4 space-y-4 shadow-2xs">
+                    {/* Header */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-amber-200/70">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-300 flex items-center justify-center text-amber-600 shrink-0">
+                          <Sun className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-xs font-bold text-slate-900">Bestaande Zonnepanelen (Opwekking &amp; Teruglevering)</h4>
+                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              {tech.solarStatus === 'bestaand' ? 'Reeds aanwezig (€ 0 advies)' : 'Actief in berekening'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Vul hier je jaaropbrengst (omvormer app) en teruglevering (jaarnota) in. Blijft automatisch 100% synchroon met het tabblad Zonnepanelen.
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('zon')}
+                        className="text-[11px] font-bold text-amber-900 hover:text-amber-950 bg-amber-100 hover:bg-amber-200/80 border border-amber-300 px-2.5 py-1.5 rounded-lg transition flex items-center gap-1.5 shrink-0 cursor-pointer"
+                        title="Open tabblad Zonnepanelen voor geavanceerde opties (dakoriëntatie, helling, Wp vermogen)"
+                      >
+                        <span>Naar tabblad Zonnepanelen</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    {/* Invoervelden Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* 1. Jaarlijkse zonne-opwekking (kWh) */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                            <span>1. Jaarlijkse opwekking</span>
+                            <Tooltip text="De totale jaaropbrengst van je zonnepanelen in kWh (af te lezen in je SolarEdge, Enphase, Growatt of SMA omvormer-app). Laat leeg om automatisch te laten berekenen op basis van het aantal panelen." />
+                          </label>
+                          {tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setTech(prev => ({ ...prev, userAnnualSolar: undefined }))}
+                              className="text-[9.5px] text-rose-600 font-bold hover:underline cursor-pointer"
+                              title="Herstel naar berekende schatting o.b.v. aantal panelen"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="0"
+                            step="50"
+                            value={tech.userAnnualSolar !== undefined ? tech.userAnnualSolar : (localAnnualYieldKwh > 0 ? localAnnualYieldKwh : '')}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              const val = raw === '' ? undefined : Math.max(0, Number(raw));
+                              setTech(prev => {
+                                const updated = { ...prev, userAnnualSolar: val };
+                                const yieldVal = val !== undefined ? val : calculatedYieldKwh;
+                                if (yieldVal > 0) {
+                                  const direct = Math.max(0, yieldVal - (house.elektraTeruglevering || 0));
+                                  updated.huidigDirectVerbruik = Math.min(100, Math.max(0, Math.round((direct / yieldVal) * 100)));
+                                }
+                                return updated;
+                              });
+                            }}
+                            className={`w-full text-xs font-bold bg-white border rounded-lg px-2.5 py-2 font-mono focus:outline-emerald-500 pr-12 ${
+                              tech.userAnnualSolar !== undefined ? 'border-amber-400 text-amber-950 ring-1 ring-amber-300/60' : 'border-slate-200 text-slate-800'
+                            }`}
+                            placeholder={`${calculatedYieldKwh || 3600}`}
+                            id="isolatie_solar_opwekking"
+                          />
+                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
+                            kWh/j
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between text-[10.5px]">
+                          {tech.userAnnualSolar !== undefined ? (
+                            <span className="text-amber-800 font-semibold">
+                              ✍️ Eigen opgave ({tech.userAnnualSolar.toLocaleString('nl-NL')} kWh)
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 font-medium">
+                              ⚡ Berekend: {calculatedYieldKwh.toLocaleString('nl-NL')} kWh
+                            </span>
+                          )}
+                          <span className="text-slate-400 text-[10px]">
+                            (~{Math.round(localAnnualYieldKwh / Math.max(1, tech.aantalZonnepanelen))} kWh/paneel)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 2. Teruglevering aan het net (kWh) */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                            <span>2. Teruglevering aan net</span>
+                            <Tooltip text="De hoeveelheid zonnestroom in kWh die je jaarlijks daadwerkelijk teruglevert aan het net, conform de jaarafrekening van je energieleverancier." />
+                          </label>
+                        </div>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="0"
+                            step="50"
+                            value={house.elektraTeruglevering === 0 ? '' : house.elektraTeruglevering}
+                            onChange={(e) => {
+                              const val = Math.max(0, Number(e.target.value));
+                              setHouse(prev => ({ ...prev, elektraTeruglevering: val }));
+                              const currentYield = (tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0) ? tech.userAnnualSolar : localAnnualYieldKwh;
+                              if (currentYield > 0) {
+                                const direct = Math.max(0, currentYield - val);
+                                const pct = Math.min(100, Math.max(0, Math.round((direct / currentYield) * 100)));
+                                setTech(prev => ({ ...prev, huidigDirectVerbruik: pct }));
+                              }
+                            }}
+                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-2 font-mono text-slate-800 focus:outline-emerald-500 pr-12"
+                            placeholder="bijv. 2000"
+                            id="isolatie_solar_teruglevering"
+                          />
+                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
+                            kWh/j
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[10.5px]">
+                          {(house.elektraTeruglevering || 0) > localAnnualYieldKwh && localAnnualYieldKwh > 0 ? (
+                            <span className="text-rose-600 font-bold">⚠️ Hoger dan opwekking ({localAnnualYieldKwh} kWh)!</span>
+                          ) : (
+                            <span className="text-slate-500 font-medium">
+                              📄 Overnemen van jaarafrekening
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 3. Aantal panelen & Snelkeuze */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-bold text-slate-700">
+                            Aantal zonnepanelen
+                          </label>
+                          <span className="text-[10px] font-bold text-slate-500 font-mono">
+                            {tech.aantalZonnepanelen} stuks ({tech.aantalZonnepanelen * (tech.vermogenPerPaneel || 400)} Wp)
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-4 gap-1">
+                          {[6, 8, 10, 12].map(num => (
+                            <button
+                              key={num}
+                              type="button"
+                              onClick={() => {
+                                handleAantalZonnepanelenChange(num);
+                                setTech(prev => ({ ...prev, solarStatus: 'bestaand' }));
+                              }}
+                              className={`py-1 px-1 text-[11px] font-bold rounded-lg border text-center transition cursor-pointer ${
+                                tech.aantalZonnepanelen === num
+                                  ? 'bg-amber-500 text-white border-amber-600 shadow-2xs'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:bg-amber-50'
+                              }`}
+                            >
+                              {num} st
+                            </button>
+                          ))}
+                        </div>
+                        <div className="mt-1.5 flex items-center justify-between">
+                          <span className="text-[10px] text-slate-400">Vrij invoeren:</span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleAantalZonnepanelenChange(Math.max(0, tech.aantalZonnepanelen - 1))}
+                              className="w-5 h-5 bg-white border border-slate-200 rounded text-slate-700 text-xs font-bold hover:bg-slate-100 flex items-center justify-center cursor-pointer"
+                            >
+                              -
+                            </button>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={tech.aantalZonnepanelen}
+                              onChange={(e) => handleAantalZonnepanelenChange(Math.max(0, Number(e.target.value)))}
+                              className="w-11 text-center text-xs font-bold font-mono py-0.5 bg-white border border-slate-200 rounded"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleAantalZonnepanelenChange(tech.aantalZonnepanelen + 1)}
+                              className="w-5 h-5 bg-white border border-slate-200 rounded text-slate-700 text-xs font-bold hover:bg-slate-100 flex items-center justify-center cursor-pointer"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Live Stroombalans Bar */}
+                    <div className="bg-white border border-amber-200/80 rounded-xl p-3 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between text-xs gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <Zap className="w-3.5 h-3.5 text-amber-500" />
+                          <span className="font-bold text-slate-800">Resultaat stroombalans:</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px] font-mono">
+                          <span className="text-emerald-700 font-bold">
+                            Direct verbruik: {Math.max(0, localAnnualYieldKwh - (house.elektraTeruglevering || 0)).toLocaleString('nl-NL')} kWh ({tech.huidigDirectVerbruik}%)
+                          </span>
+                          <span className="text-slate-300">|</span>
+                          <span className="text-amber-700 font-bold">
+                            Teruglevering: {(house.elektraTeruglevering || 0).toLocaleString('nl-NL')} kWh ({100 - tech.huidigDirectVerbruik}%)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Progress Bar */}
+                      <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden flex">
+                        <div
+                          className="bg-emerald-500 transition-all duration-300 h-full"
+                          style={{ width: `${Math.min(100, Math.max(0, tech.huidigDirectVerbruik))}%` }}
+                          title={`Direct verbruik: ${tech.huidigDirectVerbruik}%`}
+                        />
+                        <div
+                          className="bg-amber-400 transition-all duration-300 h-full"
+                          style={{ width: `${Math.min(100, Math.max(0, 100 - tech.huidigDirectVerbruik))}%` }}
+                          title={`Teruglevering: ${100 - tech.huidigDirectVerbruik}%`}
+                        />
+                      </div>
+
+                      <p className="text-[10.5px] text-slate-500 leading-normal flex items-center gap-1.5 pt-0.5">
+                        <span className="text-emerald-600 font-bold">✓ Live gesynchroniseerd:</span>
+                        <span>
+                          Elke wijziging hier werkt direct door in het adviesrapport, de stroomkosten, en het tabblad Zonnepanelen.
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -3819,26 +4095,74 @@ export default function InputForm({
                 </div>
               </div>
 
+              {/* Gesynchroniseerde teruglevering & zonne-opwekking weergave in jaarrekening */}
+              {(house.zonnepanelenPresent === 'Ja' || tech.aantalZonnepanelen > 0) && (
+                <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between text-xs gap-2">
+                  <div className="flex items-center gap-2">
+                    <Sun className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span className="font-semibold text-amber-900">Zonnestroom op jaarnota:</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs font-mono">
+                    <span className="text-slate-700">
+                      Jaaropwekking: <strong className="text-slate-900">{localAnnualYieldKwh.toLocaleString('nl-NL')} kWh</strong>
+                    </span>
+                    <span className="text-amber-300">•</span>
+                    <span className="text-amber-800">
+                      Teruglevering aan net: <strong className="text-amber-950 font-bold">{(house.elektraTeruglevering || 0).toLocaleString('nl-NL')} kWh</strong>
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4 pt-1">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                    <span>Gasverbruik (m³)</span>
-                    <Tooltip text="Het actuele jaarlijkse gasverbruik in m³ van de woning, gebruikt voor de stookgedrag-check en warmtevraagbepaling." />
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-slate-500 flex items-center gap-1">
+                      <span>Gasverbruik (m³)</span>
+                      <Tooltip text="Het actuele jaarlijkse gasverbruik in m³ van de woning. Bij een all-electric woning of bestaande warmtepomp is dit N.V.T. (0 m³)." />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setHouse(prev => ({ ...prev, verbruikM3: prev.verbruikM3 === 0 ? 1200 : 0 }))}
+                      className={`text-[9.5px] px-1.5 py-0.5 rounded font-bold cursor-pointer transition ${
+                        house.verbruikM3 === 0 
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
+                      }`}
+                      title="Schakel tussen 0 m³ (N.V.T. / Gasloos) en standaard gasverbruik"
+                    >
+                      {house.verbruikM3 === 0 ? '✓ N.V.T. (Gasloos)' : 'Zet op N.V.T.'}
+                    </button>
+                  </div>
                   <input
-                    type="number"
-                    value={house.verbruikM3 || ''}
-                    onChange={(e) => setHouse(prev => ({ ...prev, verbruikM3: Number(e.target.value) }))}
-                    className={`w-full text-sm bg-slate-50 border rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500 ${
-                      (!house.verbruikM3 || house.verbruikM3 === 0) && (house.verwarming === 'Hybride warmtepomp' || house.verwarming === 'Full electric' || house.verwarming === 'CV-ketel' || tech.selectedWarmtepompType)
-                        ? 'border-rose-400 bg-rose-50/40 text-rose-950'
-                        : 'border-slate-200'
+                    type="text"
+                    value={
+                      isGasFocused
+                        ? (house.verbruikM3 === 0 ? '' : house.verbruikM3)
+                        : (house.verbruikM3 === 0
+                            ? (isAllElectricOrBestaandWp ? 'N.V.T. (0 m³ - All-electric)' : 'N.V.T. (0 m³)')
+                            : house.verbruikM3 || '')
+                    }
+                    onFocus={() => setIsGasFocused(true)}
+                    onBlur={() => setIsGasFocused(false)}
+                    onChange={(e) => {
+                      const clean = e.target.value.replace(/[^0-9]/g, '');
+                      setHouse(prev => ({ ...prev, verbruikM3: clean === '' ? 0 : Number(clean) }));
+                    }}
+                    placeholder={house.verbruikM3 === 0 ? 'N.V.T. (0 m³)' : '0'}
+                    className={`w-full text-sm border rounded-lg px-2.5 py-2 focus:outline-emerald-500 font-sans transition ${
+                      (!house.verbruikM3 || house.verbruikM3 === 0) && !isAllElectricOrBestaandWp && (house.verwarming === 'Hybride warmtepomp' || tech.selectedWarmtepompType === 'Hybride' || (tech.selectedWarmtepompType === 'All-Electric' && house.verwarming === 'CV-ketel'))
+                        ? 'border-rose-400 bg-rose-50/40 text-rose-950 font-medium'
+                        : (house.verbruikM3 === 0 && isAllElectricOrBestaandWp)
+                          ? 'border-emerald-300 bg-emerald-50/60 text-emerald-900 font-bold'
+                          : 'bg-slate-50 border-slate-200 text-slate-800'
                     }`}
                     id="gas_totaal"
                   />
-                  {(!house.verbruikM3 || house.verbruikM3 === 0) && (house.verwarming === 'Hybride warmtepomp' || house.verwarming === 'Full electric' || tech.selectedWarmtepompType) && (
+                  {/* Waarschuwing UITSLUITEND tonen wanneer iemand een nieuwe warmtepomp wil op een gasgestookte woning maar 0 m³ heeft ingevuld */}
+                  {(!house.verbruikM3 || house.verbruikM3 === 0) && !isAllElectricOrBestaandWp && (house.verwarming === 'Hybride warmtepomp' || tech.selectedWarmtepompType === 'Hybride' || (tech.selectedWarmtepompType === 'All-Electric' && house.verwarming === 'CV-ketel')) && (
                     <div className="mt-1 text-[10px] text-rose-600 font-semibold flex items-center justify-between">
-                      <span>⚠️ Warmtepomp actief bij 0 m³</span>
+                      <span>⚠️ Nieuwe warmtepomp actief bij 0 m³</span>
                       <button
                         type="button"
                         onClick={() => setHouse(prev => ({ ...prev, verbruikM3: 1200 }))}
@@ -3848,18 +4172,36 @@ export default function InputForm({
                       </button>
                     </div>
                   )}
+                  {/* Positieve bevestiging bij bestaande warmtepomp / all-electric */}
+                  {(!house.verbruikM3 || house.verbruikM3 === 0) && isAllElectricOrBestaandWp && (
+                    <div className="mt-1 text-[10px] text-emerald-700 font-medium flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>All-electric / bestaande warmtepomp: gasverbruik is N.V.T.</span>
+                    </div>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                    <span>Gas prijs (€/m³)</span>
-                    <Tooltip text="Het huidige gastarief per m³ dat de bewoner betaalt inclusief belastingen." align="right" />
+                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <span>Gas prijs (€/m³)</span>
+                      <Tooltip text="Het huidige gastarief per m³ dat de bewoner betaalt inclusief belastingen. Bij gasloze woningen is dit N.V.T." align="right" />
+                    </span>
+                    {house.verbruikM3 === 0 && isAllElectricOrBestaandWp && (
+                      <span className="text-[9.5px] font-bold text-slate-400">N.V.T.</span>
+                    )}
                   </label>
                   <input
-                    type="number"
-                    value={house.gasPrijs || ''}
-                    onChange={(e) => setHouse(prev => ({ ...prev, gasPrijs: Number(e.target.value) }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
-                    step="0.01"
+                    type="text"
+                    value={house.verbruikM3 === 0 && isAllElectricOrBestaandWp ? 'N.V.T. (€ 0,00)' : (house.gasPrijs || '')}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.');
+                      setHouse(prev => ({ ...prev, gasPrijs: Number(val) }));
+                    }}
+                    className={`w-full text-sm rounded-lg px-2.5 py-2 focus:outline-emerald-500 transition ${
+                      house.verbruikM3 === 0 && isAllElectricOrBestaandWp
+                        ? 'bg-slate-100/70 border border-slate-200 text-slate-400 font-medium'
+                        : 'bg-slate-50 border border-slate-200 text-slate-800'
+                    }`}
                     id="gas_prijs"
                   />
                 </div>
@@ -4476,18 +4818,74 @@ export default function InputForm({
 
                 {tech.aantalZonnepanelen > 0 && (
                   <div className="space-y-4">
-                    {/* Teruglevering & Direct Verbruik Inputs (Geen sliders) */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-white border border-slate-100 rounded-xl p-3 shadow-sm">
-                      {/* Left Column: Teruglevering aan het net (kWh) */}
+                    {/* Teruglevering, Opwekking & Direct Verbruik Inputs (Gesynchroniseerd met Isolatie) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white border border-slate-100 rounded-xl p-3 shadow-sm">
+                      {/* Column 1: Jaarlijkse zonne-opwekking (kWh) */}
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1" htmlFor="zon_teruglevering">
-                          <span>Teruglevering aan het net</span>
-                          <Tooltip text="De hoeveelheid zonnestroom (in kWh) die je jaarlijks teruglevert aan het elektriciteitsnet." />
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="zon_jaaropwekking">
+                            <span>Jaaropwekking</span>
+                            <Tooltip text="De jaarlijkse zonne-opbrengst in kWh volgens je omvormer of monitoringsapp (SolarEdge, Enphase, Growatt, etc.). Laat leeg om te rekenen o.b.v. aantal panelen en oriëntatie." />
+                          </label>
+                          {tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setTech(prev => ({ ...prev, userAnnualSolar: undefined }))}
+                              className="text-[9.5px] text-rose-600 font-bold hover:underline cursor-pointer"
+                              title="Herstel naar berekende waarde"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                        <div className="relative">
+                          <input
+                            id="zon_jaaropwekking"
+                            type="number"
+                            min="0"
+                            step="50"
+                            value={tech.userAnnualSolar !== undefined ? tech.userAnnualSolar : (localAnnualYieldKwh > 0 ? localAnnualYieldKwh : '')}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              const val = raw === '' ? undefined : Math.max(0, Number(raw));
+                              setTech(prev => {
+                                const updated = { ...prev, userAnnualSolar: val };
+                                const yieldVal = val !== undefined ? val : calculatedYieldKwh;
+                                if (yieldVal > 0) {
+                                  const direct = Math.max(0, yieldVal - (house.elektraTeruglevering || 0));
+                                  updated.huidigDirectVerbruik = Math.min(100, Math.max(0, Math.round((direct / yieldVal) * 100)));
+                                }
+                                return updated;
+                              });
+                            }}
+                            className={`w-full text-xs font-bold bg-slate-50 border rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono pr-11 ${
+                              tech.userAnnualSolar !== undefined ? 'border-amber-400 text-amber-950 ring-1 ring-amber-300/60' : 'border-slate-200 text-slate-800'
+                            }`}
+                            placeholder={`${calculatedYieldKwh || 3600}`}
+                          />
+                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">kWh</span>
+                        </div>
+                        <div className="mt-1 text-[10px]">
+                          {tech.userAnnualSolar !== undefined ? (
+                            <span className="text-amber-800 font-semibold">✍️ Eigen opgave</span>
+                          ) : (
+                            <span className="text-slate-500">⚡ Berekend: {calculatedYieldKwh} kWh</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Column 2: Teruglevering aan het net (kWh) */}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1" htmlFor="zon_teruglevering">
+                          <span>Teruglevering aan net</span>
+                          <Tooltip text="De hoeveelheid zonnestroom (in kWh) die je jaarlijks teruglevert aan het elektriciteitsnet volgens je jaarnota." />
                         </label>
                         <div className="relative">
                           <input
                             id="zon_teruglevering"
                             type="number"
+                            min="0"
+                            step="50"
                             value={house.elektraTeruglevering || ''}
                             onChange={(e) => {
                               const val = Math.max(0, Number(e.target.value));
@@ -4498,16 +4896,19 @@ export default function InputForm({
                                 setTech(prev => ({ ...prev, huidigDirectVerbruik: calculatedPercent }));
                               }
                             }}
-                            className="w-full text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono"
+                            className="w-full text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono pr-11"
                             placeholder="2000"
                           />
                           <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">kWh</span>
                         </div>
+                        <div className="mt-1 text-[10px] text-slate-500">
+                          <span>📄 Van jaarafrekening</span>
+                        </div>
                       </div>
 
-                      {/* Right Column: Direct eigen verbruik (%) */}
+                      {/* Column 3: Direct eigen verbruik (%) */}
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1" htmlFor="zon_direct_verbruik">
+                        <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1" htmlFor="zon_direct_verbruik">
                           <span>Direct eigen verbruik</span>
                           <Tooltip text="Het percentage zonnestroom dat direct in huis wordt verbruikt. Als je dit aanpast, wordt de teruglevering automatisch herberekenend op basis van je jaaropbrengst." />
                         </label>
@@ -4526,9 +4927,12 @@ export default function InputForm({
                                 setHouse(prev => ({ ...prev, elektraTeruglevering: calculatedTeruglevering }));
                               }
                             }}
-                            className="w-full text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono"
+                            className="w-full text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono pr-8"
                           />
                           <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">%</span>
+                        </div>
+                        <div className="mt-1 text-[10px] text-emerald-700 font-medium">
+                          <span>🔄 Gekoppeld aan Isolatie</span>
                         </div>
                       </div>
                     </div>
@@ -5788,21 +6192,33 @@ export default function InputForm({
                         className="accent-purple-600 w-4 h-4 rounded border-slate-300 cursor-pointer shrink-0"
                       />
                       <label htmlFor="batteryGridTradingInput" className="block text-xs font-bold text-slate-800 cursor-pointer flex items-center gap-1.5 flex-wrap">
-                        <span>Thuisaccu Sturing Mode: Slim EMS Nethandel &amp; Arbitrage</span>
+                        <span>Thuisaccu Sturing: Slim EMS Nethandel &amp; Arbitrage</span>
+                        <Tooltip 
+                          width="w-72"
+                          position="top"
+                          align="right"
+                          text={
+                            <div className="space-y-1 text-[11px] leading-relaxed">
+                              <p className="font-semibold text-emerald-300">Slim EMS (Thuisaccu):</p>
+                              <p>☀️ <strong>Zomer:</strong> Laadt zonnestroom op en dekt &apos;s avonds uw woning (overschot verkocht tegen piektarief).</p>
+                              <p>❄️ <strong>Winter:</strong> Laadt &apos;s nachts goedkope dalstroom en ontlaadt/verkoopt tijdens piekuren (arbitrage).</p>
+                            </div>
+                          } 
+                        />
                         <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
                           tech.batteryGridTrading 
                             ? 'bg-purple-600 text-white' 
                             : 'bg-amber-100 text-amber-900'
                         }`}>
-                          {tech.batteryGridTrading ? 'Aan (Nethandel Actief)' : 'Uit (100% Zonne-focus)'}
+                          {tech.batteryGridTrading ? 'Aan' : 'Uit'}
                         </span>
                       </label>
                     </div>
-                    <p className="text-[10px] text-slate-600 leading-relaxed font-sans pl-6">
+                    <p className="text-[10px] text-slate-500 leading-relaxed font-sans pl-6">
                       {tech.batteryGridTrading ? (
-                        <>Ingeschakeld: Het intelligente EMS benut de accu optimaal door zowel zonnestroom op te slaan als <strong>volautomatisch te handelen op de dynamische energiemarkt</strong> (EPEX &amp; Onbalans) voor extra jaarrendement.</>
+                        <>Ingeschakeld: Zomers zonnestroom opslaan en winters automatisch handelen op dal- en piektarieven.</>
                       ) : (
-                        <>Uitgeschakeld (standaard): De accu slaat <strong>uitsluitend zonnestroom van eigen panelen</strong> op voor later huishoudelijk gebruik. Er vindt geen nethandel plaats op de energiemarkt (pure arbitrage-opbrengst = €0/jaar).</>
+                        <>Uitgeschakeld: Slaat uitsluitend eigen zonnestroom op voor huishoudelijk gebruik (geen nethandel).</>
                       )}
                     </p>
                   </div>
@@ -5985,15 +6401,15 @@ export default function InputForm({
               )}
             </div>
             <div className="p-4 space-y-3">
-              {/* Inconsistentie waarschuwing: Warmtepomp met 0 m3 gas */}
-              {(house.verwarming === 'Hybride warmtepomp' || house.verwarming === 'Full electric' || tech.selectedWarmtepompType) && (!house.verbruikM3 || house.verbruikM3 === 0) && (
+              {/* Inconsistentie waarschuwing: Warmtepomp met 0 m3 gas (alleen bij nieuwe WP op gaswoning) */}
+              {(!house.verbruikM3 || house.verbruikM3 === 0) && !isAllElectricOrBestaandWp && (house.verwarming === 'Hybride warmtepomp' || tech.selectedWarmtepompType === 'Hybride' || (tech.selectedWarmtepompType === 'All-Electric' && house.verwarming === 'CV-ketel')) && (
                 <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs text-rose-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 animate-fadeIn">
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                     <div>
-                      <strong className="block text-rose-900 font-bold">Inconsistentie: Warmtepomp gekozen, maar gasverbruik staat op 0 m³</strong>
+                      <strong className="block text-rose-900 font-bold">Inconsistentie: Nieuwe warmtepomp gekozen, maar gasverbruik staat op 0 m³</strong>
                       <span className="text-[11px] text-rose-800 leading-tight block mt-0.5">
-                        Een (hybride) warmtepomp bespaart gas ten opzichte van het huidige gasverbruik. Omdat er 0 m³ is ingevuld, is de berekende gasbesparing € 0 en kan de TVT niet berekend worden.
+                        Een warmtepomp bespaart gas ten opzichte van het huidige gasverbruik van een CV-ketel. Omdat er 0 m³ is ingevuld, is de berekende gasbesparing € 0 en kan de TVT niet berekend worden.
                       </span>
                     </div>
                   </div>
@@ -6004,6 +6420,25 @@ export default function InputForm({
                   >
                     ⚡ Vul 1.200 m³ in
                   </button>
+                </div>
+              )}
+
+              {(!house.verbruikM3 || house.verbruikM3 === 0) && isAllElectricOrBestaandWp && (
+                <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-950 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <div>
+                      <strong className="block text-emerald-900 font-bold">Woning is All-Electric / Gasloos (0 m³ gas)</strong>
+                      <span className="text-[11px] text-emerald-800 leading-tight block mt-0.5">
+                        {tech.heatpumpStatus === 'bestaand'
+                          ? 'De bestaande warmtepomp verwarmt de woning volledig elektrisch. Gasverbruik is N.V.T.'
+                          : 'De woning wordt volledig elektrisch verwarmd zonder gasaansluiting. Gasverbruik is N.V.T.'}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-200 whitespace-nowrap">
+                    ✓ N.V.T.
+                  </span>
                 </div>
               )}
 
@@ -6068,22 +6503,52 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">Gasverbruik (m³)</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-500">Gasverbruik (m³)</label>
+                    {house.verbruikM3 === 0 && isAllElectricOrBestaandWp && (
+                      <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">N.V.T.</span>
+                    )}
+                  </div>
                   <input
-                    type="number"
-                    value={house.verbruikM3}
-                    onChange={(e) => setHouse(prev => ({ ...prev, verbruikM3: Number(e.target.value) }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-mono"
+                    type="text"
+                    value={
+                      isGasFocusedParam
+                        ? (house.verbruikM3 === 0 ? '' : house.verbruikM3)
+                        : (house.verbruikM3 === 0 && isAllElectricOrBestaandWp ? 'N.V.T. (0 m³)' : (house.verbruikM3 === 0 ? '0' : house.verbruikM3))
+                    }
+                    onFocus={() => setIsGasFocusedParam(true)}
+                    onBlur={() => setIsGasFocusedParam(false)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^0-9]/g, '');
+                      setHouse(prev => ({ ...prev, verbruikM3: val === '' ? 0 : Number(val) }));
+                    }}
+                    placeholder={house.verbruikM3 === 0 && isAllElectricOrBestaandWp ? 'N.V.T. (0 m³)' : '0'}
+                    className={`w-full text-xs border rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono ${
+                      house.verbruikM3 === 0 && isAllElectricOrBestaandWp
+                        ? 'bg-emerald-50/60 border-emerald-300 text-emerald-900 font-bold'
+                        : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">Gas prijs (€/m³)</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-500">Gas prijs (€/m³)</label>
+                    {house.verbruikM3 === 0 && isAllElectricOrBestaandWp && (
+                      <span className="text-[9px] font-bold text-slate-400">N.V.T.</span>
+                    )}
+                  </div>
                   <input
-                    type="number"
-                    step="0.01"
-                    value={house.gasPrijs}
-                    onChange={(e) => setHouse(prev => ({ ...prev, gasPrijs: Number(e.target.value) }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-mono"
+                    type="text"
+                    value={house.verbruikM3 === 0 && isAllElectricOrBestaandWp ? 'N.V.T.' : house.gasPrijs}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.');
+                      setHouse(prev => ({ ...prev, gasPrijs: Number(val) }));
+                    }}
+                    className={`w-full text-xs border rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono ${
+                      house.verbruikM3 === 0 && isAllElectricOrBestaandWp
+                        ? 'bg-slate-100/70 border-slate-200 text-slate-400'
+                        : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
                   />
                 </div>
               </div>
@@ -6493,20 +6958,32 @@ export default function InputForm({
                 />
                 <div className="space-y-1">
                   <label htmlFor="slimEmsOnlySolar" className="block text-xs font-bold text-slate-800 cursor-pointer flex items-center gap-1.5 flex-wrap">
-                    <span>Laadpaal Sturing Mode: Slim EMS Alleen Laden op Zonnestroom (100% Zonne-focus)</span>
+                    <span>Laadpaal Sturing: Slim EMS Zonnesturing</span>
+                    <Tooltip 
+                      width="w-72"
+                      position="top"
+                      align="right"
+                      text={
+                        <div className="space-y-1 text-[11px] leading-relaxed">
+                          <p className="font-semibold text-amber-300">Slim Laden (Laadpaal):</p>
+                          <p>☀️ <strong>Zomer:</strong> Laadt met voorrang op overtollige zonnestroom (solar tracking).</p>
+                          <p>❄️ <strong>Winter:</strong> Laadt &apos;s nachts automatisch op de goedkoopste dynamische uren en vermijdt piekuren.</p>
+                        </div>
+                      } 
+                    />
                     <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
                       tech.slimEmsOnlySolar 
                         ? 'bg-amber-500 text-white' 
                         : 'bg-indigo-100 text-indigo-900'
                     }`}>
-                      {tech.slimEmsOnlySolar ? 'AAN (100% Zonne-focus)' : 'UIT (Standaard Netstroom)'}
+                      {tech.slimEmsOnlySolar ? '100% Zon' : 'Net + Zon'}
                     </span>
                   </label>
-                  <p className="text-[10px] text-slate-600 leading-relaxed font-sans">
+                  <p className="text-[10px] text-slate-500 leading-relaxed font-sans">
                     {tech.slimEmsOnlySolar ? (
-                      <>Ingeschakeld: De laadpaal pauzeert automatisch als er onvoldoende zon is en laadt de EV uitsluitend op gratis zonnestroom. Tekorten worden niet via het net geladen.</>
+                      <>Ingeschakeld: Laadt uitsluitend op gratis overtollige zonnestroom van eigen panelen.</>
                     ) : (
-                      <>Uitgeschakeld (standaard): De auto laadt direct op zodra ingeplugd. Als er geen zon is, wordt de laadsessie automatisch aangevuld vanuit het stroomnet.</>
+                      <>Standaard: Laadt overdag op zonnestroom en vult &apos;s winters &apos;s nachts aan op daluren.</>
                     )}
                   </p>
                 </div>

@@ -1232,9 +1232,11 @@ export function detectInconsistencies(
   const gridFeed = house.elektraTeruglevering || 0;
   const solarPanels = tech.aantalZonnepanelen || 0;
   const panelPower = tech.vermogenPerPaneel || 430;
-  const calculatedSolarYield = solarPanels * panelPower * 0.90;
+  const calculatedSolarYield = (tech.userAnnualSolar !== undefined && tech.userAnnualSolar !== null && Number(tech.userAnnualSolar) > 0)
+    ? Number(tech.userAnnualSolar)
+    : solarPanels * panelPower * 0.90;
 
-  if (gridFeed > 0 && solarPanels === 0) {
+  if (gridFeed > 0 && solarPanels === 0 && (!tech.userAnnualSolar || tech.userAnnualSolar === 0)) {
     warnings.push({
       id: 'solar-feed-no-panels',
       category: 'solar',
@@ -1248,13 +1250,13 @@ export function detectInconsistencies(
   }
 
   // 6. Teruglevering is groter dan totale berekende zonne-opwekking
-  if (solarPanels > 0 && gridFeed > calculatedSolarYield) {
+  if ((solarPanels > 0 || (tech.userAnnualSolar && tech.userAnnualSolar > 0)) && gridFeed > calculatedSolarYield) {
     warnings.push({
       id: 'solar-feed-exceeds-yield',
       category: 'solar',
       severity: 'danger',
       title: 'Teruglevering is groter dan totale zonne-opwekking',
-      description: `Je opgegeven teruglevering (${gridFeed.toLocaleString('nl-NL')} kWh) is hoger dan wat ${solarPanels} panelen fysiek kunnen opwekken (ca. ${Math.round(calculatedSolarYield).toLocaleString('nl-NL')} kWh). Dit is natuurkundig niet mogelijk.`,
+      description: `Je opgegeven teruglevering (${gridFeed.toLocaleString('nl-NL')} kWh) is hoger dan de jaaropwekking (ca. ${Math.round(calculatedSolarYield).toLocaleString('nl-NL')} kWh). Dit is natuurkundig niet mogelijk.`,
       actionText: `⚡ Corrigeer teruglevering naar ca. ${Math.round(calculatedSolarYield * 0.70).toLocaleString('nl-NL')} kWh (70%)`,
       actionType: 'setGridFeed',
       suggestedValue: Math.round(calculatedSolarYield * 0.70),

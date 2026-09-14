@@ -41,6 +41,47 @@ interface AdviceReportProps {
   setTech?: React.Dispatch<React.SetStateAction<TechData>>;
 }
 
+function ReportTooltip({
+  text,
+  align = 'left',
+  position = 'top',
+  width = 'w-72 sm:w-80'
+}: {
+  text: React.ReactNode;
+  align?: 'left' | 'right' | 'center';
+  position?: 'top' | 'bottom';
+  width?: string;
+}) {
+  let alignClasses = 'left-0 translate-x-0';
+  let arrowAlignClasses = 'left-3';
+
+  if (align === 'center') {
+    alignClasses = 'left-1/2 -translate-x-1/2';
+    arrowAlignClasses = 'left-1/2 -translate-x-1/2';
+  } else if (align === 'right') {
+    alignClasses = 'right-0 translate-x-0';
+    arrowAlignClasses = 'right-3';
+  }
+
+  const posClasses = position === 'bottom'
+    ? 'top-full mt-2'
+    : 'bottom-full mb-2';
+
+  const arrowPosClasses = position === 'bottom'
+    ? 'bottom-full border-4 border-transparent border-b-slate-900'
+    : 'top-full border-4 border-transparent border-t-slate-900';
+
+  return (
+    <span className="group relative inline-block text-slate-400 hover:text-slate-600 cursor-help ml-1.5 align-middle shrink-0 z-30 hover:z-[9999]">
+      <HelpCircle className="w-3.5 h-3.5" />
+      <span className={`pointer-events-none absolute hidden group-hover:block ${width} bg-slate-900 text-white text-[11px] p-3 rounded-xl shadow-xl z-[9999] font-normal leading-relaxed normal-case text-left ${posClasses} ${alignClasses}`}>
+        {text}
+        <span className={`absolute ${arrowPosClasses} ${arrowAlignClasses}`} />
+      </span>
+    </span>
+  );
+}
+
 export default function AdviceReport({ 
   calculation, 
   adviceMarkdown, 
@@ -2335,7 +2376,19 @@ Energie planner Peel en Maas
             <div className="border-b border-slate-100 pb-5">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <Battery className="w-5 h-5 text-blue-500" />
-                Thuisbatterij &amp; Slimme Sturing
+                <span>Thuisbatterij &amp; Slimme Sturing</span>
+                <ReportTooltip 
+                  width="w-72"
+                  align="center"
+                  position="bottom"
+                  text={
+                    <div className="space-y-1 text-[11px] leading-relaxed">
+                      <p className="font-semibold text-emerald-300">Slim EMS (Thuisaccu):</p>
+                      <p>☀️ <strong>Zomer:</strong> Laadt eigen zonnestroom op en dekt &apos;s avonds uw huishouden (overschot verkocht tegen piektarief).</p>
+                      <p>❄️ <strong>Winter:</strong> Laadt &apos;s nachts goedkope dalstroom van het net en ontlaadt/verkoopt tijdens dure piekuren (arbitrage).</p>
+                    </div>
+                  }
+                />
               </h3>
               <p className="text-xs text-slate-500 mt-1">
                 Gedetailleerde analyse van de financiële en technische haalbaarheid voor een <strong>5 kWh</strong>, <strong>10 kWh</strong> of <strong>15 kWh</strong> thuisaccu op basis van je jaarlijkse zonneopbrengst van <strong>{Math.round(calculation.solar.annualYieldKwh)} kWh</strong>.
@@ -2634,14 +2687,38 @@ Energie planner Peel en Maas
               </div>
             )}
 
-            {/* Inconsistentie: Gasverbruik = 0 bij warmtepomp */}
-            {(!calculation.house?.verbruikM3 || calculation.house?.verbruikM3 === 0) && (
+            {/* Inconsistentie: Gasverbruik = 0 bij NIEUWE warmtepomp op gasgestookte woning */}
+            {(!calculation.house?.verbruikM3 || calculation.house?.verbruikM3 === 0) && 
+              calculation.tech?.heatpumpStatus !== 'bestaand' && 
+              calculation.house?.verwarming !== 'Full electric' && 
+              calculation.house?.verwarming !== 'Volledige warmtepomp' && 
+              calculation.tech?.selectedWarmtepompType !== 'All-Electric' && (
               <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex gap-3 items-start text-xs shadow-2xs">
                 <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                 <div>
                   <span className="font-bold text-rose-950 block text-sm">Let op: Huidig gasverbruik staat op 0 m³</span>
                   <p className="text-xs text-rose-800 mt-1 leading-relaxed">
-                    Er is momenteel geen gasverbruik ingevuld (0 m³). Een warmtepomp bespaart gas ten opzichte van het huidige gasverbruik. Omdat er geen referentie-gasverbruik is, wordt er € 0 gasbesparing berekend en kan de terugverdientijd niet accuraat worden bepaald. Pas het gasverbruik aan in het tabblad Woning (bijv. 1.200 m³) voor een complete berekening.
+                    Er is momenteel geen gasverbruik ingevuld (0 m³). Een nieuwe warmtepomp bespaart gas ten opzichte van het huidige gasverbruik van een CV-ketel. Omdat er geen referentie-gasverbruik is, wordt er € 0 gasbesparing berekend en kan de terugverdientijd niet accuraat worden bepaald. Pas het gasverbruik aan in het tabblad Woning (bijv. 1.200 m³) voor een complete berekening.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Bevestiging: All-electric / Bestaande WP zonder gasverbruik */}
+            {(!calculation.house?.verbruikM3 || calculation.house?.verbruikM3 === 0) && (
+              calculation.tech?.heatpumpStatus === 'bestaand' || 
+              calculation.house?.verwarming === 'Full electric' || 
+              calculation.house?.verwarming === 'Volledige warmtepomp' || 
+              calculation.tech?.selectedWarmtepompType === 'All-Electric'
+            ) && (
+              <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 flex gap-3 items-center text-xs text-emerald-950 shadow-2xs">
+                <Check className="w-5 h-5 text-emerald-600 shrink-0" />
+                <div>
+                  <span className="font-bold text-emerald-900 block text-sm">All-Electric / Gasloos (0 m³ gasverbruik)</span>
+                  <p className="text-xs text-emerald-800 mt-0.5 leading-relaxed">
+                    {calculation.tech?.heatpumpStatus === 'bestaand'
+                      ? 'De woning beschikt reeds over een bestaande all-electric warmtepomp. Er is geen gasaansluiting nodig (Gasverbruik: N.V.T.).'
+                      : 'De woning wordt all-electric verwarmd zonder gasaansluiting (Gasverbruik: N.V.T.).'}
                   </p>
                 </div>
               </div>
@@ -2924,6 +3001,18 @@ Energie planner Peel en Maas
               <div className="flex items-center gap-2 pb-2 border-b border-emerald-100/60">
                 <Zap className="w-5 h-5 text-emerald-600 animate-pulse" />
                 <h3 className="text-sm font-bold text-slate-800">🚗 Financiële Analyse: Eigen Laadpaal &amp; ERE-vergoeding</h3>
+                <ReportTooltip 
+                  width="w-72"
+                  align="center"
+                  position="bottom"
+                  text={
+                    <div className="space-y-1 text-[11px] leading-relaxed">
+                      <p className="font-semibold text-amber-300">Slim Laden (Laadpaal):</p>
+                      <p>☀️ <strong>Zomer:</strong> Laadt met voorrang op eigen zonnestroom (solar tracking).</p>
+                      <p>❄️ <strong>Winter:</strong> Laadt &apos;s nachts automatisch op de goedkoopste uren van het dynamische tarief en vermijdt dure piekuren.</p>
+                    </div>
+                  }
+                />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
