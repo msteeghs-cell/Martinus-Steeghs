@@ -139,14 +139,14 @@ export default function SolarSelfConsumptionChart({
           <div className="flex items-center gap-2 mb-1">
             <span className="p-2 bg-amber-500/10 text-amber-600 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 border border-amber-500/20">
               <Sun className="w-4 h-4 text-amber-500" />
-              Zonnepanelen &amp; Post-Salderingsanalyse (2027+)
+              Zonnepanelen &amp; Direct Zelfverbruik
             </span>
           </div>
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
             Seizoenssimulatie: Zelfverbruik, Opbrengst Zonnepanelen &amp; Net-Inkoop
           </h2>
           <p className="text-slate-500 text-xs sm:text-sm mt-1 max-w-3xl">
-            Zonder salderingsregeling telt elke direct verbruikte kilowattuur op het moment van opwekking voor 100%. Bekijk hier exact hoeveel stroom u direct in huis gebruikt, hoeveel opbrengst van de zonnepanelen beschikbaar is voor teruglevering of opslag, en hoeveel u ’s winters moet inkopen.
+            Elke direct verbruikte kilowattuur op het moment van opwekking telt voor 100%. Bekijk hier exact hoeveel stroom u direct in huis gebruikt, hoeveel opbrengst van de zonnepanelen beschikbaar is voor teruglevering of opslag, en hoeveel u ’s winters moet inkopen.
           </p>
         </div>
 
@@ -255,7 +255,7 @@ export default function SolarSelfConsumptionChart({
               ))}
             </div>
             <p className="text-[10px] text-slate-400 italic">
-              Geschatte marktwaarde van de opbrengst van zonnepanelen na afschaffing salderingsregeling.
+              Geschatte marktwaarde van de teruggeleverde zonnestroom aan het net.
             </p>
           </div>
         </div>
@@ -580,7 +580,7 @@ export default function SolarSelfConsumptionChart({
         <div className="flex items-center gap-2.5 border-b border-slate-700 pb-3">
           <Sparkles className="w-5 h-5 text-amber-400 animate-pulse" />
           <h3 className="font-bold text-base text-slate-100">
-            Advies voor het Post-Salderingstijdperk: Hoe haalt u het maximale uit uw Zonnepanelen?
+            Optimaal Rendement: Hoe haalt u het maximale uit uw Zonnepanelen?
           </h3>
         </div>
 

@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { ResidentData, HouseData, InsulationData, TechData, InconsistencyWarning } from '../types';
 import { 
-  User, Home, Layers, Battery, Sun, HelpCircle, 
+  User, Home, Layers, Battery, Sun, Moon, HelpCircle, 
   Sparkles, RefreshCw, Calendar, CheckCircle2, Zap, Info,
   TrendingDown, Gauge, AlertTriangle, Trash2, Download, Check, Sliders,
-  FileSpreadsheet, PiggyBank, FileText, RotateCcw, ShieldCheck
+  FileSpreadsheet, PiggyBank, FileText, RotateCcw, ShieldCheck, Settings,
+  ExternalLink, Flame
 } from 'lucide-react';
 import { EnergyCostPdfModal } from './EnergyCostPdfModal';
 import {
@@ -21,6 +22,7 @@ import {
 } from 'recharts';
 import { calculateAll, getSolarInvestmentEstimate, getSolarInvestmentRange, getBatteryInvestmentEstimate, getBatteryInvestmentRange, getHeatpumpCopFactor } from '../utils/calculator';
 import { TOP4_FIXED_PROVIDERS, TOP4_DYNAMIC_PROVIDERS, getFixedProvider, getDynamicProvider } from '../utils/energyProviders';
+import { BOUWJAAR_NORMEN, getBouwjaarNorm, BouwjaarNorm } from '../utils/buildingNorms';
 
 interface InputFormProps {
   resident: ResidentData;
@@ -120,6 +122,28 @@ export default function InputForm({
   const [showEnergyPdfModal, setShowEnergyPdfModal] = useState<boolean>(false);
   const [isGasFocused, setIsGasFocused] = useState<boolean>(false);
   const [isGasFocusedParam, setIsGasFocusedParam] = useState<boolean>(false);
+  const [appliedNormInfo, setAppliedNormInfo] = useState<{
+    titel: string;
+    korteOmschrijving: string;
+    id: string;
+  } | null>(null);
+
+  const handleApplyBouwjaarNorm = (norm: BouwjaarNorm, specificYear?: number) => {
+    setHouse(prev => ({
+      ...prev,
+      isoDak: norm.isoDak,
+      isoGevel: norm.isoGevel,
+      isoGlasBg: norm.isoGlasBg,
+      isoGlasVd: norm.isoGlasVd,
+      isoVloer: norm.isoVloer,
+      isoKieren: norm.isoKieren,
+    }));
+    setAppliedNormInfo({
+      titel: specificYear ? `Bouwjaarnorm voor ${specificYear} (${norm.periode})` : `Bouwjaarnorm ${norm.periode}`,
+      korteOmschrijving: norm.korteOmschrijving,
+      id: norm.id,
+    });
+  };
 
   const isAllElectricOrBestaandWp = 
     tech.heatpumpStatus === 'bestaand' || 
@@ -165,6 +189,8 @@ export default function InputForm({
       pvCurtailmentMode: true,
       solarStatus: 'nieuw',
       heatpumpStatus: 'nieuw',
+      selectedWarmtepompType: undefined,
+      selectedWarmtepompModel: undefined,
       batteryStatus: 'nieuw',
       laadpaalStatus: 'nieuw',
     }));
@@ -277,6 +303,7 @@ export default function InputForm({
   // Calculate local solar yield and break-even points for the 'zon' tab (declared at top so available to all hooks)
   const liveCalcResult = calculateAll(resident, house, insulation, tech);
   const liveStookgedragBerekend = liveCalcResult.house.stookgedragBerekend;
+  const liveStookgedragDetails = liveCalcResult.house.stookgedragDetails;
 
   const paneelVermogenLocal = tech.vermogenPerPaneel || 400;
   const totalWpLocal = tech.aantalZonnepanelen * paneelVermogenLocal;
@@ -339,7 +366,7 @@ export default function InputForm({
   };
 
   const calculatePostSalderingEarnings = (cap: number, prov?: string, customPriceOverride?: number) => {
-    if (cap <= 0 || localAnnualYieldKwh <= 0) {
+    if (cap <= 0) {
       return {
         directSavings: 0,
         arbitrageYield: 0,
@@ -349,19 +376,22 @@ export default function InputForm({
       };
     }
 
-    // Calculate efficiency increase
-    const avgDaily = localAnnualYieldKwh / 365;
-    const ratio = cap / avgDaily;
-    const rawIncrease = 40 * (1 - Math.exp(-0.7 * ratio));
-    const omzettingsverliezen = tech.omzettingsverliezen !== undefined ? tech.omzettingsverliezen : 20;
-    const effIncrease = rawIncrease * (1 - omzettingsverliezen / 100);
-    const optSelfConsumption = Math.min(100, tech.huidigDirectVerbruik + effIncrease);
-    
-    const baseSelfConsumptionKwh = (localAnnualYieldKwh * tech.huidigDirectVerbruik) / 100;
-    const optSelfConsumptionKwh = (localAnnualYieldKwh * optSelfConsumption) / 100;
-    
-    // Direct savings on increased self-consumption: replacing grid purchase (house.elektraPrijs) instead of feeding back (assumed 0.06 return rate)
-    const directSavings = (optSelfConsumptionKwh - baseSelfConsumptionKwh) * (house.elektraPrijs - 0.06);
+    // Direct savings on increased self-consumption: only possible if there is solar yield
+    let directSavings = 0;
+    if (localAnnualYieldKwh > 0) {
+      const avgDaily = localAnnualYieldKwh / 365;
+      const ratio = cap / avgDaily;
+      const rawIncrease = 40 * (1 - Math.exp(-0.7 * ratio));
+      const omzettingsverliezen = tech.omzettingsverliezen !== undefined ? tech.omzettingsverliezen : 20;
+      const effIncrease = rawIncrease * (1 - omzettingsverliezen / 100);
+      const optSelfConsumption = Math.min(100, (tech.huidigDirectVerbruik || 30) + effIncrease);
+      
+      const baseSelfConsumptionKwh = (localAnnualYieldKwh * (tech.huidigDirectVerbruik || 30)) / 100;
+      const optSelfConsumptionKwh = (localAnnualYieldKwh * optSelfConsumption) / 100;
+      
+      // Direct savings on increased self-consumption: replacing grid purchase (house.elektraPrijs) instead of feeding back (assumed 0.06 return rate)
+      directSavings = Math.max(0, (optSelfConsumptionKwh - baseSelfConsumptionKwh) * ((house.elektraPrijs || 0.35) - 0.06));
+    }
 
     // Arbitrage trading based on provider (rate in € per kWh capacity per year)
     let arbitragePerKwh = 28.00;
@@ -374,8 +404,10 @@ export default function InputForm({
     } else if (prov === 'Anwb' || prov === 'ANWB Energie') {
       arbitragePerKwh = 27.00;
     }
-    const arbitrageYield = tech.batteryGridTrading ? cap * arbitragePerKwh : 0;
-    const totalSavings = directSavings + arbitrageYield;
+    const isDynamic = tech.typeContract === 'Dynamisch';
+    const isTrading = tech.batteryGridTrading !== false;
+    const arbitrageYield = (isDynamic && isTrading) ? Math.round(cap * arbitragePerKwh) : 0;
+    const totalSavings = Math.round(directSavings + arbitrageYield);
 
     // Investment estimation (with VAT reclamation: net = bruto * 100/121)
     let bruto = getBatteryInvestmentEstimate(cap);
@@ -1130,12 +1162,12 @@ export default function InputForm({
           },
           {
             id: 'saldering',
-            label: 'Saldering',
-            icon: RefreshCw,
-            activeBg: 'bg-purple-700 text-white border-purple-700 shadow-xs',
-            inactiveBg: 'bg-white text-slate-700 border-slate-200/80 hover:bg-purple-50 hover:text-purple-900 hover:border-purple-300',
+            label: 'Instellingen',
+            icon: Settings,
+            activeBg: 'bg-slate-800 text-white border-slate-800 shadow-xs',
+            inactiveBg: 'bg-white text-slate-700 border-slate-200/80 hover:bg-slate-100 hover:text-slate-900 hover:border-slate-300',
             iconActive: 'text-white',
-            iconInactive: 'text-purple-600',
+            iconInactive: 'text-slate-600',
           },
         ].map((t) => {
           const Icon = t.icon;
@@ -1866,14 +1898,21 @@ export default function InputForm({
                 </h3>
                 <span className="text-[9.5px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200/90 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
                   <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
-                  Toekomstbestendig berekend (Einde-Saldering 2027)
+                  Berekend conform model 2027
                 </span>
               </div>
               <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
-                <span className="font-medium text-slate-600 bg-slate-100/80 px-2 py-0.5 rounded-full border border-slate-200/70 flex items-center gap-1">
-                  <span>Stookfactor:</span>
-                  <strong className="font-mono text-emerald-700 font-bold">{(liveCalcResult?.house?.stookgedragFactor ?? 1.0).toFixed(1)}x</strong>
-                  <span className="text-[9px] text-slate-500">({liveCalcResult?.house?.stookgedragBerekend || 'Normaal'})</span>
+                <span className={`font-medium px-2 py-0.5 rounded-full border flex items-center gap-1 ${
+                  liveStookgedragDetails?.category === 'zuinig'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : liveStookgedragDetails?.category === 'royaal'
+                    ? 'bg-rose-50 text-rose-800 border-rose-200'
+                    : 'bg-amber-50 text-amber-800 border-amber-200'
+                }`}>
+                  <span>{liveStookgedragDetails?.emoji || '🟠'}</span>
+                  <span>Stookgedrag:</span>
+                  <strong className="font-mono font-bold">{(liveCalcResult?.house?.stookgedragFactor ?? 1.0).toFixed(1)}x</strong>
+                  <span className="text-[9px] opacity-80">({liveStookgedragDetails?.percentageText || '0%'})</span>
                 </span>
                 <span className="text-slate-500 font-mono">Gasprijs €{(house.gasPrijs ?? 1.50).toFixed(2)}/m³</span>
               </div>
@@ -2716,7 +2755,7 @@ export default function InputForm({
                               {postFeedInKwh > 0 && (
                                 <tr>
                                   <td className="py-1.5 px-2.5 font-sans text-slate-700">
-                                    − Opbrengst teruglevering (tabblad Saldering, {postIsVast ? 'vast contract' : 'dynamisch contract'})
+                                    − Opbrengst teruglevering (tabblad Instellingen, {postIsVast ? 'vast contract' : 'dynamisch contract'})
                                   </td>
                                   <td className="py-1.5 px-2 text-right text-emerald-700">
                                     − {Math.round(postFeedInKwh).toLocaleString('nl-NL')} kWh/jr
@@ -3235,6 +3274,16 @@ export default function InputForm({
                         </span>
                       </div>
                     )}
+
+                    {/* Verduidelijking bij €0 besparing op thuisbatterij */}
+                    {hasBat && !isBatBestaand && batSavings === 0 && (
+                      <div className="flex items-start gap-1.5 text-[9.5px] bg-amber-50/90 border border-amber-200 text-amber-900 px-2.5 py-1.5 rounded-md leading-relaxed">
+                        <Info className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                        <span>
+                          <strong>Waarom € 0 / jr voor de thuisbatterij?</strong> Bij een vast energiecontract saldeer je stroom al 1-op-1 (tot 2027) en zijn er geen wisselende uurprijzen. Zonder zonnepanelen is er bovendien geen zonnestroom om op te slaan. Wil je rendement halen uit een thuisaccu? Schakel hieronder over naar een <strong>Dynamisch contract</strong> (voor actieve nethandel/onbalanssturing) óf voeg <strong>zonnepanelen</strong> toe.
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -3301,19 +3350,19 @@ export default function InputForm({
 
           {/* 1. Bewoner & Adres (BAG API!) */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <User className="w-4 h-4 text-emerald-600" />
                 <h3 className="text-sm font-semibold text-slate-700">1. Bewoners &amp; Adres Gegevens</h3>
               </div>
-              <span className="text-[10px] font-bold text-slate-400 bg-slate-200/50 px-2.5 py-1 rounded-full uppercase tracking-wider font-mono">
+              <span className="text-[10px] font-bold text-slate-400 bg-slate-200/50 px-2.5 py-0.5 rounded-full uppercase tracking-wider font-mono">
                 {resident.registratiecode || "PM-CONCEPT"}
               </span>
             </div>
-            <div className="p-5 space-y-4">
-              <div className="bg-emerald-50/50 rounded-xl p-4 border border-emerald-100/50 space-y-3">
-                <p className="text-[11px] text-emerald-800 leading-normal">
-                  Vul postcode en huisnummer in. De adresgegevens, het bouwjaar, oppervlak én het <strong>Energielabel</strong> (EP-Online) worden automatisch ingeladen.
+            <div className="p-3.5 sm:p-4 space-y-2.5 sm:space-y-3">
+              <div className="bg-emerald-50/50 rounded-xl p-2.5 sm:p-3 border border-emerald-100/50 space-y-2">
+                <p className="text-[10.5px] text-emerald-800 leading-tight">
+                  Vul postcode en huisnummer in. Adres, bouwjaar, oppervlak én <strong>Energielabel</strong> (EP-Online) worden automatisch ingeladen.
                 </p>
                 <div className="grid grid-cols-3 gap-2">
                   <div>
@@ -3326,7 +3375,7 @@ export default function InputForm({
                       onChange={(e) => updateResident({ postcode: e.target.value.toUpperCase() })}
                       onBlur={autoFetchBag}
                       placeholder="5981AD"
-                      className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 uppercase text-center"
+                      className="w-full text-xs sm:text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 uppercase text-center"
                       id="postcode"
                     />
                   </div>
@@ -3340,7 +3389,7 @@ export default function InputForm({
                       onChange={(e) => updateResident({ huisnummer: e.target.value })}
                       onBlur={autoFetchBag}
                       placeholder="12"
-                      className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 text-center"
+                      className="w-full text-xs sm:text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 text-center"
                       id="huisnummer"
                     />
                   </div>
@@ -3354,7 +3403,7 @@ export default function InputForm({
                       onChange={(e) => updateResident({ toevoeging: e.target.value })}
                       onBlur={autoFetchBag}
                       placeholder="A"
-                      className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 text-center"
+                      className="w-full text-xs sm:text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 text-center"
                       id="toev"
                     />
                   </div>
@@ -3375,13 +3424,13 @@ export default function InputForm({
 
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
                     Aanhef
                   </label>
                   <select
                     value={resident.aanhef}
                     onChange={(e) => updateResident({ aanhef: e.target.value })}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="aanhef"
                   >
                     <option>De heer</option>
@@ -3390,54 +3439,54 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
                     Voorletters
                   </label>
                   <input
                     type="text"
                     value={resident.voorletters}
                     onChange={(e) => updateResident(prev => ({ voorletters: e.target.value, naam: `${e.target.value} ${prev.achternaam}`.trim() }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     placeholder="Bijv. J."
                     id="voorletters"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
                     Achternaam
                   </label>
                   <input
                     type="text"
                     value={resident.achternaam}
                     onChange={(e) => updateResident(prev => ({ achternaam: e.target.value, naam: `${prev.voorletters} ${e.target.value}`.trim() }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     placeholder="Bijv. Janssen"
                     id="achternaam"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
                     Straat
                   </label>
                   <input
                     type="text"
                     value={resident.straat}
                     onChange={(e) => updateResident({ straat: e.target.value })}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="straat"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
                     Kerkdorp
                   </label>
                   <select
                     value={resident.plaats}
                     onChange={(e) => updateResident({ plaats: e.target.value })}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="plaats"
                   >
                     <option value="">-- Selecteer Kerkdorp --</option>
@@ -3448,35 +3497,35 @@ export default function InputForm({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
                     Telefoon / mobiel
                   </label>
                   <input
                     type="tel"
                     value={resident.telefoon}
                     onChange={(e) => updateResident({ telefoon: e.target.value })}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     placeholder="0612345678"
                     id="telefoon"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
                     E-mailadres
                   </label>
                   <input
                     type="email"
                     value={resident.email}
                     onChange={(e) => updateResident({ email: e.target.value })}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     placeholder="naam@voorbeeld.nl"
                     id="email"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center justify-between">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center justify-between">
                     <span>Datum opname</span>
                     <span className="text-[10px] text-emerald-600 font-medium">Auto-update</span>
                   </label>
@@ -3484,22 +3533,22 @@ export default function InputForm({
                     type="date"
                     value={resident.datum || new Date().toISOString().split('T')[0]}
                     onChange={(e) => updateResident({ datum: e.target.value })}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500 font-medium"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-medium"
                     id="datum"
                   />
                 </div>
               </div>
 
               {/* Inkomens- & NIP-check */}
-              <div className="pt-4 border-t border-slate-100 space-y-3">
+              <div className="pt-2.5 border-t border-slate-100 space-y-2">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">NIP-Subsidie criteria (Inkomenseis)</span>
+                  <span className="text-[10.5px] font-bold text-emerald-700 uppercase tracking-wider">NIP-Subsidie criteria (Inkomenseis)</span>
                   <Tooltip text="Het Nationaal Isolatieprogramma (NIP) heeft in Peel en Maas een inkomenseis van maximaal €60.000 bruto gezinsinkomen per jaar OF een handmatige controle door de coach." />
                 </div>
                 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                       <span>Bruto gezinsjaarinkomen (€)</span>
                       <Tooltip text="Het gezamenlijke bruto jaarinkomen van het huishouden. Dit is relevant voor de inkomensgrens van de NIP-subsidie (maximaal €60.000)." />
                     </label>
@@ -3507,25 +3556,62 @@ export default function InputForm({
                       type="number"
                       value={resident.brutoGezinsinkomen || ''}
                       onChange={(e) => setResident(prev => ({ ...prev, brutoGezinsinkomen: Number(e.target.value) }))}
-                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500 font-mono"
+                      className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-mono"
                       placeholder="Bijv. 45000"
                       id="bruto_gezinsinkomen"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                      <span>Inkomensverklaring gecontroleerd?</span>
-                      <Tooltip text="Geef aan of de inkomensverklaring handmatig is gecontroleerd. De bewoner kan deze gratis downloaden via Mijn Belastingdienst (Mijn gegevens > Inkomensverklaring opvragen) of bellen via 0800-0543." align="right" />
-                    </label>
+                    <div className="flex items-center justify-between gap-1 mb-0.5">
+                      <label className="text-xs font-medium text-slate-500 flex items-center gap-1" htmlFor="inkomen_check">
+                        <span>Inkomensverklaring gecontroleerd?</span>
+                        <Tooltip text="Geef aan of de inkomensverklaring (IB60) gecontroleerd is. De bewoner kan deze gratis en direct downloaden via Mijn Belastingdienst met DigiD, of telefonisch aanvragen via 0800-0543." align="right" />
+                      </label>
+                      <a
+                        href="https://mijn.belastingdienst.nl/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded px-1.5 py-0.5 transition shrink-0"
+                        title="Direct naar Mijn Belastingdienst (DigiD) om de inkomensverklaring te downloaden"
+                        id="link_inkomensverklaring_top"
+                      >
+                        <span>Mijn Belastingdienst</span>
+                        <ExternalLink className="w-2.5 h-2.5 text-emerald-600" />
+                      </a>
+                    </div>
                     <select
                       value={house.inkomenCheck ? "Ja" : "Nee"}
                       onChange={(e) => setHouse(prev => ({ ...prev, inkomenCheck: e.target.value === "Ja" }))}
-                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                      className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                       id="inkomen_check"
                     >
                       <option value="Nee">Nee (toetsing via inkomen &lt; €60.000)</option>
                       <option value="Ja">Ja (altijd akkoord via coach controle)</option>
                     </select>
+                    <div className="mt-1 flex flex-wrap items-center justify-between gap-1 text-[10.5px]">
+                      <a
+                        href="https://mijn.belastingdienst.nl/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-900 hover:underline"
+                        title="Direct inloggen op Mijn Belastingdienst met DigiD om de inkomensverklaring op te halen"
+                        id="link_inkomensverklaring_direct"
+                      >
+                        <ExternalLink className="w-3 h-3 text-emerald-600 shrink-0" />
+                        <span>Mijn Belastingdienst (DigiD)</span>
+                      </a>
+                      <a
+                        href="https://www.belastingdienst.nl/wps/wcm/connect/nl/werk-en-inkomen/content/inkomensverklaring-opvragen"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-slate-400 hover:text-slate-600 hover:underline inline-flex items-center gap-0.5"
+                        title="Uitleg en telefonisch aanvragen via 0800-0543"
+                        id="link_inkomensverklaring_info"
+                      >
+                        <span>Uitleg / 0800-0543</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3534,21 +3620,22 @@ export default function InputForm({
 
           {/* 2. Woning Kenmerken & Installaties */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center gap-2">
               <Home className="w-4 h-4 text-emerald-600" />
               <h3 className="text-sm font-semibold text-slate-700">2. Woning &amp; Huidige Installaties</h3>
             </div>
-            <div className="p-5 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="p-3.5 sm:p-4 space-y-2.5 sm:space-y-3">
+              {/* Basis Woninggegevens in 3 kolommen */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Soort woning</span>
                     <Tooltip text="Het type woning is bepalend voor de berekening van het referentieverwarmingsgas (G_ref) en de warmteverliesberekening." />
                   </label>
                   <select
                     value={house.soortWoning}
                     onChange={(e) => setHouse(prev => ({ ...prev, soortWoning: e.target.value }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="soort_woning"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3562,7 +3649,7 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Bouwjaar</span>
                     <Tooltip text="Het bouwjaar van de woning (BAG). Dit bepaalt de initiële isolatiewaarden van de schil als er nog geen na-isolatie is toegepast." align="right" />
                   </label>
@@ -3570,30 +3657,27 @@ export default function InputForm({
                     type="number"
                     value={house.bouwjaar || ''}
                     onChange={(e) => setHouse(prev => ({ ...prev, bouwjaar: Number(e.target.value) }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     placeholder="Bijv. 1978"
                     id="bouwjaar"
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Woonoppervlakte (m²)</span>
-                    <Tooltip text="De totale gebruiksoppervlakte van de verwawmde zones in de woning. Dit is cruciaal voor de warmteverliesberekening en G_ref." />
+                    <Tooltip text="De totale gebruiksoppervlakte van de verwarmde zones in de woning. Dit is cruciaal voor de warmteverliesberekening en G_ref." />
                   </label>
                   <input
                     type="number"
                     value={house.woonoppervlakte || ''}
                     onChange={(e) => setHouse(prev => ({ ...prev, woonoppervlakte: Number(e.target.value) }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     placeholder="Bijv. 115"
                     id="woonopp"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Aantal bewoners</span>
                     <Tooltip text="Het aantal personen in het huishouden. We rekenen met een gemiddeld gasverbruik van 100 m³ per persoon per jaar voor warm tapwater." align="right" />
                   </label>
@@ -3601,14 +3685,11 @@ export default function InputForm({
                     type="number"
                     value={resident.aantalPersonen || ''}
                     onChange={(e) => setResident(prev => ({ ...prev, aantalPersonen: Number(e.target.value) }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     placeholder="Bijv. 2"
                     id="aantal_personen"
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-50">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-0.5 flex justify-between items-center gap-1">
                     <span className="flex items-center gap-1">
@@ -3621,7 +3702,7 @@ export default function InputForm({
                     type="number"
                     value={house.wozWaarde || ''}
                     onChange={(e) => setHouse(prev => ({ ...prev, wozWaarde: Number(e.target.value) }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-semibold text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500"
                     placeholder="Bijv. 385000"
                     id="woz_waarde"
                   />
@@ -3637,7 +3718,7 @@ export default function InputForm({
                   <select
                     value={house.energielabel}
                     onChange={(e) => setHouse(prev => ({ ...prev, energielabel: e.target.value as any }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 font-semibold text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500"
                     id="energielabel"
                   >
                     <option value="Geen">Label Geen</option>
@@ -3650,10 +3731,10 @@ export default function InputForm({
                 </div>
               </div>
 
-              {/* Installaties subgrid */}
-              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-50">
+              {/* Installaties subgrid in 3 kolommen */}
+              <div className="pt-2 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center">
                     <span>Verwarming</span>
                     <Tooltip text={
                       <div className="space-y-1">
@@ -3677,7 +3758,7 @@ export default function InputForm({
                         setTech(prev => ({ ...prev, selectedWarmtepompType: 'All-Electric' }));
                       }
                     }}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="verwarming"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3688,7 +3769,7 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center">
                     <span>Afgiftesysteem</span>
                     <Tooltip text={
                       <div className="space-y-1">
@@ -3702,7 +3783,7 @@ export default function InputForm({
                   <select
                     value={house.afgiftesysteem}
                     onChange={(e) => setHouse(prev => ({ ...prev, afgiftesysteem: e.target.value }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="afgiftesysteem"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3713,11 +3794,8 @@ export default function InputForm({
                     <option>Andere</option>
                   </select>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center">
                     <span>Tapwater</span>
                     <Tooltip text={
                       <div className="space-y-1">
@@ -3731,7 +3809,7 @@ export default function InputForm({
                   <select
                     value={house.tapwater}
                     onChange={(e) => setHouse(prev => ({ ...prev, tapwater: e.target.value }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="tapwater"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3744,7 +3822,7 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center">
                     <span>Koken op</span>
                     <Tooltip text={
                       <div className="space-y-1">
@@ -3758,7 +3836,7 @@ export default function InputForm({
                   <select
                     value={house.koken}
                     onChange={(e) => setHouse(prev => ({ ...prev, koken: e.target.value }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="koken"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3768,11 +3846,8 @@ export default function InputForm({
                     <option>Andere</option>
                   </select>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center">
                     <span>Ventilatie</span>
                     <Tooltip text={
                       <div className="space-y-1.5">
@@ -3786,7 +3861,7 @@ export default function InputForm({
                   <select
                     value={house.ventilatie}
                     onChange={(e) => setHouse(prev => ({ ...prev, ventilatie: e.target.value }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="ventilatie"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3797,7 +3872,7 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Al zonnepanelen aanwezig?</label>
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5">Al zonnepanelen aanwezig?</label>
                   <select
                     value={house.zonnepanelenPresent}
                     onChange={(e) => {
@@ -3819,7 +3894,7 @@ export default function InputForm({
                         setHouse(prev => ({ ...prev, elektraTeruglevering: 0 }));
                       }
                     }}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="zonnepanelen"
                   >
                     <option value="Nee">Nee</option>
@@ -3830,10 +3905,10 @@ export default function InputForm({
 
               {/* Openklapbare sectie: Bestaande Zonnepanelen (Opwekking & Teruglevering) */}
               {(house.zonnepanelenPresent === 'Ja' || tech.aantalZonnepanelen > 0) && (
-                <div className="mt-3 pt-2.5 border-t border-slate-200/90" id="solar-isolation-sync-panel">
-                  <div className="bg-amber-50/70 border border-amber-200/90 rounded-xl p-3 space-y-2.5">
+                <div className="mt-2 pt-2 border-t border-slate-200/90" id="solar-isolation-sync-panel">
+                  <div className="bg-amber-50/70 border border-amber-200/90 rounded-xl p-2.5 sm:p-3 space-y-2">
                     {/* Header */}
-                    <div className="flex items-center justify-between pb-1.5 border-b border-amber-200/70">
+                    <div className="flex items-center justify-between pb-1 border-b border-amber-200/70">
                       <div className="flex items-center gap-2">
                         <Sun className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                         <h4 className="text-xs font-bold text-slate-900">Bestaande Zonnepanelen</h4>
@@ -3844,11 +3919,87 @@ export default function InputForm({
                     </div>
 
                     {/* Invoervelden Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {/* 1. Jaarlijkse zonne-opwekking (kWh) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                      {/* 1. Aantal panelen */}
                       <div>
                         <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_aantal_panelen">
+                            <span>Aantal panelen</span>
+                            <Tooltip text="Het aantal bestaande zonnepanelen op het dak." />
+                          </label>
+                        </div>
+                        <div className="relative">
+                          <input
+                            id="isolatie_aantal_panelen"
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={tech.aantalZonnepanelen === 0 ? '' : tech.aantalZonnepanelen}
+                            onChange={(e) => {
+                              const val = Math.max(0, Number(e.target.value));
+                              handleAantalZonnepanelenChange(val);
+                              setTech(prev => ({ ...prev, solarStatus: 'bestaand' }));
+                            }}
+                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-emerald-500 pr-14"
+                            placeholder="bijv. 10"
+                          />
+                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
+                            stuks
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[10px] text-slate-500 font-mono">
+                          <span>⚡ {tech.aantalZonnepanelen * (tech.vermogenPerPaneel || 400)} Wp totaal</span>
+                        </div>
+                      </div>
+
+                      {/* 2. Hoeveel Wp (Vermogen per paneel) */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_vermogen_paneel">
+                            <span>Vermogen (Wp)</span>
+                            <Tooltip text="Het piekvermogen van een enkel zonnepaneel in Wattpiek (Wp). Oudere panelen hebben vaak 270-360 Wp, moderne panelen 400 tot 450 Wp." />
+                          </label>
+                        </div>
+                        <div className="relative">
+                          <input
+                            id="isolatie_vermogen_paneel"
+                            type="number"
+                            min="150"
+                            max="700"
+                            step="10"
+                            value={tech.vermogenPerPaneel === 0 ? '' : (tech.vermogenPerPaneel !== undefined ? tech.vermogenPerPaneel : 400)}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw === '') {
+                                setTech(prev => ({ ...prev, vermogenPerPaneel: 0 }));
+                                return;
+                              }
+                              const val = Number(raw);
+                              setTech(prev => ({ ...prev, vermogenPerPaneel: val }));
+                            }}
+                            onBlur={() => {
+                              setTech(prev => {
+                                const current = prev.vermogenPerPaneel || 400;
+                                const clamped = Math.min(700, Math.max(150, current));
+                                return { ...prev, vermogenPerPaneel: clamped };
+                              });
+                            }}
+                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-emerald-500 pr-10"
+                            placeholder="400"
+                          />
+                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
+                            Wp
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[10px] text-slate-500 font-mono">
+                          <span>{((tech.aantalZonnepanelen * (tech.vermogenPerPaneel || 400)) / 1000).toFixed(2)} kWp vermogen</span>
+                        </div>
+                      </div>
+
+                      {/* 3. Jaaropwekking (kWh) */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_solar_opwekking">
                             <span>Jaaropwekking</span>
                             <Tooltip text="De werkelijke jaaropbrengst van je zonnepanelen in kWh (af te lezen in je SolarEdge, Enphase, Growatt of SMA omvormer-app). Jouw opgave is 100% leidend voor alle berekeningen. Laat leeg om automatisch te rekenen o.b.v. aantal panelen." />
                             {tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0 ? (
@@ -3926,10 +4077,44 @@ export default function InputForm({
                         </div>
                       </div>
 
-                      {/* 2. Teruglevering aan het net (kWh) */}
+                      {/* 4. Stroomverbruik (kWh) - Direct overgenomen in Blok 3: Energieverbruik & Stookgedrag */}
                       <div>
                         <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_elektra_verbruik">
+                            <span>Stroomverbruik</span>
+                            <Tooltip text="Je totale jaarlijkse elektriciteitsverbruik in kWh volgens je jaarnota. Dit getal wordt automatisch overgenomen naar het volgende blok '3. Energieverbruik & Stookgedrag'." />
+                            <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
+                              Naar Blok 3
+                            </span>
+                          </label>
+                        </div>
+                        <div className="relative">
+                          <input
+                            id="isolatie_elektra_verbruik"
+                            type="number"
+                            min="0"
+                            step="50"
+                            value={house.verbruikKwh === 0 ? '' : (house.verbruikKwh || '')}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
+                              setHouse(prev => ({ ...prev, verbruikKwh: val }));
+                            }}
+                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-emerald-500 pr-12"
+                            placeholder="bijv. 3500"
+                          />
+                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
+                            kWh/j
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[10px] text-blue-700 font-medium">
+                          <span>🔗 Overgenomen in Blok 3</span>
+                        </div>
+                      </div>
+
+                      {/* 5. Teruglevering aan het net (kWh) */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_solar_teruglevering">
                             <span>Teruglevering net</span>
                             <Tooltip text="De hoeveelheid zonnestroom in kWh die je jaarlijks daadwerkelijk teruglevert aan het net, conform de jaarafrekening van je energieleverancier." />
                           </label>
@@ -3966,38 +4151,6 @@ export default function InputForm({
                           )}
                         </div>
                       </div>
-
-                      {/* 3. Aantal panelen (alleen aantal in te geven) */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_aantal_panelen">
-                            <span>Aantal panelen</span>
-                            <Tooltip text="Het aantal bestaande zonnepanelen op het dak." />
-                          </label>
-                        </div>
-                        <div className="relative">
-                          <input
-                            id="isolatie_aantal_panelen"
-                            type="number"
-                            min="0"
-                            max="100"
-                            value={tech.aantalZonnepanelen === 0 ? '' : tech.aantalZonnepanelen}
-                            onChange={(e) => {
-                              const val = Math.max(0, Number(e.target.value));
-                              handleAantalZonnepanelenChange(val);
-                              setTech(prev => ({ ...prev, solarStatus: 'bestaand' }));
-                            }}
-                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-emerald-500 pr-14"
-                            placeholder="bijv. 10"
-                          />
-                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
-                            stuks
-                          </span>
-                        </div>
-                        <div className="mt-1 text-[10px] text-slate-500 font-mono">
-                          <span>⚡ {tech.aantalZonnepanelen * (tech.vermogenPerPaneel || 400)} Wp vermogen</span>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -4007,27 +4160,43 @@ export default function InputForm({
 
           {/* 3. Energie verbruik en kosten */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center gap-2">
               <Zap className="w-4 h-4 text-emerald-600" />
               <h3 className="text-sm font-semibold text-slate-700">3. Energieverbruik &amp; Stookgedrag (Jaarrekening)</h3>
             </div>
-            <div className="p-5 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="p-3.5 sm:p-4 space-y-2.5 sm:space-y-3">
+              <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                    <span>Elektra (kWh)</span>
-                    <Tooltip text="Het huidige jaarlijkse elektriciteitsverbruik in kWh (volgens de meest recente jaarrekening)." />
-                  </label>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <label className="block text-xs font-medium text-slate-500 flex items-center gap-1" htmlFor="elektra_verbruik">
+                      <span>Elektra (kWh)</span>
+                      <Tooltip text="Het huidige jaarlijkse elektriciteitsverbruik in kWh (volgens de meest recente jaarrekening). Gesynchroniseerd met het blok Bestaande Zonnepanelen." />
+                    </label>
+                    {(house.zonnepanelenPresent === 'Ja' || tech.aantalZonnepanelen > 0) && (
+                      <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+                        ✓ Gekoppeld
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="number"
-                    value={house.verbruikKwh || ''}
-                    onChange={(e) => setHouse(prev => ({ ...prev, verbruikKwh: Number(e.target.value) }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    value={house.verbruikKwh === 0 ? '' : (house.verbruikKwh || '')}
+                    onChange={(e) => {
+                      const val = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
+                      setHouse(prev => ({ ...prev, verbruikKwh: val }));
+                    }}
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-mono font-medium"
                     id="elektra_verbruik"
+                    placeholder="bijv. 3500"
                   />
+                  {(house.zonnepanelenPresent === 'Ja' || tech.aantalZonnepanelen > 0) && (
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">
+                      Overgenomen uit Zonnepanelen ({house.verbruikKwh || 0} kWh)
+                    </span>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Prijs (€/kWh)</span>
                     <Tooltip text="Het huidige stroomtarief per kWh dat de bewoner betaalt (of het gemiddelde tarief bij een dynamisch contract)." align="right" />
                   </label>
@@ -4035,7 +4204,7 @@ export default function InputForm({
                     type="number"
                     value={house.elektraPrijs || ''}
                     onChange={(e) => setHouse(prev => ({ ...prev, elektraPrijs: Number(e.target.value) }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     step="0.01"
                     id="elektra_prijs"
                   />
@@ -4044,26 +4213,26 @@ export default function InputForm({
 
               {/* Gesynchroniseerde teruglevering & zonne-opwekking weergave in jaarrekening */}
               {(house.zonnepanelenPresent === 'Ja' || tech.aantalZonnepanelen > 0) && (
-                <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between text-xs gap-2">
-                  <div className="flex items-center gap-2">
+                <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl px-2.5 py-1.5 flex flex-wrap items-center justify-between text-xs gap-2">
+                  <div className="flex items-center gap-1.5">
                     <Sun className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span className="font-semibold text-amber-900">Zonnestroom op jaarnota:</span>
+                    <span className="font-semibold text-amber-900 text-xs">Zonnestroom op jaarnota:</span>
                   </div>
-                  <div className="flex items-center gap-3 text-xs font-mono">
+                  <div className="flex items-center gap-2.5 text-[11px] sm:text-xs font-mono">
                     <span className="text-slate-700">
-                      Jaaropwekking: <strong className="text-slate-900">{localAnnualYieldKwh.toLocaleString('nl-NL')} kWh</strong>
+                      Opwekking: <strong className="text-slate-900">{localAnnualYieldKwh.toLocaleString('nl-NL')} kWh</strong>
                     </span>
                     <span className="text-amber-300">•</span>
                     <span className="text-amber-800">
-                      Teruglevering aan net: <strong className="text-amber-950 font-bold">{(house.elektraTeruglevering || 0).toLocaleString('nl-NL')} kWh</strong>
+                      Teruglevering: <strong className="text-amber-950 font-bold">{(house.elektraTeruglevering || 0).toLocaleString('nl-NL')} kWh</strong>
                     </span>
                   </div>
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4 pt-1">
+              <div className="grid grid-cols-2 gap-2.5 sm:gap-3 pt-1">
                 <div>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center justify-between mb-0.5">
                     <label className="block text-xs font-medium text-slate-500 flex items-center gap-1">
                       <span>Gasverbruik (m³)</span>
                       <Tooltip text="Het actuele jaarlijkse gasverbruik in m³ van de woning. Bij een all-electric woning of bestaande warmtepomp is dit N.V.T. (0 m³)." />
@@ -4071,7 +4240,7 @@ export default function InputForm({
                     <button
                       type="button"
                       onClick={() => setHouse(prev => ({ ...prev, verbruikM3: prev.verbruikM3 === 0 ? 1200 : 0 }))}
-                      className={`text-[9.5px] px-1.5 py-0.5 rounded font-bold cursor-pointer transition ${
+                      className={`text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer transition ${
                         house.verbruikM3 === 0 
                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
@@ -4097,7 +4266,7 @@ export default function InputForm({
                       setHouse(prev => ({ ...prev, verbruikM3: clean === '' ? 0 : Number(clean) }));
                     }}
                     placeholder={house.verbruikM3 === 0 ? 'N.V.T. (0 m³)' : '0'}
-                    className={`w-full text-sm border rounded-lg px-2.5 py-2 focus:outline-emerald-500 font-sans transition ${
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-sans transition ${
                       (!house.verbruikM3 || house.verbruikM3 === 0) && !isAllElectricOrBestaandWp && (house.verwarming === 'Hybride warmtepomp' || tech.selectedWarmtepompType === 'Hybride' || (tech.selectedWarmtepompType === 'All-Electric' && house.verwarming === 'CV-ketel'))
                         ? 'border-rose-400 bg-rose-50/40 text-rose-950 font-medium'
                         : (house.verbruikM3 === 0 && isAllElectricOrBestaandWp)
@@ -4108,33 +4277,33 @@ export default function InputForm({
                   />
                   {/* Waarschuwing UITSLUITEND tonen wanneer iemand een nieuwe warmtepomp wil op een gasgestookte woning maar 0 m³ heeft ingevuld */}
                   {(!house.verbruikM3 || house.verbruikM3 === 0) && !isAllElectricOrBestaandWp && (house.verwarming === 'Hybride warmtepomp' || tech.selectedWarmtepompType === 'Hybride' || (tech.selectedWarmtepompType === 'All-Electric' && house.verwarming === 'CV-ketel')) && (
-                    <div className="mt-1 text-[10px] text-rose-600 font-semibold flex items-center justify-between">
-                      <span>⚠️ Nieuwe warmtepomp actief bij 0 m³</span>
+                    <div className="mt-0.5 text-[10px] text-rose-600 font-semibold flex items-center justify-between">
+                      <span>⚠️ Nieuwe WP bij 0 m³</span>
                       <button
                         type="button"
                         onClick={() => setHouse(prev => ({ ...prev, verbruikM3: 1200 }))}
                         className="underline hover:text-rose-800 font-bold cursor-pointer"
                       >
-                        Vul 1.200 m³ in
+                        Vul 1.200 in
                       </button>
                     </div>
                   )}
                   {/* Positieve bevestiging bij bestaande warmtepomp / all-electric */}
                   {(!house.verbruikM3 || house.verbruikM3 === 0) && isAllElectricOrBestaandWp && (
-                    <div className="mt-1 text-[10px] text-emerald-700 font-medium flex items-center gap-1">
+                    <div className="mt-0.5 text-[10px] text-emerald-700 font-medium flex items-center gap-1">
                       <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      <span>All-electric / bestaande warmtepomp: gasverbruik is N.V.T.</span>
+                      <span>All-electric / bestaande warmtepomp: gas N.V.T.</span>
                     </div>
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center justify-between">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center justify-between">
                     <span className="flex items-center gap-1">
                       <span>Gas prijs (€/m³)</span>
                       <Tooltip text="Het huidige gastarief per m³ dat de bewoner betaalt inclusief belastingen. Bij gasloze woningen is dit N.V.T." align="right" />
                     </span>
                     {house.verbruikM3 === 0 && isAllElectricOrBestaandWp && (
-                      <span className="text-[9.5px] font-bold text-slate-400">N.V.T.</span>
+                      <span className="text-[9px] font-bold text-slate-400">N.V.T.</span>
                     )}
                   </label>
                   <input
@@ -4144,7 +4313,7 @@ export default function InputForm({
                       const val = e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.');
                       setHouse(prev => ({ ...prev, gasPrijs: Number(val) }));
                     }}
-                    className={`w-full text-sm rounded-lg px-2.5 py-2 focus:outline-emerald-500 transition ${
+                    className={`w-full text-xs sm:text-sm rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 transition ${
                       house.verbruikM3 === 0 && isAllElectricOrBestaandWp
                         ? 'bg-slate-100/70 border border-slate-200 text-slate-400 font-medium'
                         : 'bg-slate-50 border border-slate-200 text-slate-800'
@@ -4154,154 +4323,295 @@ export default function InputForm({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-50">
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                    <span>Stookgedrag (Auto)</span>
-                    <Tooltip text="Deze waarde vergelijkt het werkelijke gasverbruik met het gemiddelde verbruik van een gelijkwaardige woning en gezinssamenstelling." />
-                  </label>
-                  <input
-                    type="text"
-                    value={liveStookgedragBerekend || 'Vul in...'}
-                    readOnly
-                    className="w-full text-sm bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-2 font-bold text-emerald-800"
-                    id="stookgedrag_berekend"
-                  />
+              <div className="pt-2.5 border-t border-slate-100 space-y-2">
+                <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                      <span>Stookgedrag (Auto)</span>
+                      <Tooltip text="Deze waarde vergelijkt het werkelijke gasverbruik met het gemiddelde verbruik van een gelijkwaardige woning en gezinssamenstelling." />
+                    </label>
+                    <input
+                      type="text"
+                      value={liveStookgedragBerekend || 'Vul in...'}
+                      readOnly
+                      className="w-full text-xs sm:text-sm bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1.5 font-bold text-emerald-800"
+                      id="stookgedrag_berekend"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                      <span>Correctie / Forceer</span>
+                      <Tooltip text="Laat op 'Berekend (Auto)' om het stookgedrag automatisch af te stemmen op uw werkelijke verbruik, of kies handmatig een vaste factor in Jip-en-Janneketaal." align="right" />
+                    </label>
+                    <select
+                      value={house.stookgedragOverride}
+                      onChange={(e) => setHouse(prev => ({ ...prev, stookgedragOverride: e.target.value as any }))}
+                      className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-medium"
+                      id="stookgedrag_override"
+                    >
+                      <option value="auto">Berekend (Auto)</option>
+                      <option value="normaal">🟠 Forceer: Gemiddelde stoker (1.0x)</option>
+                      <option value="zuinig">🟢 Forceer: Zuinige stoker (0.7x)</option>
+                      <option value="minimaal">🟢 Forceer: Zeer zuinige stoker (0.4x)</option>
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                    <span>Correctie / Forceer</span>
-                    <Tooltip text="Laat op 'Berekend (Auto)' om het stookgedrag automatisch af te stemmen op uw werkelijke verbruik, of kies handmatig een vaste factor." align="right" />
-                  </label>
-                  <select
-                    value={house.stookgedragOverride}
-                    onChange={(e) => setHouse(prev => ({ ...prev, stookgedragOverride: e.target.value as any }))}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-emerald-500"
-                    id="stookgedrag_override"
+
+                {/* Visuele Jip-en-Janneketaal Stookgedrag Kaart - Compact & Subtiel */}
+                {liveStookgedragDetails && liveStookgedragDetails.category !== 'onbekend' ? (
+                  <div
+                    className={`rounded-lg border px-2.5 py-1.5 transition-all text-xs flex flex-wrap items-center justify-between gap-x-3 gap-y-1 ${
+                      liveStookgedragDetails.category === 'zuinig'
+                        ? 'bg-emerald-50/70 border-emerald-200/80 text-emerald-900'
+                        : liveStookgedragDetails.category === 'royaal'
+                        ? 'bg-rose-50/70 border-rose-200/80 text-rose-900'
+                        : 'bg-amber-50/70 border-amber-200/80 text-amber-900'
+                    }`}
+                    id="stookgedrag_visuele_kaart"
                   >
-                    <option value="auto">Berekend (Auto)</option>
-                    <option value="normaal">Forceer: Normaal (1.0x)</option>
-                    <option value="zuinig">Forceer: Zuinig (0.7x)</option>
-                    <option value="minimaal">Forceer: Minimaal (0.4x)</option>
-                  </select>
-                </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-sm select-none" aria-hidden="true">
+                        {liveStookgedragDetails.emoji}
+                      </span>
+                      <span className="font-bold text-xs">
+                        {liveStookgedragDetails.category === 'zuinig'
+                          ? 'Zuinige stoker'
+                          : liveStookgedragDetails.category === 'royaal'
+                          ? 'Royale stoker'
+                          : 'Gemiddelde stoker'}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full font-mono border ${
+                          liveStookgedragDetails.category === 'zuinig'
+                            ? 'bg-white/80 border-emerald-300 text-emerald-800'
+                            : liveStookgedragDetails.category === 'royaal'
+                            ? 'bg-white/80 border-rose-300 text-rose-800'
+                            : 'bg-white/80 border-amber-300 text-amber-800'
+                        }`}
+                      >
+                        {liveStookgedragDetails.percentageText} t.o.v. norm
+                      </span>
+                      <span className="text-[11px] opacity-80 hidden sm:inline">
+                        • {liveStookgedragDetails.vergelijkingTekst}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-[10.5px] opacity-85 ml-auto">
+                      <span>Norm: <strong className="font-mono">{liveStookgedragDetails.verwachtVerwarmingsGas || 0} m³</strong></span>
+                      <span>|</span>
+                      <span>Werkelijk verwarmen: <strong className="font-mono">{liveStookgedragDetails.werkelijkVerwarmingsGas || 0} m³</strong></span>
+                      <span className="font-mono font-bold text-slate-700 bg-white/70 px-1 py-0.5 rounded border border-black/5">
+                        {(liveCalcResult.house.stookgedragFactor || 1.0).toFixed(1)}x
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-1.5 text-[11px] text-slate-500 flex items-center gap-1.5">
+                    <span className="text-xs">ℹ️</span>
+                    <span>
+                      Vul gasverbruik in voor automatische stookgedrag-duiding.
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
           {/* 4. Huidige Isolatie Status */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center gap-2">
-              <Layers className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-sm font-semibold text-slate-700">4. Huidige Isolatie Status</h3>
+            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-sm font-semibold text-slate-700">4. Huidige Isolatie Status</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const norm = getBouwjaarNorm(house.bouwjaar);
+                  handleApplyBouwjaarNorm(norm, house.bouwjaar || 1978);
+                }}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-100/90 hover:bg-emerald-200 border border-emerald-300 rounded-lg px-2.5 py-1 transition shadow-xs"
+                id="btn_bouwjaarnorm_direct"
+                title={`Direct realistische standaard isolatiewaarden toepassen voor ${house.bouwjaar ? `bouwjaar ${house.bouwjaar}` : 'bouwjaar (bijv. 1978)'}`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Gebruik bouwjaarnorm {house.bouwjaar ? `(${house.bouwjaar})` : '(bijv. 1978)'}</span>
+              </button>
             </div>
-            <div className="p-4">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="p-3.5 sm:p-4">
+              {/* Slimme "Niet Zeker / Standaardwaarden" balk per bouwjaarklasse */}
+              <div className="mb-3 p-2.5 sm:p-3 bg-slate-50/90 border border-slate-200/90 rounded-xl" id="bouwjaarnorm_selector_bar">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <HelpCircle className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    <span className="text-xs font-semibold text-slate-700">Niet zeker wat er in de spouw of onder de vloer zit?</span>
+                    <Tooltip text="Veel bewoners weten niet exact hoe hun woning vanuit de bouw is geïsoleerd. Klik op een bouwjaarklasse om direct realistische standaardwaarden (bijv. 4 cm glaswol spouw, dubbel glas i.p.v. HR++, ongeïsoleerde vloer) in te vullen als betrouwbaar startpunt." />
+                  </div>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    {house.bouwjaar ? `Woning bouwjaar: ${house.bouwjaar}` : 'Standaard referentie: 1978'}
+                  </span>
+                </div>
+
+                {/* Snelknoppen per bouwjaarklasse */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {BOUWJAAR_NORMEN.map((norm) => {
+                    const isCurrentMatch = house.bouwjaar 
+                      ? (house.bouwjaar >= norm.minJaar && house.bouwjaar <= norm.maxJaar) 
+                      : (norm.id === '1975-1982');
+                    const isSelected = appliedNormInfo?.id === norm.id;
+                    return (
+                      <button
+                        key={norm.id}
+                        type="button"
+                        onClick={() => handleApplyBouwjaarNorm(norm, house.bouwjaar || undefined)}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1 ${
+                          isSelected
+                            ? 'bg-emerald-700 text-white border-emerald-800 font-bold shadow-xs'
+                            : isCurrentMatch
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 font-bold shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 font-medium'
+                        }`}
+                        title={`${norm.titel}: ${norm.korteOmschrijving}`}
+                        id={`btn_norm_${norm.id}`}
+                      >
+                        {isCurrentMatch && !isSelected && <span className="text-emerald-600 font-bold">●</span>}
+                        <span>{norm.periode}</span>
+                        {norm.id === '1975-1982' && !house.bouwjaar && <span className="text-[9.5px] opacity-75">(bijv. 1978)</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Feedback banner wanneer toegepast */}
+                {appliedNormInfo && (
+                  <div className="mt-2.5 pt-2 border-t border-slate-200/80 flex items-start justify-between gap-2 text-xs">
+                    <div className="flex items-start gap-1.5 text-emerald-950">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold text-[11.5px] text-emerald-900 leading-tight">
+                          {appliedNormInfo.titel} toegepast:
+                        </p>
+                        <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                          {appliedNormInfo.korteOmschrijving}. <span className="text-slate-500 italic">(U kunt afzonderlijke velden hieronder altijd nog handmatig aanpassen.)</span>
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAppliedNormInfo(null)}
+                      className="text-[11px] text-slate-400 hover:text-slate-700 shrink-0 px-1 py-0.5 font-medium"
+                      title="Melding sluiten"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Dakisolatie</span>
-                    <Tooltip text="De huidige isolatiestatus van het dak. 'Geen/Matig' betekent dat er nog veel winst te behalen is met na-isolatie." />
+                    <Tooltip text="De huidige isolatiestatus van het dak. 'Geen' of 'Matig' betekent dat er nog veel winst te behalen is met na-isolatie." />
                   </label>
                   <select
                     value={house.isoDak}
                     onChange={(e) => setHouse(prev => ({ ...prev, isoDak: e.target.value }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="iso_dak"
                   >
                     <option value="">-- Selecteer --</option>
-                    <option value="slecht">Geen</option>
-                    <option value="slecht">Matig</option>
-                    <option value="goed">Goed</option>
+                    <option value="slecht">Geen (koud dakbeschot)</option>
+                    <option value="matig">Matig (ca. 3–5 cm)</option>
+                    <option value="goed">Goed (Rc ≥ 2.5 of na-geïsoleerd)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Gevelisolatie</span>
                     <Tooltip text="De huidige isolatiestatus van de gevels of spouwmuren." align="right" />
                   </label>
                   <select
                     value={house.isoGevel}
                     onChange={(e) => setHouse(prev => ({ ...prev, isoGevel: e.target.value }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="iso_gevel"
                   >
                     <option value="">-- Selecteer --</option>
-                    <option value="slecht">Geen</option>
-                    <option value="slecht">Spouwmuurisolatie (Oud)</option>
-                    <option value="goed">Binnenisolatie</option>
-                    <option value="goed">Buitenisolatie</option>
+                    <option value="slecht">Geen (ongeïsoleerd)</option>
+                    <option value="matig">Spouwmuurisolatie (Oud / ca. 4 cm)</option>
+                    <option value="goed">Goed (Rc ≥ 2.5 of na-geïsoleerd)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Glas (begane grond)</span>
                     <Tooltip text="Het type glas op de begane grond (bijv. HR++ of dubbel glas)." />
                   </label>
                   <select
                     value={house.isoGlasBg}
                     onChange={(e) => setHouse(prev => ({ ...prev, isoGlasBg: e.target.value }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="iso_glas_bg"
                   >
                     <option value="">-- Selecteer --</option>
-                    <option value="slecht">Enkel</option>
-                    <option value="slecht">Dubbel</option>
-                    <option value="matig">HR</option>
-                    <option value="goed">HR++</option>
-                    <option value="goed">Triple</option>
+                    <option value="slecht">Enkel glas</option>
+                    <option value="dubbel">Oud dubbel glas (thermopane)</option>
+                    <option value="matig">HR / HR+ glas</option>
+                    <option value="goed">HR++ glas</option>
+                    <option value="triple">Triple glas (HR+++)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Glas (verdieping)</span>
                     <Tooltip text="Het type glas op de verdiepingen van de woning." align="right" />
                   </label>
                   <select
                     value={house.isoGlasVd}
                     onChange={(e) => setHouse(prev => ({ ...prev, isoGlasVd: e.target.value }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="iso_glas_vd"
                   >
                     <option value="">-- Selecteer --</option>
-                    <option value="slecht">Enkel</option>
-                    <option value="slecht">Dubbel</option>
-                    <option value="matig">HR</option>
-                    <option value="goed">HR++</option>
-                    <option value="goed">Triple</option>
+                    <option value="slecht">Enkel glas</option>
+                    <option value="dubbel">Oud dubbel glas (thermopane)</option>
+                    <option value="matig">HR / HR+ glas</option>
+                    <option value="goed">HR++ glas</option>
+                    <option value="triple">Triple glas (HR+++)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Vloer / Bodem</span>
                     <Tooltip text="De huidige isolatiestatus van de vloer of de kruipruimtebodem." />
                   </label>
                   <select
                     value={house.isoVloer}
                     onChange={(e) => setHouse(prev => ({ ...prev, isoVloer: e.target.value }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="iso_vloer"
                   >
                     <option value="">-- Selecteer --</option>
-                    <option value="slecht">Geen vloer</option>
-                    <option value="slecht">Matig vloer</option>
-                    <option value="goed">Goed vloer</option>
-                    <option value="slecht">Geen bodem</option>
+                    <option value="slecht">Geen isolatie (koud)</option>
+                    <option value="matig">Matig (broodjesvloer / bodemisolatie)</option>
+                    <option value="goed">Goed geïsoleerd (Rc ≥ 3.5)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Naden/kieren in orde?</span>
                     <Tooltip text="Geeft aan of er tocht of kouval aanwezig is door kieren bij ramen, deuren of kozijnen." align="right" />
                   </label>
                   <select
                     value={house.isoKieren}
                     onChange={(e) => setHouse(prev => ({ ...prev, isoKieren: e.target.value }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
                     id="iso_kieren"
                   >
                     <option value="">-- Selecteer --</option>
-                    <option>Ja, in orde</option>
-                    <option>Nee, onderhoud nodig</option>
+                    <option value="Ja, in orde">Ja, in orde</option>
+                    <option value="Nee, onderhoud nodig">Nee, tocht / onderhoud nodig</option>
                   </select>
                 </div>
               </div>
@@ -4314,8 +4624,8 @@ export default function InputForm({
               <Layers className="w-4 h-4 text-emerald-600" />
               <h3 className="text-sm font-semibold text-slate-700">5. Ingemeten Isolatie Oppervlakten (m²)</h3>
             </div>
-            <div className="p-4">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+            <div className="p-3.5 sm:p-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5">
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Vloer (onder)</span>
@@ -4775,8 +5085,8 @@ export default function InputForm({
 
                 {(tech.aantalZonnepanelen > 0 || tech.solarStatus === 'bestaand' || (tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0) || house.zonnepanelenPresent === 'Ja') && (
                   <div className="space-y-4">
-                    {/* Teruglevering, Opwekking & Direct Verbruik Inputs (Gesynchroniseerd met Isolatie) */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white border border-slate-100 rounded-xl p-3 shadow-sm">
+                    {/* Teruglevering, Opwekking & Direct Verbruik Inputs (Gesynchroniseerd met Isolatie & Energieverbruik) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white border border-slate-100 rounded-xl p-3 shadow-sm">
                       {/* Column 1: Jaarlijkse zonne-opwekking (kWh) */}
                       <div>
                         <div className="flex items-center justify-between mb-1">
@@ -4856,7 +5166,39 @@ export default function InputForm({
                         </div>
                       </div>
 
-                      {/* Column 2: Teruglevering aan het net (kWh) */}
+                      {/* Column 2: Jaarlijks Stroomverbruik (kWh) - Gesynchroniseerd met Blok 3 */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="zon_elektra_verbruik">
+                            <span>Stroomverbruik</span>
+                            <Tooltip text="Je totale jaarlijkse elektriciteitsverbruik in kWh (volgens je energienota). Gesynchroniseerd met Blok 3: Energieverbruik & Stookgedrag." />
+                            <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
+                              Blok 3 sync
+                            </span>
+                          </label>
+                        </div>
+                        <div className="relative">
+                          <input
+                            id="zon_elektra_verbruik"
+                            type="number"
+                            min="0"
+                            step="50"
+                            value={house.verbruikKwh === 0 ? '' : (house.verbruikKwh || '')}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
+                              setHouse(prev => ({ ...prev, verbruikKwh: val }));
+                            }}
+                            className="w-full text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono pr-11"
+                            placeholder="bijv. 3500"
+                          />
+                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">kWh</span>
+                        </div>
+                        <div className="mt-1 text-[10px] text-blue-700 font-medium">
+                          <span>🔗 Overgenomen in Blok 3</span>
+                        </div>
+                      </div>
+
+                      {/* Column 3: Teruglevering aan het net (kWh) */}
                       <div>
                         <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1" htmlFor="zon_teruglevering">
                           <span>Teruglevering aan net</span>
@@ -4888,7 +5230,7 @@ export default function InputForm({
                         </div>
                       </div>
 
-                      {/* Column 3: Direct eigen verbruik (%) */}
+                      {/* Column 4: Direct eigen verbruik (%) */}
                       <div>
                         <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1" htmlFor="zon_direct_verbruik">
                           <span>Direct eigen verbruik</span>
@@ -5541,7 +5883,7 @@ export default function InputForm({
                   }`}
                 >
                   <span className="font-bold">Vast / Variabel</span>
-                  <span className="text-[9px] font-normal opacity-75">Vaste tarieven &amp; salderen</span>
+                  <span className="text-[9px] font-normal opacity-75">Vaste tarieven &amp; terugleververgoeding</span>
                 </button>
                 <button
                   type="button"
@@ -5558,50 +5900,260 @@ export default function InputForm({
               </div>
             </div>
 
-            {/* Suitable battery size recommendation */}
-            <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-100 space-y-3">
-              <div className="flex justify-between items-start gap-2">
-                <div className="space-y-0.5">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Geadviseerde Accugrootte</span>
-                  {tech.aantalZonnepanelen === 0 ? (
-                    <span className="text-sm font-bold text-slate-600 block">Zonnepanelen vereist</span>
-                  ) : (
-                    <span className="text-base font-extrabold text-slate-800 block">
-                      {localAnnualYieldKwh < 3500 ? '5 kWh (Klein)' : localAnnualYieldKwh < 7500 ? '10 kWh (Middelgroot)' : '15 kWh (Groot)'}
-                    </span>
+            {/* INGENIEUS CAPACITEITSADVIES OP BASIS VAN WONINGDATA */}
+            {(() => {
+              const baseElectricKwh = house.verbruikKwh || 3500;
+              const hasHeatpump = Boolean(
+                tech.selectedWarmtepompType || 
+                tech.selectedWarmtepompModel || 
+                (house.verwarming && house.verwarming.toLowerCase().includes('warmtepomp'))
+              );
+              const hpExtraKwh = (tech.userAnnualWp && tech.userAnnualWp > 0)
+                ? tech.userAnnualWp
+                : hasHeatpump ? 2200 : 0;
+
+              const evExtraKwh = (tech.userAnnualLp && tech.userAnnualLp > 0)
+                ? tech.userAnnualLp
+                : (tech.evKilometers && tech.evKilometers > 0)
+                ? Math.round((tech.evKilometers / 100) * (tech.evVerbruik || 18) * ((tech.evThuisLaden || 80) / 100))
+                : 0;
+              const totalElectricKwh = baseElectricKwh + hpExtraKwh + evExtraKwh;
+              const avgDailyDemand = totalElectricKwh / 365;
+
+              // Nacht- en avondverbruik van de woning (17:00 - 08:00 uur: ca. 55-60% van het etmaalverbruik)
+              const estimatedNightKwh = Math.round((avgDailyDemand * 0.58) * 10) / 10;
+
+              // Gemiddeld dagelijks zonne-overschot in de actieve zonnemaanden (ca. 190 dagen van voorjaar t/m vroege herfst)
+              const annualSurplusKwh = (house.elektraTeruglevering && house.elektraTeruglevering > 0)
+                ? house.elektraTeruglevering
+                : Math.max(0, localAnnualYieldKwh * (1 - (tech.huidigDirectVerbruik || 30) / 100));
+              const summerDailySurplus = localAnnualYieldKwh > 0 ? Math.round((annualSurplusKwh / 190) * 10) / 10 : 0;
+
+              const isDynamic = tech.typeContract === 'Dynamisch';
+              const isTrading = tech.batteryGridTrading !== false;
+              const hasSolar = localAnnualYieldKwh > 0 || tech.aantalZonnepanelen > 0;
+
+              let advisedBatteryKwh = 10;
+              let advisedBatteryLabel = '10 kWh (Standaard)';
+              let advisedBatteryCycles = 240;
+              let advisedBatteryExplanation = '';
+
+              if (!hasSolar) {
+                advisedBatteryKwh = 0;
+                advisedBatteryLabel = '0 kWh (Geen zonnepanelen)';
+                advisedBatteryCycles = 0;
+                advisedBatteryExplanation = 'Zonder zonnepanelen is een thuisaccu economisch minder rendabel. We adviseren om eerst zonnepanelen te plaatsen voordat je een accu aanschaft.';
+              } else if (isDynamic && isTrading) {
+                // Dynamisch contract met Smart EMS handel (onbalans & spotmarkt)
+                if (localAnnualYieldKwh > 8000 || totalElectricKwh > 5500) {
+                  advisedBatteryKwh = 15;
+                  advisedBatteryLabel = '15 kWh (Optimaal Handel)';
+                  advisedBatteryCycles = 290;
+                  advisedBatteryExplanation = `Door je royale zonne-opwekking (${localAnnualYieldKwh.toLocaleString('nl-NL')} kWh) en stroombehoefte kan een 15 kWh batterij maximaal profiteren van onbalanshandel en lage dalprijzen, naast het opslaan van zonnepieken.`;
+                } else if (localAnnualYieldKwh > 4000 || totalElectricKwh > 3600) {
+                  advisedBatteryKwh = 10;
+                  advisedBatteryLabel = '10 kWh (Sweet Spot)';
+                  advisedBatteryCycles = 280;
+                  advisedBatteryExplanation = `Met een jaaropbrengst van ${localAnnualYieldKwh.toLocaleString('nl-NL')} kWh en dynamische EMS-sturing is 10 kWh de ideale 'sweet spot': hij laadt 's zomers snel vol en maakt in de winter winstgevende handels-cycli.`;
+                } else {
+                  advisedBatteryKwh = 7.5;
+                  advisedBatteryLabel = '7.5 kWh (Compact Handel)';
+                  advisedBatteryCycles = 260;
+                  advisedBatteryExplanation = `Met een compactere zonne-installatie is 7 à 8 kWh ideaal om het dagelijkse zonne-overschot te bufferen en actief op dynamische uurtarieven mee te draaien.`;
+                }
+              } else {
+                // Vast / Variabel contract (100% zonne-zelfconsumptie)
+                if (estimatedNightKwh <= 4.5) {
+                  advisedBatteryKwh = 5;
+                  advisedBatteryLabel = '5 kWh (Compact)';
+                  advisedBatteryCycles = 210;
+                  advisedBatteryExplanation = `Bij een gemiddeld nachtverbruik van ca. ${estimatedNightKwh} kWh is 5 kWh perfect gedimensioneerd. Een grotere accu raakt 's nachts niet leeg en verlaagt je aantal nuttige laadcycli.`;
+                } else if (estimatedNightKwh <= 7.5) {
+                  advisedBatteryKwh = summerDailySurplus >= 15 ? 10 : 7.5;
+                  advisedBatteryLabel = summerDailySurplus >= 15 ? '10 kWh (Ideaal)' : '7.5 kWh (Gebalanceerd)';
+                  advisedBatteryCycles = 205;
+                  advisedBatteryExplanation = `Jouw avond- en nachtverbruik is ca. ${estimatedNightKwh} kWh en je hebt overdag ruim voldoende zonne-overschot (${summerDailySurplus} kWh/dag). Een ${advisedBatteryKwh} kWh accu dekt de volledige avond en nacht af zonder overcapaciteit.`;
+                } else {
+                  advisedBatteryKwh = 10;
+                  advisedBatteryLabel = '10 kWh (Ruim)';
+                  advisedBatteryCycles = 195;
+                  advisedBatteryExplanation = `Door je verhoogde verbruik (o.a. warmtepomp of EV) is je nachtvraag ca. ${estimatedNightKwh} kWh. Een 10 kWh accu levert maximale zelfvoorziening zonder onnodig stilstandverlies in de winter.`;
+                }
+              }
+
+              const currentKwh = tech.capaciteitAccu || 0;
+              const isMatch = Math.abs(currentKwh - advisedBatteryKwh) <= 0.5 && currentKwh > 0;
+              const isLarger = currentKwh > advisedBatteryKwh && !isMatch;
+              const isSmaller = currentKwh < advisedBatteryKwh && currentKwh > 0 && !isMatch;
+
+              return (
+                <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200/80 space-y-3.5 shadow-2xs">
+                  {/* Header */}
+                  <div className="flex justify-between items-start gap-2">
+                    <div>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                        Geadviseerde Capaciteit (Data-Gedreven)
+                      </span>
+                      <span className="text-base font-extrabold text-slate-800 block mt-0.5">
+                        {hasSolar ? advisedBatteryLabel : 'Zonnepanelen vereist'}
+                      </span>
+                    </div>
+                    <div className="bg-emerald-600 text-white font-mono text-xs font-black px-3 py-1.5 rounded-xl shadow-xs flex items-center gap-1.5 shrink-0">
+                      <Battery className="w-3.5 h-3.5" />
+                      <span>{advisedBatteryKwh} kWh</span>
+                    </div>
+                  </div>
+
+                  {/* 4 KPI mini tegels */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70">
+                      <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 mb-0.5">
+                        <Moon className="w-3 h-3 text-indigo-500 shrink-0" />
+                        <span>Nachtverbruik</span>
+                      </div>
+                      <div className="text-xs font-black font-mono text-slate-800">
+                        ~{estimatedNightKwh} <span className="text-[10px] font-normal text-slate-500">kWh/nacht</span>
+                      </div>
+                      <span className="text-[9px] text-slate-400 block mt-0.5">17:00 – 08:00 uur</span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70">
+                      <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 mb-0.5">
+                        <Sun className="w-3 h-3 text-amber-500 shrink-0" />
+                        <span>Zon-overschot</span>
+                      </div>
+                      <div className="text-xs font-black font-mono text-slate-800">
+                        ~{summerDailySurplus} <span className="text-[10px] font-normal text-slate-500">kWh/dag</span>
+                      </div>
+                      <span className="text-[9px] text-slate-400 block mt-0.5">zomerseizoen</span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70">
+                      <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 mb-0.5">
+                        <RefreshCw className="w-3 h-3 text-sky-500 shrink-0" />
+                        <span>Verwachte cycli</span>
+                      </div>
+                      <div className="text-xs font-black font-mono text-slate-800">
+                        ~{advisedBatteryCycles} <span className="text-[10px] font-normal text-slate-500">/jaar</span>
+                      </div>
+                      <span className="text-[9px] text-slate-400 block mt-0.5">streefwaarde &gt;200</span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/70">
+                      <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 mb-0.5">
+                        <Zap className="w-3 h-3 text-emerald-500 shrink-0" />
+                        <span>Sturingsfocus</span>
+                      </div>
+                      <div className="text-[11px] font-extrabold text-slate-800 truncate" title={isDynamic ? 'Dynamisch + EMS' : '100% Zonne-focus'}>
+                        {isDynamic ? 'Dynamisch + EMS' : 'Zonne-focus'}
+                      </div>
+                      <span className="text-[9px] text-slate-400 block mt-0.5">{tech.typeContract} contract</span>
+                    </div>
+                  </div>
+
+                  {/* Onderbouwing / Toelichting */}
+                  <div className="bg-white/80 border border-slate-200/70 rounded-xl p-3 text-[11px] text-slate-600 leading-relaxed space-y-1.5">
+                    <p>
+                      {advisedBatteryExplanation}
+                    </p>
+                    <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-100 flex items-center gap-1">
+                      <Info className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>
+                        {isDynamic 
+                          ? 'Bij een dynamisch contract met smart EMS maakt de accu het hele jaar door cycli (ook in de winter via goedkope netstroom).'
+                          : 'Bij een vast contract moet de accu \'s nachts leeg raken om overdag weer volgeladen te kunnen worden met zonnestroom.'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Vergelijking met Huidige Instelling */}
+                  {currentKwh > 0 && (
+                    <div className="text-[11px] font-medium">
+                      {isMatch ? (
+                        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-3 py-2 rounded-xl flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>
+                            <strong>Perfect afgestemd:</strong> Jouw geselecteerde capaciteit van <strong>{currentKwh} kWh</strong> komt exact overeen met het geadviseerde optimum.
+                          </span>
+                        </div>
+                      ) : isLarger ? (
+                        <div className="bg-amber-50 border border-amber-200 text-amber-900 px-3 py-2 rounded-xl flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div>
+                            <span>
+                              Je hebt momenteel <strong>{currentKwh} kWh</strong> ingesteld (groter dan advies <strong>{advisedBatteryKwh} kWh</strong>).
+                            </span>
+                            <span className="block text-[10px] text-amber-800 mt-0.5">
+                              {isDynamic 
+                                ? 'Bij een dynamisch contract kan een grotere accu lonen mits je actief meedoet met onbalanshandel.' 
+                                : 'Let op: met een vast contract raakt deze extra capaciteit in het voor- en najaar \'s nachts niet leeg, waardoor de terugverdientijd toeneemt.'}
+                            </span>
+                          </div>
+                        </div>
+                      ) : isSmaller ? (
+                        <div className="bg-sky-50 border border-sky-200 text-sky-900 px-3 py-2 rounded-xl flex items-start gap-2">
+                          <Info className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                          <div>
+                            <span>
+                              Je hebt momenteel <strong>{currentKwh} kWh</strong> ingesteld.
+                            </span>
+                            <span className="block text-[10px] text-sky-800 mt-0.5">
+                              Jouw royale zonne-opwekking en nachtverbruik bieden voldoende ruimte om op te schalen naar <strong>{advisedBatteryKwh} kWh</strong> voor een hogere totale jaarbesparing.
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
                   )}
-                </div>
-                <div className="bg-emerald-500 text-white font-mono text-xs font-bold px-2.5 py-1 rounded-lg">
-                  {tech.aantalZonnepanelen === 0 ? '0 kWh' : localAnnualYieldKwh < 3500 ? '5 kWh' : localAnnualYieldKwh < 7500 ? '10 kWh' : '15 kWh'}
-                </div>
-              </div>
 
-              <p className="text-[11px] text-slate-600 leading-relaxed">
-                {tech.aantalZonnepanelen === 0 ? (
-                  "Een thuisbatterij is financieel minder bruikbaar als er geen zonnestroom is om op te slaan. We adviseren om eerst zonnepanelen te leggen."
-                ) : localAnnualYieldKwh < 3500 ? (
-                  `Met een jaaropbrengst van ${localAnnualYieldKwh} kWh is een compacte batterij van 5 kWh ideaal om je avondverbruik af te dekken.`
-                ) : localAnnualYieldKwh < 7500 ? (
-                  `Met een jaaropbrengst van ${localAnnualYieldKwh} kWh is een 10 kWh accu perfect gedimensioneerd voor een gemiddeld gezin.`
-                ) : (
-                  `Met een hoge jaaropbrengst van ${localAnnualYieldKwh} kWh is een grotere accu van 15 kWh uitstekend om de zonnepieken volledig op te slaan.`
-                )}
-              </p>
+                  {/* Direct toepassen knop */}
+                  {hasSolar && !isMatch && (
+                    <button
+                      type="button"
+                      onClick={() => setTech(prev => ({ ...prev, capaciteitAccu: advisedBatteryKwh }))}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-3 rounded-xl text-xs font-bold transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
+                      <span>Pas geadviseerde {advisedBatteryKwh} kWh toe</span>
+                    </button>
+                  )}
 
-              {tech.aantalZonnepanelen > 0 && tech.capaciteitAccu !== (localAnnualYieldKwh < 3500 ? 5 : localAnnualYieldKwh < 7500 ? 10 : 15) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const recSize = localAnnualYieldKwh < 3500 ? 5 : localAnnualYieldKwh < 7500 ? 10 : 15;
-                    setTech(prev => ({ ...prev, capaciteitAccu: recSize }));
-                  }}
-                  className="w-full bg-slate-800 hover:bg-slate-900 text-white py-1.5 px-3 rounded-lg text-xs font-bold transition shadow-sm flex items-center justify-center gap-1"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                  Stel accu in op geadviseerde {localAnnualYieldKwh < 3500 ? '5' : localAnnualYieldKwh < 7500 ? '10' : '15'} kWh
-                </button>
-              )}
-            </div>
+                  {/* Snelle formaat selectie */}
+                  <div className="pt-2 border-t border-slate-200/60">
+                    <span className="text-[10px] font-bold text-slate-500 block mb-1.5">
+                      Of kies direct een gangbaar marktformaat:
+                    </span>
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {[5, 7.5, 10, 15, 20].map((size) => {
+                        const isCurrent = tech.capaciteitAccu === size;
+                        const isAdvised = advisedBatteryKwh === size;
+                        return (
+                          <button
+                            key={size}
+                            type="button"
+                            onClick={() => setTech(prev => ({ ...prev, capaciteitAccu: size }))}
+                            className={`py-1.5 px-1 rounded-lg text-xs font-mono font-bold text-center transition cursor-pointer relative ${
+                              isCurrent
+                                ? 'bg-slate-800 text-white shadow-xs ring-2 ring-slate-400'
+                                : isAdvised
+                                ? 'bg-emerald-100/80 border border-emerald-300 text-emerald-900 hover:bg-emerald-200/80'
+                                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>{size} kWh</span>
+                            {isAdvised && (
+                              <span className="absolute -top-1.5 -right-1 bg-emerald-600 text-white text-[8px] font-sans font-bold px-1 rounded-full shadow-2xs">
+                                Tip
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Financial feasibility note based on contract */}
             <div className="text-[11px] leading-relaxed p-3.5 rounded-xl border">
@@ -5612,14 +6164,14 @@ export default function InputForm({
                     Financieel Rendement met Vast Contract:
                   </span>
                   <p className="text-[10px] text-slate-600">
-                    Onder de salderingsregeling (tot 2027) levert een thuisbatterij met een vast contract weinig extra besparing op, omdat je stroom 1-op-1 mag wegstrepen. 
+                    Bij een vast contract bespaart een thuisbatterij vooral op vermeden terugleverkosten en verhoogde zelfconsumptie. 
                     <button 
                       type="button" 
                       onClick={() => setTech(prev => ({ ...prev, typeContract: 'Dynamisch' }))}
                       className="text-blue-600 underline font-bold ml-1 hover:text-blue-800"
                     >
                       Schakel over naar een dynamisch contract
-                    </button> om te zien hoe de terugverdientijd direct daalt door arbitrage sturing.
+                    </button> om te zien hoe de terugverdientijd verkort door actieve handels- en onbalanssturing (arbitrage).
                   </p>
                 </div>
               ) : (
@@ -5711,305 +6263,160 @@ export default function InputForm({
 
       {activeTab === 'saldering' && (
         <div className="space-y-6 animate-fadeIn">
-          {/* Energiecontract & Saldering */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center gap-2">
-              <RefreshCw className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-sm font-semibold text-slate-700">Contract &amp; Tarieven</h3>
-            </div>
-            <div className="p-5 space-y-4">
-              <div className="space-y-4">
-                {/* 1. Contract 0-meting / Huidig */}
-                <div className="bg-amber-50/30 p-3.5 rounded-xl border border-amber-200/70 space-y-3">
-                  <div className="flex items-center justify-between flex-wrap gap-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                      <label className="block text-xs font-bold text-amber-950">1. Contract 0-meting (Huidige situatie vóór verduurzaming)</label>
-                      <Tooltip text="Het contracttype dat van toepassing is op je huidige uitgangssituatie. Kies Vast als je nu een traditioneel vast of variabel tarief hebt." />
-                    </div>
-                    <span className="text-[10px] text-amber-800 font-semibold bg-amber-100/80 px-2 py-0.5 rounded">
-                      Uitgangspunt 0-meting
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-600">
-                    Kies welk contracttype nu geldt voor je woning. De meeste huishoudens starten hier met een <strong>Vast contract</strong>.
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setTech(prev => ({ ...prev, baselineTypeContract: 'Vast' }))}
-                      className={`py-2 px-2 text-xs font-medium rounded-lg border text-center transition cursor-pointer ${
-                        (tech.baselineTypeContract || 'Vast') === 'Vast'
-                          ? 'bg-amber-500 border-amber-600 text-white font-bold shadow-xs'
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      🔒 Vast contract (Standaard)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTech(prev => ({ ...prev, baselineTypeContract: 'Dynamisch' }))}
-                      className={`py-2 px-2 text-xs font-medium rounded-lg border text-center transition cursor-pointer ${
-                        tech.baselineTypeContract === 'Dynamisch'
-                          ? 'bg-amber-500 border-amber-600 text-white font-bold shadow-xs'
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      ⚡ Dynamisch contract
-                    </button>
-                  </div>
-
-                  {/* Top 4 Aanbieders selectie voor 0-meting */}
-                  <div className="space-y-1.5 pt-1">
-                    <div className="flex items-center justify-between text-xs font-bold text-amber-950">
-                      <span>Kies je huidige energieleverancier (Top 4 van Nederland):</span>
-                      <span className="text-[10px] font-normal text-amber-800">
-                        Actief: <strong>{(tech.baselineTypeContract || 'Vast') === 'Vast' ? (tech.baselineFixedProvider || 'Essent') : (tech.baselineDynamicProvider || 'Zonneplan')}</strong>
-                      </span>
-                    </div>
-
-                    {(tech.baselineTypeContract || 'Vast') === 'Vast' ? (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {TOP4_FIXED_PROVIDERS.map(p => {
-                          const isSelected = (tech.baselineFixedProvider || 'Essent') === p.name;
-                          return (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => setTech(prev => ({
-                                ...prev,
-                                baselineFixedProvider: p.name as any,
-                                baselineVastTarief: p.stroomTarief,
-                                baselineGasTarief: p.gasTarief
-                              }))}
-                              className={`p-2 rounded-lg border text-left transition flex flex-col justify-between cursor-pointer ${
-                                isSelected
-                                  ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-300'
-                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-amber-50/50'
-                              }`}
-                            >
-                              <div>
-                                <div className="flex items-center justify-between">
-                                  <span className="font-extrabold text-xs">{p.name}</span>
-                                  {isSelected && <span className="text-[9px] bg-white/20 px-1 py-0.2 rounded">Actief</span>}
-                                </div>
-                                <span className={`text-[9px] block mb-1.5 ${isSelected ? 'text-amber-100' : 'text-slate-400'}`}>
-                                  {p.marketShareNote}
-                                </span>
-                              </div>
-                              <div className={`text-[9.5px] space-y-0.5 font-mono pt-1 border-t ${isSelected ? 'border-amber-400/60 text-amber-50' : 'border-slate-100 text-slate-600'}`}>
-                                <div className="flex justify-between"><span>Stroom:</span> <strong>€{p.stroomTarief.toFixed(2)}</strong></div>
-                                <div className="flex justify-between"><span>Gas:</span> <strong>€{p.gasTarief.toFixed(2)}</strong></div>
-                                <div className="flex justify-between"><span>Terugleverk.:</span> <strong>€{p.terugleverkosten.toFixed(2)}</strong></div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {TOP4_DYNAMIC_PROVIDERS.map(p => {
-                          const isSelected = (tech.baselineDynamicProvider || 'Zonneplan') === p.name;
-                          return (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => setTech(prev => ({
-                                ...prev,
-                                baselineDynamicProvider: p.name as any,
-                                baselineDynamischStroomTarief: p.stroomInkoop,
-                                baselineDynamischTerugleverTarief: p.stroomTeruglever
-                              }))}
-                              className={`p-2 rounded-lg border text-left transition flex flex-col justify-between cursor-pointer ${
-                                isSelected
-                                  ? 'bg-blue-600 text-white border-blue-700 shadow-xs ring-2 ring-blue-300'
-                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-blue-50/50'
-                              }`}
-                            >
-                              <div>
-                                <div className="flex items-center justify-between">
-                                  <span className="font-extrabold text-xs">{p.name}</span>
-                                  {isSelected && <span className="text-[9px] bg-white/20 px-1 py-0.2 rounded">Actief</span>}
-                                </div>
-                                <span className={`text-[9px] block mb-1.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
-                                  {p.usp}
-                                </span>
-                              </div>
-                              <div className={`text-[9.5px] space-y-0.5 font-mono pt-1 border-t ${isSelected ? 'border-blue-400/60 text-blue-50' : 'border-slate-100 text-slate-600'}`}>
-                                <div className="flex justify-between"><span>Inkoop:</span> <strong>€{p.stroomInkoop.toFixed(2)}</strong></div>
-                                <div className="flex justify-between"><span>Teruglever:</span> <strong>€{p.stroomTeruglever.toFixed(2)}</strong></div>
-                                <div className="flex justify-between"><span>Gas:</span> <strong>€{p.gasTarief.toFixed(2)}</strong></div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+          {/* Instellingen Header Banner */}
+          <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-2xl p-5 shadow-sm border border-slate-700">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 uppercase tracking-wider">
+                    Model 2027
+                  </span>
+                  <span className="text-slate-400 text-xs">Vaste &amp; Dynamische Parameters</span>
                 </div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Settings className="w-5 h-5 text-emerald-400" />
+                  Instellingen &amp; Rekenvariabelen
+                </h3>
+                <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                  Beheer hier alle onderliggende markttarieven, rendementen en rekenfactoren conform de marktstandaarden van 2027. Fysieke aantallen (zoals panelen of accucapaciteit) beheer je op de betreffende modules.
+                </p>
+              </div>
 
-                {/* 2. Contract Na Verduurzaming */}
-                <div className="bg-emerald-50/40 p-3.5 rounded-xl border border-emerald-200/70 space-y-3">
-                  <div className="flex items-center justify-between flex-wrap gap-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
-                      <label className="block text-xs font-bold text-emerald-950">2. Contract Na Verduurzaming (Toekomstige situatie)</label>
-                      <Tooltip text="Kies welk contract je wilt na verduurzaming. Schakel hier naar Dynamisch om het financiële voordeel te zien van een dynamisch contract met je warmtepomp en thuisbatterij." />
+              <div className="shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHouse(prev => ({
+                      ...prev,
+                      elektraPrijs: 0.28,
+                      gasPrijs: 1.35
+                    }));
+                    setTech(prev => ({
+                      ...prev,
+                      vastTarief: 0.28,
+                      vastGasTarief: 1.35,
+                      vastTerugleverkosten: 0.11,
+                      vastTerugleverVergoeding: 0.05,
+                      dynamischStroomTarief: 0.25,
+                      dynamischTerugleverTarief: 0.09,
+                      opslagLeverancier: 0.02,
+                      omzettingsverliezen: 10,
+                      huidigDirectVerbruik: 30,
+                      evVerbruik: 18,
+                      evThuisLaden: 80,
+                      laadvermogen: 11,
+                      customScopWarmtepomp: undefined,
+                      customCalorischGas: undefined,
+                      customArbitrageYieldPerKwh: undefined,
+                      customSpecificSolarYield: undefined,
+                      customZonnepanelenPrijs: undefined,
+                      customAccuPrijs: undefined,
+                      customWarmtepompPrijs: undefined,
+                      customLaadpaalPrijs: undefined,
+                      userAnnualSolar: undefined,
+                      userAnnualWp: undefined,
+                      userAnnualLp: undefined
+                    }));
+                  }}
+                  className="px-3.5 py-2 bg-slate-700/80 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-600 transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  title="Herstel alle tarieven en rekenfactoren naar de officiële 2027 standaarden"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Herstel 2027 Standaardwaarden</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 1. ENERGIECONTRACT & TARIEVEN (POST-SALDERING 2027) */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-sm font-semibold text-slate-800">1. Energiecontract &amp; Tarieven (2027)</h3>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200/60">
+                Gekozen: {tech.typeContract === 'Vast' ? 'Vast Contract' : 'Dynamisch Contract'}
+              </span>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {/* Contracttype selectie voor 2027 */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700">Contractvorm na verduurzaming (Situatie 2027):</label>
+                  <Tooltip text="Kies Vast voor vaste zekerheid inclusief terugleverkosten en vaste vergoeding, of Dynamisch om flexibel te handelen tegen uurprijzen." />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setTech(prev => ({ ...prev, typeContract: 'Vast' }))}
+                    className={`p-3 rounded-xl border text-left transition cursor-pointer flex items-center justify-between ${
+                      tech.typeContract === 'Vast'
+                        ? 'bg-emerald-50/70 border-emerald-500 text-emerald-950 font-bold ring-2 ring-emerald-200'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-xs font-bold">🔒 Vast / Variabel Contract</div>
+                      <div className="text-[10px] text-slate-500 font-normal">Met terugleverkosten &amp; vaste vergoeding</div>
                     </div>
-                    <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-100/80 px-2 py-0.5 rounded">
-                      Toekomstige situatie
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-600">
-                    Ideaal voor de vergelijking: behoud Vast in de 0-meting en selecteer hier <strong>Dynamisch contract</strong> om het effect te zien!
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setTech(prev => ({ ...prev, typeContract: 'Vast', batteryGridTrading: false }))}
-                      className={`py-2 px-2 text-xs font-medium rounded-lg border text-center transition cursor-pointer ${
-                        tech.typeContract === 'Vast'
-                          ? 'bg-emerald-600 border-emerald-700 text-white font-bold shadow-xs'
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      🔒 Vast contract
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTech(prev => ({ ...prev, typeContract: 'Dynamisch', batteryGridTrading: true }))}
-                      className={`py-2 px-2 text-xs font-medium rounded-lg border text-center transition cursor-pointer ${
-                        tech.typeContract === 'Dynamisch'
-                          ? 'bg-emerald-600 border-emerald-700 text-white font-bold shadow-xs'
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      ⚡ Dynamisch contract (Aanbevolen)
-                    </button>
-                  </div>
+                    {tech.typeContract === 'Vast' && <Check className="w-4 h-4 text-emerald-600" />}
+                  </button>
 
-                  {/* Top 4 Aanbieders selectie na verduurzaming */}
-                  <div className="space-y-1.5 pt-1">
-                    <div className="flex items-center justify-between text-xs font-bold text-emerald-950">
-                      <span>Kies je energieleverancier na verduurzaming (Top 4 van Nederland):</span>
-                      <span className="text-[10px] font-normal text-emerald-800">
-                        Gekozen: <strong>{tech.typeContract === 'Vast' ? (tech.fixedProvider || 'Essent') : (tech.dynamicProvider || 'Zonneplan')}</strong>
-                      </span>
+                  <button
+                    type="button"
+                    onClick={() => setTech(prev => ({ ...prev, typeContract: 'Dynamisch' }))}
+                    className={`p-3 rounded-xl border text-left transition cursor-pointer flex items-center justify-between ${
+                      tech.typeContract === 'Dynamisch'
+                        ? 'bg-blue-50/70 border-blue-500 text-blue-950 font-bold ring-2 ring-blue-200'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-xs font-bold">⚡ Dynamisch Contract</div>
+                      <div className="text-[10px] text-slate-500 font-normal">EPEX uurprijzen, €0 boetes, Smart EMS handel</div>
                     </div>
-
-                    {tech.typeContract === 'Vast' ? (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {TOP4_FIXED_PROVIDERS.map(p => {
-                          const isSelected = (tech.fixedProvider || 'Essent') === p.name;
-                          return (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => {
-                                setTech(prev => ({
-                                  ...prev,
-                                  fixedProvider: p.name as any,
-                                  vastTarief: p.stroomTarief,
-                                  vastGasTarief: p.gasTarief,
-                                  vastTerugleverkosten: p.terugleverkosten,
-                                  vastTerugleverVergoeding: p.terugleverVergoeding
-                                }));
-                                setHouse(prev => ({ ...prev, elektraPrijs: p.stroomTarief, gasPrijs: p.gasTarief }));
-                              }}
-                              className={`p-2 rounded-lg border text-left transition flex flex-col justify-between cursor-pointer ${
-                                isSelected
-                                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-300'
-                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-emerald-50/50'
-                              }`}
-                            >
-                              <div>
-                                <div className="flex items-center justify-between">
-                                  <span className="font-extrabold text-xs">{p.name}</span>
-                                  {isSelected && <span className="text-[9px] bg-white/20 px-1 py-0.2 rounded">Actief</span>}
-                                </div>
-                                <span className={`text-[9px] block mb-1.5 ${isSelected ? 'text-emerald-100' : 'text-slate-400'}`}>
-                                  {p.marketShareNote}
-                                </span>
-                              </div>
-                              <div className={`text-[9.5px] space-y-0.5 font-mono pt-1 border-t ${isSelected ? 'border-emerald-500/60 text-emerald-50' : 'border-slate-100 text-slate-600'}`}>
-                                <div className="flex justify-between"><span>Stroom:</span> <strong>€{p.stroomTarief.toFixed(2)}</strong></div>
-                                <div className="flex justify-between"><span>Gas:</span> <strong>€{p.gasTarief.toFixed(2)}</strong></div>
-                                <div className="flex justify-between"><span>Terugleverk.:</span> <strong>€{p.terugleverkosten.toFixed(2)}</strong></div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {TOP4_DYNAMIC_PROVIDERS.map(p => {
-                          const isSelected = (tech.dynamicProvider || 'Zonneplan') === p.name;
-                          return (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => setTech(prev => ({
-                                ...prev,
-                                dynamicProvider: p.name as any,
-                                dynamischStroomTarief: p.stroomInkoop,
-                                dynamischTerugleverTarief: p.stroomTeruglever
-                              }))}
-                              className={`p-2 rounded-lg border text-left transition flex flex-col justify-between cursor-pointer ${
-                                isSelected
-                                  ? 'bg-blue-600 text-white border-blue-700 shadow-xs ring-2 ring-blue-300'
-                                  : 'bg-white border-slate-200 text-slate-700 hover:bg-blue-50/50'
-                              }`}
-                            >
-                              <div>
-                                <div className="flex items-center justify-between">
-                                  <span className="font-extrabold text-xs">{p.name}</span>
-                                  {isSelected && <span className="text-[9px] bg-white/20 px-1 py-0.2 rounded">Actief</span>}
-                                </div>
-                                <span className={`text-[9px] block mb-1.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
-                                  {p.usp}
-                                </span>
-                              </div>
-                              <div className={`text-[9.5px] space-y-0.5 font-mono pt-1 border-t ${isSelected ? 'border-blue-400/60 text-blue-50' : 'border-slate-100 text-slate-600'}`}>
-                                <div className="flex justify-between"><span>Inkoop:</span> <strong>€{p.stroomInkoop.toFixed(2)}</strong></div>
-                                <div className="flex justify-between"><span>Teruglever:</span> <strong>€{p.stroomTeruglever.toFixed(2)}</strong></div>
-                                <div className="flex justify-between"><span>Accuhandel:</span> <strong>~€{p.batteryTradingYieldPerKwh.toFixed(0)}/kWh/j</strong></div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                    {tech.typeContract === 'Dynamisch' && <Check className="w-4 h-4 text-blue-600" />}
+                  </button>
                 </div>
               </div>
 
-              {tech.typeContract === 'Vast' ? (
-                <div className="space-y-3 bg-emerald-50/30 p-4 rounded-xl border border-emerald-100">
+              {/* Vaste contract tarieven */}
+              {tech.typeContract === 'Vast' && (
+                <div className="bg-emerald-50/30 p-4 rounded-xl border border-emerald-100/80 space-y-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
-                      <span>📄 Vaste Tarieven &amp; Terugleverkosten (2024–2026)</span>
+                    <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                      📄 Vaste Tariefvariabelen (Model 2027)
                     </span>
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">Salderen + Boetes</span>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded">
+                      Alle teruglevering belast met kosten
+                    </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                     <div>
                       <div className="flex items-center gap-1 mb-1">
-                        <label className="block text-xs font-medium text-slate-600">Leveringstarief afname (€/kWh)</label>
-                        <Tooltip text="Het vaste tarief dat je betaalt voor elke kWh stroom die je van het net afneemt." />
+                        <label className="block text-xs font-medium text-slate-600">Stroom inkoop (€/kWh)</label>
+                        <Tooltip text="Het standaard vaste leveringstarief inclusief energiebelasting en btw voor afname van het net." />
                       </div>
                       <input
                         type="number"
                         step="0.01"
                         value={house.elektraPrijs}
-                        onChange={(e) => setHouse(prev => ({ ...prev, elektraPrijs: Number(e.target.value) }))}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setHouse(prev => ({ ...prev, elektraPrijs: val }));
+                          setTech(prev => ({ ...prev, vastTarief: val }));
+                        }}
                         className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
                       />
                     </div>
+
                     <div>
                       <div className="flex items-center gap-1 mb-1">
                         <label className="block text-xs font-medium text-slate-600">Terugleverkosten (€/kWh)</label>
-                        <Tooltip text="De kosten / boete die energieleveranciers (bijv. Vattenfall, Eneco, Essent) tegenwoordig in rekening brengen per teruggeleverde kWh. Gemiddeld circa € 0,11/kWh." />
+                        <Tooltip text="De kosten / boete die vaste leveranciers rekenen per teruggeleverde kWh zonnestroom (gemiddeld € 0,11/kWh bij Essent, Vattenfall, Eneco)." />
                       </div>
                       <input
                         type="number"
@@ -6019,10 +6426,11 @@ export default function InputForm({
                         className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
                       />
                     </div>
+
                     <div>
                       <div className="flex items-center gap-1 mb-1">
-                        <label className="block text-xs font-medium text-slate-600">Terugleververgoeding overschot (€/kWh)</label>
-                        <Tooltip text="De netto vergoeding die je ontvangt voor zonnestroom die je méér opwekt dan je totale jaarverbruik (overschot na saldering)." />
+                        <label className="block text-xs font-medium text-slate-600">Terugleververgoeding (€/kWh)</label>
+                        <Tooltip text="De vergoeding die je ontvangt voor elke teruggeleverde kWh stroom in 2027 (standaard circa € 0,05/kWh bij vaste contracten)." />
                       </div>
                       <input
                         type="number"
@@ -6032,26 +6440,77 @@ export default function InputForm({
                         className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
                       />
                     </div>
-                  </div>
 
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    💡 <strong>Waarom terugleverkosten belangrijk zijn:</strong> Bij veel zonnepanelen (zoals 36 panelen met ~14.500 kWh opwek) lever je ~11.000 à 13.000 kWh terug aan het net. Bij een vast contract kost dit alleen al aan terugleverkosten ruim <strong>€ 1.200 tot € 1.400 per jaar</strong>!
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3 bg-blue-50/30 p-4 rounded-xl border border-blue-100">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
-                      <span>⚡ Dynamische Uurtarieven (Geen Terugleverkosten)</span>
-                    </span>
-                    <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">€0 Boetes</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <div className="flex items-center gap-1 mb-1">
-                        <label className="block text-xs font-medium text-slate-600">Gemiddeld inkooptarief afname (€/kWh)</label>
-                        <Tooltip text="Het gemiddelde dynamische inkooptarief inclusief energiebelasting en btw (gemiddeld circa € 0,25/kWh bij dynamische aanbieders)." />
+                        <label className="block text-xs font-medium text-slate-600">Gastarief (€/m³)</label>
+                        <Tooltip text="Het gastarief inclusief energiebelasting en btw (standaard ca. € 1,35/m³)." />
+                      </div>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={house.gasPrijs}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setHouse(prev => ({ ...prev, gasPrijs: val }));
+                          setTech(prev => ({ ...prev, vastGasTarief: val }));
+                        }}
+                        className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Snel presets vaste aanbieders */}
+                  <div className="pt-2 border-t border-emerald-100/60">
+                    <span className="text-[11px] font-bold text-slate-600 block mb-1.5">Snelkeuze actuele markttarieven Top 4 (Vast):</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {TOP4_FIXED_PROVIDERS.map(p => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setTech(prev => ({
+                              ...prev,
+                              fixedProvider: p.name as any,
+                              vastTarief: p.stroomTarief,
+                              vastGasTarief: p.gasTarief,
+                              vastTerugleverkosten: p.terugleverkosten,
+                              vastTerugleverVergoeding: p.terugleverVergoeding
+                            }));
+                            setHouse(prev => ({ ...prev, elektraPrijs: p.stroomTarief, gasPrijs: p.gasTarief }));
+                          }}
+                          className={`p-2 rounded-lg border text-left text-xs transition cursor-pointer ${
+                            (tech.fixedProvider || 'Essent') === p.name
+                              ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="font-bold">{p.name}</div>
+                          <div className="text-[10px] opacity-80">Stroom €{p.stroomTarief.toFixed(2)} • Boete €{p.terugleverkosten.toFixed(2)}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Dynamische contract tarieven */}
+              {tech.typeContract === 'Dynamisch' && (
+                <div className="bg-blue-50/30 p-4 rounded-xl border border-blue-100/80 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                      ⚡ Dynamische Tariefvariabelen (Model 2027)
+                    </span>
+                    <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">
+                      Geen terugleverboetes (€ 0,00)
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <div className="flex items-center gap-1 mb-1">
+                        <label className="block text-xs font-medium text-slate-600">Gem. inkooptarief afname (€/kWh)</label>
+                        <Tooltip text="Het gewogen gemiddelde dynamische stroomtarief inclusief energiebelasting en inkoopvergoeding (gemiddeld € 0,25/kWh)." />
                       </div>
                       <input
                         type="number"
@@ -6061,10 +6520,11 @@ export default function InputForm({
                         className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-blue-500 font-semibold"
                       />
                     </div>
+
                     <div>
                       <div className="flex items-center gap-1 mb-1">
-                        <label className="block text-xs font-medium text-slate-600">Gemiddeld teruglevertarief zonne-uren (€/kWh)</label>
-                        <Tooltip text="Het gemiddelde markttarief op uren dat zonnepanelen stroom terugleveren. Bij dynamisch betaal je €0 terugleverboete." />
+                        <label className="block text-xs font-medium text-slate-600">Gem. teruglever zonne-uren (€/kWh)</label>
+                        <Tooltip text="Het gemiddelde markttarief op uren dat zonnepanelen stroom terugleveren. Bij dynamisch betaal je €0 terugleverboetes (gemiddeld circa € 0,09/kWh)." />
                       </div>
                       <input
                         type="number"
@@ -6074,270 +6534,448 @@ export default function InputForm({
                         className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-blue-500 font-semibold"
                       />
                     </div>
+
+                    <div>
+                      <div className="flex items-center gap-1 mb-1">
+                        <label className="block text-xs font-medium text-slate-600">Opslag leverancier (€/kWh)</label>
+                        <Tooltip text="De vaste inkoopopslag per kWh van de dynamische energieleverancier (meestal circa € 0,02/kWh)." />
+                      </div>
+                      <input
+                        type="number"
+                        step="0.005"
+                        value={tech.opslagLeverancier !== undefined ? tech.opslagLeverancier : 0.02}
+                        onChange={(e) => setTech(prev => ({ ...prev, opslagLeverancier: Number(e.target.value) }))}
+                        className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-blue-500 font-semibold"
+                      />
+                    </div>
                   </div>
 
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    ⚡ <strong>Voordeel van dynamisch bij zonnepanelen:</strong> Je betaalt <strong>€ 0 terugleverboetes</strong>. De stroom wordt direct afgerekend tegen de uurprijzen op de day-ahead beurs (EPEX).
-                  </p>
+                  {/* Snel presets dynamische aanbieders */}
+                  <div className="pt-2 border-t border-blue-100/60">
+                    <span className="text-[11px] font-bold text-slate-600 block mb-1.5">Snelkeuze dynamische aanbieders Top 4:</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {TOP4_DYNAMIC_PROVIDERS.map(p => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setTech(prev => ({
+                              ...prev,
+                              dynamicProvider: p.name as any,
+                              dynamischStroomTarief: p.stroomInkoop,
+                              dynamischTerugleverTarief: p.stroomTeruglever
+                            }));
+                          }}
+                          className={`p-2 rounded-lg border text-left text-xs transition cursor-pointer ${
+                            (tech.dynamicProvider || 'Zonneplan') === p.name
+                              ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="font-bold">{p.name}</div>
+                          <div className="text-[10px] opacity-80">Inkoop €{p.stroomInkoop.toFixed(2)} • Teruglever €{p.stroomTeruglever.toFixed(2)}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
 
-              <div className="bg-slate-50 rounded-xl p-4 text-[11px] text-slate-600 leading-relaxed border border-slate-100">
-                <span className="font-bold text-slate-700 block mb-1">Let op: Afschaffing Salderingsregeling</span>
-                Vanaf <strong>1 januari 2027</strong> wordt de salderingsregeling in Nederland volledig afgeschaft. Dit betekent dat teruggeleverde stroom direct minder oplevert en direct eigen verbruik én thuisbatterijen cruciaal worden voor het rendement!
+              {/* Baseline 0-meting contract configuratie */}
+              <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 space-y-2">
+                <div className="flex items-center justify-between flex-wrap gap-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-slate-500"></span>
+                    <span className="text-xs font-bold text-slate-800">Referentie 0-meting (Huidig contract vóór verduurzaming):</span>
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-600 bg-slate-200 px-2 py-0.5 rounded">
+                    Actief: {tech.baselineTypeContract || 'Vast'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTech(prev => ({ ...prev, baselineTypeContract: 'Vast' }))}
+                    className={`py-1.5 px-2 text-xs font-semibold rounded-lg border text-center transition cursor-pointer ${
+                      (tech.baselineTypeContract || 'Vast') === 'Vast'
+                        ? 'bg-slate-800 text-white border-slate-900 shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    🔒 Vast contract (0-meting)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTech(prev => ({ ...prev, baselineTypeContract: 'Dynamisch' }))}
+                    className={`py-1.5 px-2 text-xs font-semibold rounded-lg border text-center transition cursor-pointer ${
+                      tech.baselineTypeContract === 'Dynamisch'
+                        ? 'bg-slate-800 text-white border-slate-900 shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    ⚡ Dynamisch contract (0-meting)
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Batterij Verdienmodel & Vergelijker Post-Saldering */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden" id="saldering-accu-verdienmodel">
+          {/* 2. ZONNESTROOM & OPWEK PARAMETERS */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sun className="w-4 h-4 text-amber-500" />
+                <h3 className="text-sm font-semibold text-slate-800">2. Zonnestroom Rekenvariabelen</h3>
+              </div>
+              <span className="text-[10px] text-slate-500 font-medium">Opbrengst- &amp; verbruiksfactoren</span>
+            </div>
+
+            <div className="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Basis direct eigen verbruik (%)</label>
+                  <Tooltip text="Het percentage zonnestroom dat direct in huis wordt verbruikt zónder tussenkomst van een thuisaccu (landelijk gemiddelde is circa 30%)." />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="10"
+                    max="80"
+                    step="1"
+                    value={tech.huidigDirectVerbruik !== undefined ? tech.huidigDirectVerbruik : 30}
+                    onChange={(e) => setTech(prev => ({ ...prev, huidigDirectVerbruik: Number(e.target.value) }))}
+                    className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                  />
+                  <span className="text-xs text-slate-500 font-bold">%</span>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Specifieke opbrengst (kWh/Wp)</label>
+                  <Tooltip text="De specifieke jaaropbrengst in Nederland voor een zuid-georiënteerd dak. Standaard 0,88 kWh per Wattpiek per jaar." />
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.88 (Standaard)"
+                  value={tech.customSpecificSolarYield || ''}
+                  onChange={(e) => setTech(prev => ({ ...prev, customSpecificSolarYield: e.target.value ? Number(e.target.value) : undefined }))}
+                  className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Maatwerk zonnepanelen prijs (€)</label>
+                  <Tooltip text="Overschrijf de berekende installatieprijs voor de zonnepanelen met een offerte- of werkelijke aanschafprijs." />
+                </div>
+                <input
+                  type="number"
+                  step="50"
+                  placeholder="Berekend op staffel"
+                  value={tech.customZonnepanelenPrijs || ''}
+                  onChange={(e) => setTech(prev => ({ ...prev, customZonnepanelenPrijs: e.target.value ? Number(e.target.value) : undefined }))}
+                  className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Handmatige jaaropbrengst (kWh)</label>
+                  <Tooltip text="Overschrijf de berekende jaaropwekking met de daadwerkelijke meterstanden van de omvormer." />
+                </div>
+                <input
+                  type="number"
+                  step="50"
+                  placeholder="Automatisch berekend"
+                  value={tech.userAnnualSolar || ''}
+                  onChange={(e) => setTech(prev => ({ ...prev, userAnnualSolar: e.target.value ? Number(e.target.value) : undefined }))}
+                  className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 3. THUISACCU & SMART EMS ARBITRAGE (2027) */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Battery className="w-4 h-4 text-emerald-600" />
-                <h3 className="text-sm font-semibold text-slate-700">Accu &amp; Leverancier Opbrengst (Vanaf 2027)</h3>
+                <h3 className="text-sm font-semibold text-slate-800">3. Thuisaccu &amp; EMS Arbitrage Variabelen (2027)</h3>
               </div>
-              <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">Post-Saldering</span>
+              <span className="text-[10px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded font-semibold">
+                Verdienmodel 2027
+              </span>
             </div>
-            
-            <div className="p-5 space-y-5">
-              <div className="text-xs text-slate-600 leading-relaxed flex items-start gap-1">
-                <span>
-                  Als de salderingsregeling per 2027 vervalt, kun je met een thuisbatterij en een dynamisch contract stroom opslaan bij lage (of negatieve) prijzen en gebruiken of terugleveren tijdens dure piekuren (<strong>arbitrage-trading</strong>).
-                </span>
-                <Tooltip text="Arbitrage-trading is het slim inzetten van een batterij om stroom in te kopen bij lage of negatieve prijzen (bijvoorbeeld bij veel wind/zon) en deze te verbruiken of terug te leveren tijdens dure piekuren. Dit verhoogt je rendement aanzienlijk na afschaffing van de saldering." />
-              </div>
 
-              {/* Direct controls for battery and supplier within this card */}
-              <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100 space-y-4">
-                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Jouw selectie aanpassen:</span>
-                
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-xs font-semibold text-slate-600">Zelfgekozen Accucapaciteit:</span>
-                      <span className="text-xs font-bold text-emerald-600 font-mono">{tech.capaciteitAccu || 0} kWh</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="30"
-                      step="0.5"
-                      value={tech.capaciteitAccu}
-                      onChange={(e) => setTech(prev => ({ ...prev, capaciteitAccu: Number(e.target.value) }))}
-                      className="w-full accent-emerald-500 h-1 bg-slate-200 rounded-lg cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[9px] text-slate-400 mt-1">
-                      <span>0 kWh (Geen)</span>
-                      <span>10 kWh</span>
-                      <span>20 kWh</span>
-                      <span>30 kWh</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <span className="text-xs font-semibold text-slate-600 block mb-1.5">Zelfgekozen Energieleverancier:</span>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-3">
-                      {[
-                        { id: 'Zonneplan', name: 'Zonneplan', subtitle: 'Dynamisch' },
-                        { id: 'Tibber', name: 'Tibber', subtitle: 'Smart API' },
-                        { id: 'Frank', name: 'Frank', subtitle: 'Slim Handelen' },
-                        { id: 'Anwb', name: 'ANWB', subtitle: 'Slim Laden' }
-                      ].map((provider) => {
-                        const isSelected = tech.dynamicProvider === provider.id || (!tech.dynamicProvider && provider.id === 'Zonneplan');
-                        return (
-                          <button
-                            key={provider.id}
-                            type="button"
-                            onClick={() => setTech(prev => ({ ...prev, dynamicProvider: provider.id as any, typeContract: 'Dynamisch' }))}
-                            className={`p-1.5 rounded-lg border text-center transition flex flex-col items-center justify-center ${
-                              isSelected
-                                ? 'bg-blue-50 border-blue-300 text-blue-900 ring-1 ring-blue-100'
-                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                            }`}
-                          >
-                            <span className="text-[10px] font-bold block">{provider.name}</span>
-                            <span className="text-[8px] opacity-75">{provider.subtitle}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Thuisaccu Sturing Mode Toggle */}
-                  <div className="bg-purple-50/50 border border-purple-200/80 rounded-xl p-3.5 space-y-2">
-                    <div className="flex items-center gap-2.5">
-                      <input
-                        type="checkbox"
-                        id="batteryGridTradingInput"
-                        checked={tech.batteryGridTrading || false}
-                        onChange={(e) => setTech(prev => ({ ...prev, batteryGridTrading: e.target.checked }))}
-                        className="accent-purple-600 w-4 h-4 rounded border-slate-300 cursor-pointer shrink-0"
-                      />
-                      <label htmlFor="batteryGridTradingInput" className="block text-xs font-bold text-slate-800 cursor-pointer flex items-center gap-1.5 flex-wrap">
-                        <span>Thuisaccu Sturing: Slim EMS Nethandel &amp; Arbitrage</span>
-                        <Tooltip 
-                          width="w-72"
-                          position="top"
-                          align="right"
-                          text={
-                            <div className="space-y-1 text-[11px] leading-relaxed">
-                              <p className="font-semibold text-emerald-300">Slim EMS (Thuisaccu):</p>
-                              <p>☀️ <strong>Zomer:</strong> Laadt zonnestroom op en dekt &apos;s avonds uw woning (overschot verkocht tegen piektarief).</p>
-                              <p>❄️ <strong>Winter:</strong> Laadt &apos;s nachts goedkope dalstroom en ontlaadt/verkoopt tijdens piekuren (arbitrage).</p>
-                            </div>
-                          } 
-                        />
-                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                          tech.batteryGridTrading 
-                            ? 'bg-purple-600 text-white' 
-                            : 'bg-amber-100 text-amber-900'
-                        }`}>
-                          {tech.batteryGridTrading ? 'Aan' : 'Uit'}
-                        </span>
-                      </label>
-                    </div>
-                    <p className="text-[10px] text-slate-500 leading-relaxed font-sans pl-6">
-                      {tech.batteryGridTrading ? (
-                        <>Ingeschakeld: Zomers zonnestroom opslaan en winters automatisch handelen op dal- en piektarieven.</>
-                      ) : (
-                        <>Uitgeschakeld: Slaat uitsluitend eigen zonnestroom op voor huishoudelijk gebruik (geen nethandel).</>
-                      )}
-                    </p>
-                  </div>
+            <div className="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Round-trip laadverlies (%)</label>
+                  <Tooltip text="Het gecombineerde omzettings- en opslagverlies van de thuisbatterij en omvormer (standaard ca. 10% verlies = 90% round-trip rendement)." />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="2"
+                    max="25"
+                    step="1"
+                    value={tech.omzettingsverliezen !== undefined ? tech.omzettingsverliezen : 10}
+                    onChange={(e) => setTech(prev => ({ ...prev, omzettingsverliezen: Number(e.target.value) }))}
+                    className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                  />
+                  <span className="text-xs text-slate-500 font-bold">%</span>
                 </div>
               </div>
 
-              {/* Earnings with chosen config */}
-              {tech.capaciteitAccu > 0 ? (() => {
-                const currentProvider = tech.dynamicProvider || 'Zonneplan';
-                const { directSavings, arbitrageYield, totalSavings, investment, tvt } = calculatePostSalderingEarnings(tech.capaciteitAccu, currentProvider, tech.customAccuPrijs);
-                
-                return (
-                  <div className="bg-emerald-50/40 rounded-xl p-4 border border-emerald-100/60 space-y-3">
-                    <div className="flex items-center gap-1.5 border-b border-emerald-100/40 pb-2">
-                      <Sparkles className="w-4 h-4 text-emerald-600" />
-                      <span className="text-xs font-black text-emerald-900 uppercase tracking-wide">Jouw Verwachte Opbrengst (Post-Saldering):</span>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div className="bg-white p-2.5 rounded-lg border border-emerald-50 shadow-sm">
-                        <div className="flex items-center gap-1 mb-0.5">
-                          <span className="text-[9px] font-bold text-slate-400 block uppercase">Besparing Eigen Verbruik</span>
-                          <Tooltip text="De extra stroom die je dankzij je accu overdag opslaat en 's avonds/'s nachts zelf verbruikt, in plaats van terug te leveren tegen een minimaal tarief (geschat op €0,06)." />
-                        </div>
-                        <span className="text-sm font-extrabold text-slate-700 font-mono">€{Math.round(directSavings)} / jr</span>
-                      </div>
-                      <div className="bg-white p-2.5 rounded-lg border border-emerald-50 shadow-sm">
-                        <div className="flex items-center gap-1 mb-0.5">
-                          <span className="text-[9px] font-bold text-slate-400 block uppercase">Opbrengst Arbitrage-trading</span>
-                          <Tooltip text="De extra inkomsten die je vergaart door volautomatisch te handelen op de dynamische energiemarkt (opladen bij lage/negatieve stroomprijzen en ontladen/terugleveren bij hoge prijzen)." />
-                        </div>
-                        <span className="text-sm font-extrabold text-slate-700 font-mono">€{Math.round(arbitrageYield).toLocaleString('nl-NL')} / jr</span>
-                      </div>
-                    </div>
-
-                    <div className="bg-emerald-600 text-white rounded-xl p-3.5 flex justify-between items-center shadow-sm">
-                      <div>
-                        <span className="text-[9px] font-bold opacity-85 block uppercase tracking-wider">Totale Jaaropbrengst</span>
-                        <span className="text-lg font-black">€{Math.round(totalSavings)} / jaar</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[9px] font-bold opacity-85 block uppercase tracking-wider">Terugverdientijd (TVT)</span>
-                        <span className="text-lg font-black">{tvt < 99 ? `${tvt.toFixed(1)} jaar` : 'Geen'}</span>
-                      </div>
-                    </div>
-                    
-                    <span className="text-[9px] text-slate-400 block text-center leading-relaxed italic">
-                      Investeringsschatting {tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0 ? '(op basis van eigen prijsopgave' : '(op basis van marktgemiddelde'}{' '}- netto na btw-teruggave): €{Math.round(investment).toLocaleString('nl-NL')}. Arbitrage is berekend op basis van de specifieke sturingssoftware van {currentProvider}.
-                    </span>
-                  </div>
-                );
-              })() : (
-                <div className="bg-slate-50 rounded-xl p-4 text-center border border-slate-100 text-xs text-slate-500">
-                  ⚠️ Kies hierboven een accucapaciteit groter dan 0 kWh om de opbrengst van jouw eigen thuisbatterij te berekenen.
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">EMS Arbitrage opbrengst (€/kWh/j)</label>
+                  <Tooltip text="De verwachte jaarlijkse handelsopbrengst per kWh accucapaciteit door automatische sturing op de EPEX spot- en onbalansmarkt (marktstandaard € 85 à € 105 per kWh per jaar)." />
                 </div>
-              )}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="5"
+                    placeholder="95 (Standaard)"
+                    value={tech.customArbitrageYieldPerKwh || ''}
+                    onChange={(e) => setTech(prev => ({ ...prev, customArbitrageYieldPerKwh: e.target.value ? Number(e.target.value) : undefined }))}
+                    className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                  />
+                  <span className="text-xs text-slate-500 font-bold">€/kWh</span>
+                </div>
+              </div>
 
-              {/* Comparison Matrix Table */}
-              <div className="space-y-2 pt-2 border-t border-slate-100">
-                <span className="text-xs font-bold text-slate-700 block">
-                  Vergelijkingstabel: Accugrootte vs. Leverancier (Opbrengst &amp; TVT):
-                </span>
-                <p className="text-[10px] text-slate-400 leading-normal">
-                  In onderstaand overzicht zie je de post-saldering opbrengst per jaar en de geschatte terugverdientijd (TVT) tussen de haakjes voor de drie standaard batterijgroottes.
-                </p>
-                
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                        <th className="p-2.5 font-bold flex items-center gap-1">
-                          <span>Leverancier</span>
-                          <Tooltip text="De geselecteerde dynamische energieleverancier stuurt de batterij volautomatisch aan. Verschillende leveranciers gebruiken eigen algoritmes (bijv. de onbalansmarkt van Zonneplan of de EPEX spotmarkt van Tibber/Frank), wat resulteert in verschillende jaarlijkse opbrengsten." />
-                        </th>
-                        {(() => {
-                          const baseCaps = [5, 10, 15];
-                          const capacitiesToDisplay = (tech.capaciteitAccu > 0 && !baseCaps.includes(tech.capaciteitAccu))
-                            ? [...baseCaps, tech.capaciteitAccu]
-                            : baseCaps;
-                          return capacitiesToDisplay.map(capCol => (
-                            <th key={capCol} className="p-2.5 font-bold text-center">
-                              {capCol} kWh {capCol === tech.capaciteitAccu ? '(Jouw instelling)' : ''}
-                            </th>
-                          ));
-                        })()}
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Nachtverbruik huishouden (%)</label>
+                  <Tooltip text="Percentage van het totale etmaalverbruik dat plaatsvindt tussen 17:00 en 08:00 uur (waarin de thuisaccu kan ontladen). Landelijk gemiddelde: 58%." />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    disabled
+                    value={58}
+                    className="w-full text-sm bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-600 font-semibold cursor-not-allowed"
+                  />
+                  <span className="text-xs text-slate-400 font-bold">%</span>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Maatwerk batterijprijs (€)</label>
+                  <Tooltip text="Overschrijf de berekende investering voor de thuisaccu met een eigen offerteprijs (netto na btw-teruggave)." />
+                </div>
+                <input
+                  type="number"
+                  step="100"
+                  placeholder="Berekend op staffel"
+                  value={tech.customAccuPrijs || ''}
+                  onChange={(e) => setTech(prev => ({ ...prev, customAccuPrijs: e.target.value ? Number(e.target.value) : undefined }))}
+                  className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 4. WARMTEPOMP & VERWARMING REKENFACTOREN */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-sm font-semibold text-slate-800">4. Warmtepomp &amp; Verwarming Rekenfactoren</h3>
+              </div>
+              <span className="text-[10px] text-slate-500 font-medium">SCOP &amp; Gasconversie</span>
+            </div>
+
+            <div className="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Seizoensrendement SCOP</label>
+                  <Tooltip text="Het seizoensgebonden rendement van de warmtepomp. Standaard 4,0 voor All-Electric en 3,8 voor Hybride warmtepompen." />
+                </div>
+                <input
+                  type="number"
+                  step="0.1"
+                  placeholder="4.0 (All-Electric) / 3.8 (Hybride)"
+                  value={tech.customScopWarmtepomp || ''}
+                  onChange={(e) => setTech(prev => ({ ...prev, customScopWarmtepomp: e.target.value ? Number(e.target.value) : undefined }))}
+                  className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Calorisch gas (kWh/m³)</label>
+                  <Tooltip text="De theoretische thermische energie-inhoud van 1 m³ Nederlands aardgas (Gronings gas). Standaard 9,77 kWh per m³." />
+                </div>
+                <input
+                  type="number"
+                  step="0.05"
+                  placeholder="9.77 (Standaard)"
+                  value={tech.customCalorischGas || ''}
+                  onChange={(e) => setTech(prev => ({ ...prev, customCalorischGas: e.target.value ? Number(e.target.value) : undefined }))}
+                  className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Maatwerk warmtepomp prijs (€)</label>
+                  <Tooltip text="Overschrijf de berekende bruto installatieprijs van de warmtepomp met een eigen offerteprijs." />
+                </div>
+                <input
+                  type="number"
+                  step="100"
+                  placeholder="Berekend op model"
+                  value={tech.customWarmtepompPrijs || ''}
+                  onChange={(e) => setTech(prev => ({ ...prev, customWarmtepompPrijs: e.target.value ? Number(e.target.value) : undefined }))}
+                  className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Handmatige stroom WP (kWh/j)</label>
+                  <Tooltip text="Overschrijf het berekende extra stroomverbruik van de warmtepomp met een exacte waarde." />
+                </div>
+                <input
+                  type="number"
+                  step="50"
+                  placeholder="Automatisch berekend"
+                  value={tech.userAnnualWp || ''}
+                  onChange={(e) => setTech(prev => ({ ...prev, userAnnualWp: e.target.value ? Number(e.target.value) : undefined }))}
+                  className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 5. ELEKTRISCH VERVOER (EV) REKENFACTOREN */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-indigo-600" />
+                <h3 className="text-sm font-semibold text-slate-800">5. Elektrisch Vervoer (EV) Rekenfactoren</h3>
+              </div>
+              <span className="text-[10px] text-slate-500 font-medium">Verbruik &amp; Thuisladen</span>
+            </div>
+
+            <div className="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Normverbruik (kWh / 100 km)</label>
+                  <Tooltip text="Het gemiddelde stroomverbruik van de elektrische auto per 100 kilometer (gangbaar gemiddelde: 18 kWh/100 km)." />
+                </div>
+                <input
+                  type="number"
+                  step="0.5"
+                  value={tech.evVerbruik !== undefined ? tech.evVerbruik : 18}
+                  onChange={(e) => setTech(prev => ({ ...prev, evVerbruik: Number(e.target.value) }))}
+                  className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Aandeel thuis laden (%)</label>
+                  <Tooltip text="Het percentage van alle gereden kilometers dat thuis aan de eigen laadpaal wordt opgeladen (standaard 80%)." />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="10"
+                    max="100"
+                    step="5"
+                    value={tech.evThuisLaden !== undefined ? tech.evThuisLaden : 80}
+                    onChange={(e) => setTech(prev => ({ ...prev, evThuisLaden: Number(e.target.value) }))}
+                    className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                  />
+                  <span className="text-xs text-slate-500 font-bold">%</span>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Laadvermogen laadpaal (kW)</label>
+                  <Tooltip text="Het maximale aansluitvermogen van de thuislaadpaal (standaard 11 kW bij een 3-fase 16A aansluiting)." />
+                </div>
+                <input
+                  type="number"
+                  step="0.5"
+                  value={tech.laadvermogen !== undefined ? tech.laadvermogen : 11}
+                  onChange={(e) => setTech(prev => ({ ...prev, laadvermogen: Number(e.target.value) }))}
+                  className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label className="block text-xs font-medium text-slate-600">Maatwerk laadpaal prijs (€)</label>
+                  <Tooltip text="Overschrijf de berekende installatieprijs voor de laadpaal met een offerte- of aanschafprijs." />
+                </div>
+                <input
+                  type="number"
+                  step="50"
+                  placeholder="Berekend op norm"
+                  value={tech.customLaadpaalPrijs || ''}
+                  onChange={(e) => setTech(prev => ({ ...prev, customLaadpaalPrijs: e.target.value ? Number(e.target.value) : undefined }))}
+                  className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 6. ISOLATIE SUBSIDIENORMEN & GASBESPARING PER M² */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-sm font-semibold text-slate-800">6. Isolatie Kengetallen &amp; ISDE Subsidies</h3>
+              </div>
+              <span className="text-[10px] text-slate-500 font-mono">Officiële RVO &amp; Milieu Centraal Normen</span>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Onderstaande tabel toont de vaste rekenfactoren per m² isolatieoppervlak. Deze waarden bepalen de gasbesparing (m³/m²/jaar) en de officiële ISDE-subsidie (enkelvoudig vs. 2+ maatregelen).
+              </p>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                      <th className="p-2.5">Isolatiesoort</th>
+                      <th className="p-2.5 text-right">Richtprijs (€/m²)</th>
+                      <th className="p-2.5 text-right">ISDE 1 maatregel (€/m²)</th>
+                      <th className="p-2.5 text-right">ISDE 2+ maatregelen (€/m²)</th>
+                      <th className="p-2.5 text-right">Gasbesparing (m³/m²/jr)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {[
+                      { name: 'Spouwmuurisolatie', cost: 30, isde1: 5.25, isde2: 10.50, saving: 7.0 },
+                      { name: 'Vloerisolatie (kruipruimte)', cost: 50, isde1: 5.50, isde2: 11.00, saving: 6.0 },
+                      { name: 'Bodemisolatie', cost: 30, isde1: 3.00, isde2: 6.00, saving: 1.0 },
+                      { name: 'Dakisolatie (binnenzijde)', cost: 50, isde1: 16.25, isde2: 32.50, saving: 9.0 },
+                      { name: 'Zolder-/vlieringvloer', cost: 30, isde1: 4.00, isde2: 8.00, saving: 6.0 },
+                      { name: 'Gevelisolatie (buitenzijde)', cost: 200, isde1: 20.25, isde2: 40.50, saving: 7.0 },
+                      { name: 'Glasisolatie (enkel → HR++)', cost: 250, isde1: 25.00, isde2: 50.00, saving: 12.0 },
+                      { name: 'Glasisolatie (dubbel → HR++)', cost: 250, isde1: 25.00, isde2: 50.00, saving: 3.0 },
+                      { name: 'Triple glas + nieuw kozijn', cost: 950, isde1: 111.00, isde2: 222.00, saving: 12.5 },
+                    ].map((row, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50 transition font-sans">
+                        <td className="p-2.5 font-bold text-slate-800">{row.name}</td>
+                        <td className="p-2.5 text-right font-mono text-slate-700">€ {row.cost}</td>
+                        <td className="p-2.5 text-right font-mono text-slate-700">€ {row.isde1.toFixed(2)}</td>
+                        <td className="p-2.5 text-right font-mono font-bold text-emerald-700">€ {row.isde2.toFixed(2)}</td>
+                        <td className="p-2.5 text-right font-mono font-semibold text-slate-800">{row.saving.toFixed(1)} m³</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {[
-                        { id: 'Zonneplan', name: 'Zonneplan Dynamisch' },
-                        { id: 'Frank', name: 'Frank Energie' },
-                        { id: 'Tibber', name: 'Tibber Smart API' },
-                        { id: 'Anwb', name: 'ANWB Energie' }
-                      ].map((provRow) => {
-                        const baseCaps = [5, 10, 15];
-                        const capacitiesToDisplay = (tech.capaciteitAccu > 0 && !baseCaps.includes(tech.capaciteitAccu))
-                          ? [...baseCaps, tech.capaciteitAccu]
-                          : baseCaps;
-
-                        return (
-                          <tr key={provRow.id} className="border-b border-slate-100 hover:bg-slate-50/40 text-slate-700 transition">
-                            <td className="p-2.5 font-bold text-slate-800">{provRow.name}</td>
-                            {capacitiesToDisplay.map((capacityCol) => {
-                              const isActive = (tech.capaciteitAccu === capacityCol) && 
-                                (tech.dynamicProvider === provRow.id || (!tech.dynamicProvider && provRow.id === 'Zonneplan'));
-                              const stats = calculatePostSalderingEarnings(
-                                capacityCol, 
-                                provRow.id as any, 
-                                isActive ? tech.customAccuPrijs : undefined
-                              );
-                              
-                              return (
-                                <td 
-                                  key={capacityCol} 
-                                  className={`p-2.5 text-center transition-colors ${
-                                    isActive 
-                                      ? 'bg-blue-50/85 font-black text-blue-900 border-2 border-blue-300' 
-                                      : ''
-                                  }`}
-                                >
-                                  <div className="flex flex-col items-center justify-center">
-                                    <div className="flex items-center gap-0.5">
-                                      <span className="font-bold">€{Math.round(stats.totalSavings)}</span>
-                                      <Tooltip text={`Totale jaaropbrengst (€${Math.round(stats.totalSavings)}): €${Math.round(stats.arbitrageYield).toLocaleString('nl-NL')} Arbitrage/Handel + €${Math.round(stats.directSavings)} Besparing Eigen Verbruik`} />
-                                    </div>
-                                    <span className="block text-[9px] text-slate-400 font-medium font-mono">({stats.tvt.toFixed(1)}j)</span>
-                                    <span className="block text-[8px] text-sky-700 font-medium">Arbitrage: €{Math.round(stats.arbitrageYield).toLocaleString('nl-NL')}</span>
-                                  </div>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

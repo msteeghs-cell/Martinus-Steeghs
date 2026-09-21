@@ -262,13 +262,11 @@ export function calculateAll(
 
     let labelCategory = 'Normaal';
     if (calculatedFactor >= 1.2) {
-      labelCategory = 'Hoog';
+      labelCategory = 'Royale stoker';
     } else if (calculatedFactor >= 0.9) {
-      labelCategory = 'Normaal';
-    } else if (calculatedFactor >= 0.6) {
-      labelCategory = 'Zuinig';
+      labelCategory = 'Gemiddelde stoker';
     } else {
-      labelCategory = 'Minimaal';
+      labelCategory = 'Zuinige stoker';
     }
 
     calculatedLabel = `${labelCategory} (${calculatedFactor.toFixed(1)}x)`;
@@ -282,21 +280,95 @@ export function calculateAll(
 
   if (stookgedragOverride === 'normaal') {
     finalStookFactor = 1.0;
-    activeStookLabel = 'Geforceerd: Normaal (1.0x)';
+    activeStookLabel = 'Geforceerd: Gemiddelde stoker (1.0x)';
   } else if (stookgedragOverride === 'zuinig') {
     finalStookFactor = 0.7;
-    activeStookLabel = 'Geforceerd: Zuinig (0.7x)';
+    activeStookLabel = 'Geforceerd: Zuinige stoker (0.7x)';
   } else if (stookgedragOverride === 'minimaal') {
     finalStookFactor = 0.4;
-    activeStookLabel = 'Geforceerd: Minimaal (0.4x)';
+    activeStookLabel = 'Geforceerd: Zeer zuinige stoker (0.4x)';
   } else {
     activeStookLabel = calculatedLabel;
+  }
+
+  // Bouw Jip-en-Janneketaal stookgedrag details
+  let stookgedragDetails: HouseData['stookgedragDetails'];
+  if (verbruikM3 > 0 && woonoppervlakte > 0 && bouwjaar > 0 && aantalPersonen > 0) {
+    // Procentueel verschil t.o.v. normfactor 1.0
+    const diffPct = Math.round((finalStookFactor - 1.0) * 100);
+    const sign = diffPct > 0 ? '+' : '';
+    const percentageText = diffPct === 0 ? '0%' : `${sign}${diffPct}%`;
+
+    let category: 'zuinig' | 'gemiddeld' | 'royaal' = 'gemiddeld';
+    let emoji = '🟠';
+    let label = `Gemiddelde stoker (${percentageText} t.o.v. vergelijkbare woning)`;
+    let vergelijkingTekst = 'Vergelijkbaar met het landelijk gemiddelde van eenzelfde woning';
+    let colorClass = 'text-amber-700';
+    let bgClass = 'bg-amber-50';
+    let borderClass = 'border-amber-200';
+    let textClass = 'text-amber-800';
+
+    if (finalStookFactor <= 0.85) {
+      category = 'zuinig';
+      emoji = '🟢';
+      label = `Zuinige stoker (${percentageText} t.o.v. vergelijkbare woning)`;
+      vergelijkingTekst = `${Math.abs(diffPct)}% zuiniger stookgedrag dan een vergelijkbaar huishouden`;
+      colorClass = 'text-emerald-700';
+      bgClass = 'bg-emerald-50';
+      borderClass = 'border-emerald-200';
+      textClass = 'text-emerald-800';
+    } else if (finalStookFactor >= 1.15) {
+      category = 'royaal';
+      emoji = '🔴';
+      label = `Royale stoker (${percentageText} t.o.v. vergelijkbare woning)`;
+      vergelijkingTekst = `${Math.abs(diffPct)}% meer gasverbruik dan een vergelijkbaar huishouden`;
+      colorClass = 'text-rose-700';
+      bgClass = 'bg-rose-50';
+      borderClass = 'border-rose-200';
+      textClass = 'text-rose-800';
+    }
+
+    const tapwaterGas = aantalPersonen * 100;
+    let normFactor = 11;
+    if (bouwjaar >= 1975 && bouwjaar <= 1991) normFactor = 9;
+    else if (bouwjaar >= 1992 && bouwjaar <= 2005) normFactor = 6.5;
+    else if (bouwjaar >= 2006 && bouwjaar <= 2015) normFactor = 4.5;
+    else if (bouwjaar > 2015) normFactor = 2.5;
+    const verwachtVerwarmingsGas = Math.round(DeNormalizeOpp(woonoppervlakte) * normFactor);
+    const werkelijkVerwarmingsGas = Math.max(0, verbruikM3 - tapwaterGas);
+
+    stookgedragDetails = {
+      category,
+      label,
+      percentageText,
+      vergelijkingTekst,
+      emoji,
+      colorClass,
+      bgClass,
+      borderClass,
+      textClass,
+      verwachtVerwarmingsGas,
+      werkelijkVerwarmingsGas,
+    };
+  } else {
+    stookgedragDetails = {
+      category: 'onbekend',
+      label: 'Nog niet berekend',
+      percentageText: '-',
+      vergelijkingTekst: 'Vul woonoppervlakte, bouwjaar, aantal personen en gasverbruik in.',
+      emoji: '⚪',
+      colorClass: 'text-slate-600',
+      bgClass: 'bg-slate-50',
+      borderClass: 'border-slate-200',
+      textClass: 'text-slate-700',
+    };
   }
 
   const updatedHouse: HouseData = {
     ...house,
     stookgedragBerekend: activeStookLabel,
     stookgedragFactor: finalStookFactor,
+    stookgedragDetails,
   };
 
   // 1. Identify active keys
@@ -615,7 +687,10 @@ export function calculateAll(
   const paneelVermogen = tech.vermogenPerPaneel || 400;
   const totalWp = tech.aantalZonnepanelen * paneelVermogen;
   
-  const calculatedYieldKwh = Math.round((totalWp / 1000) * 900 * orientationFactor * tiltFactor);
+  const baseYieldFactor = (tech.customSpecificSolarYield !== undefined && tech.customSpecificSolarYield > 0)
+    ? tech.customSpecificSolarYield * 1000
+    : 900;
+  const calculatedYieldKwh = Math.round((totalWp / 1000) * baseYieldFactor * orientationFactor * tiltFactor);
   const isUserYieldOverride = Boolean(
     tech.userAnnualSolar !== undefined && tech.userAnnualSolar !== null && Number(tech.userAnnualSolar) > 0
   );
@@ -744,7 +819,9 @@ export function calculateAll(
     // is de headroom voor intraday nethandel in die maanden lager.
     let baseArbitragePerKwh = 55 * 0.45;
     const provider = tech.dynamicProvider || 'Zonneplan';
-    if (provider === 'Zonneplan') {
+    if (tech.customArbitrageYieldPerKwh !== undefined && tech.customArbitrageYieldPerKwh > 0) {
+      baseArbitragePerKwh = tech.customArbitrageYieldPerKwh * 0.45;
+    } else if (provider === 'Zonneplan') {
       baseArbitragePerKwh = 38.25; // Realistische onbalansopbrengst per kWh accu
     } else if (provider === 'Frank') {
       baseArbitragePerKwh = 31.50; // Slim Handelen EPEX-arbitrage
@@ -930,6 +1007,15 @@ export function calculateAll(
   let aeBruto = 10800;
   let aeSubsidy = 2700;
   let aeCOPFactor = copInfo.factor; // Dynamisch gekoppeld aan afgiftesysteem
+
+  if (tech.customScopWarmtepomp !== undefined && tech.customScopWarmtepomp > 0) {
+    const calorisch = (tech.customCalorischGas !== undefined && tech.customCalorischGas > 0)
+      ? tech.customCalorischGas
+      : 9.77;
+    const customFactor = (calorisch * 0.90) / tech.customScopWarmtepomp;
+    hybridCOPFactor = customFactor;
+    aeCOPFactor = customFactor;
+  }
 
   if (selectedModel === 'Middelgroot 8kW') {
     hybridBruto = 7900;

@@ -38,6 +38,19 @@ export interface HouseData {
   stookgedragOverride: 'auto' | 'normaal' | 'zuinig' | 'minimaal';
   stookgedragBerekend: string;
   stookgedragFactor: number;
+  stookgedragDetails?: {
+    category: 'zuinig' | 'gemiddeld' | 'royaal' | 'onbekend';
+    label: string; // bijv. "Zuinige stoker (-15% t.o.v. norm)"
+    percentageText: string; // bijv. "-15%" of "+25%" of "Gelijk"
+    vergelijkingTekst: string; // bijv. "15% zuiniger dan vergelijkbare woning"
+    emoji: string; // 🟢, 🟠, 🔴
+    colorClass: string;
+    bgClass: string;
+    borderClass: string;
+    textClass: string;
+    verwachtVerwarmingsGas?: number;
+    werkelijkVerwarmingsGas?: number;
+  };
   isoDak: string;
   isoGevel: string;
   isoGlasBg: string;
@@ -104,6 +117,10 @@ export interface TechData {
   slimEmsOnlySolar?: boolean; // Smart EMS: charge EV only on surplus solar energy
   batteryGridTrading?: boolean; // Smart EMS: active grid trading / arbitrage on EPEX & imbalance markets
   pvCurtailmentMode?: boolean; // Smart EMS: automatically curtail solar inverter on negative electricity prices
+  customScopWarmtepomp?: number; // Custom heat pump seasonal performance factor (SCOP)
+  customCalorischGas?: number; // Custom thermal kWh per m3 natural gas (default 9.77)
+  customArbitrageYieldPerKwh?: number; // Custom annual arbitrage trading yield per kWh battery (default 95)
+  customSpecificSolarYield?: number; // Custom specific yield kWh per Wp (default 0.88)
 }
 
 export interface CalculatedMeasure {

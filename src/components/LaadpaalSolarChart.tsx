@@ -733,7 +733,7 @@ export default function LaadpaalSolarChart({
             In de wintermaanden (november t/m februari) ziet u dat de zonne-kolom (Kolom 1) erg laag is en uw autoladen (Kolom 2) bijna volledig uit netstroom (donkergrijs) bestaat. 
             Dit is heel normaal! In de lente en zomer (april t/m augustus) is er juist een enorm overschot aan zonnestroom. 
             Door op zonnige dagen uw auto overdag in te pluggen, claimt de laadpaal direct de overtollige zonnestroom. 
-            Hierdoor laadt u uw auto nagenoeg 100% gratis en vermijdt u de afbouw van de salderingsregeling!
+            Hierdoor laadt u uw auto nagenoeg 100% op eigen zonnestroom en voorkomt u onnodige teruglevering en netafname!
           </p>
         </div>
       </div>

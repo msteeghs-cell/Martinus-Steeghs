@@ -107,8 +107,8 @@ export default function AdviceReport({
     } else {
       setLocalActiveTab(tab);
       if (tab === 'graph') setActiveTab('isolatie');
-      else if (tab === 'solar') { setActiveTab('zon'); setShowSalderingDetail(false); }
-      else if (tab === 'saldering') { setActiveTab('saldering'); setShowSalderingDetail(true); }
+      else if (tab === 'solar') setActiveTab('zon');
+      else if (tab === 'saldering') setActiveTab('saldering');
       else if (tab === 'battery') setActiveTab('accu');
       else if (tab === 'heatpump') setActiveTab('warmtepomp');
       else if (tab === 'laadpaal') setActiveTab('laadpaal');
@@ -145,8 +145,6 @@ export default function AdviceReport({
   }, [adviceMarkdown]);
 
   const activeTab = localActiveTab;
-
-  const [showSalderingDetail, setShowSalderingDetail] = React.useState(false);
 
   // Selected capacity for the interactive battery chart
   const [chartBatteryCapacity, setChartBatteryCapacity] = React.useState<number>(10);
@@ -953,9 +951,10 @@ Energie planner Peel en Maas
     ((hasWp && !isWpBestaand) ? (chosenOpt?.subsidy || 0) : 0)
   );
 
+  const hasAnyExisting = (isSolarBestaand && hasSolar) || (isBatBestaand && hasBat) || (isWpBestaand && hasWp) || (isLaadpaalBestaand && hasEv);
   const totalCombinedTvtNum = totalCombinedSavingsPerYear > 0 ? (totalCombinedNetInvestment / totalCombinedSavingsPerYear) : 0;
   const totalCombinedTvt = totalCombinedNetInvestment === 0 
-    ? 'Reeds gerealiseerd' 
+    ? (hasAnyExisting ? 'Reeds gerealiseerd' : 'N.v.t.') 
     : (totalCombinedTvtNum > 0 && totalCombinedTvtNum < 99 ? `${totalCombinedTvtNum.toFixed(1)} jaar` : 'N.v.t.');
 
   return (
@@ -1207,17 +1206,17 @@ Energie planner Peel en Maas
                   {activeTab === 'laadpaal' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
                 </button>
 
-                {/* ⚖️ Saldering */}
+                {/* ⚙️ Instellingen & Tarieven */}
                 <button
                   type="button"
                   onClick={() => toggleTab('saldering')}
                   className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
                     activeTab === 'saldering'
-                      ? 'bg-teal-600 text-white border-teal-700 shadow-xs ring-2 ring-teal-500/20'
-                      : 'bg-teal-50 text-teal-900 border-teal-200 hover:bg-teal-100/80'
+                      ? 'bg-slate-700 text-white border-slate-800 shadow-xs ring-2 ring-slate-500/20'
+                      : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200/80'
                   }`}
                 >
-                  <span>⚖️ Saldering:</span>
+                  <span>⚙️ Instellingen:</span>
                   <span className="font-semibold">{salderingContract}</span>
                   {activeTab === 'saldering' ? <ChevronUp className="w-3.5 h-3.5 ml-0.5 opacity-90" /> : <ChevronDown className="w-3.5 h-3.5 ml-0.5 opacity-70" />}
                 </button>
@@ -1427,7 +1426,7 @@ Energie planner Peel en Maas
                   activeTab === 'integral' ? '⚡ Integrale Energiebalans & Audit Benchmark' :
                   activeTab === 'graph' ? '🏠 Isolatie & Financiële Planner' :
                   activeTab === 'solar' ? '☀️ Zonnepanelen' :
-                  activeTab === 'saldering' ? '⚖️ Saldering & Netto-teruglevering' :
+                  activeTab === 'saldering' ? '⚙️ Instellingen & Tarieven' :
                   activeTab === 'battery' ? '🔋 Thuisbatterij & Arbitrage' :
                   activeTab === 'heatpump' ? '♨️ Warmtepomp & Rendement' :
                   activeTab === 'laadpaal' ? '🚗 Eigen Laadpaal & EV' :
@@ -1448,24 +1447,6 @@ Energie planner Peel en Maas
         {/* Tab Content 0: Integrale Energiebalans & Audit Benchmark */}
         {activeTab === 'integral' && (
           <div className="p-4 sm:p-5 space-y-4 animate-fadeIn" id="integral-balance-tab">
-            {/* Status Banner */}
-            <div className="bg-emerald-900 text-white rounded-2xl p-5 shadow-sm space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-800/80 pb-3">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-emerald-400" />
-                  <span className="text-sm font-extrabold uppercase tracking-wider">
-                    STATUS: Gecorrigeerde kritische berekening
-                  </span>
-                </div>
-                <span className="bg-emerald-800 text-emerald-200 text-xs font-bold px-3 py-1 rounded-full w-fit">
-                  Geen dubbele telling; één integrale energiebalans
-                </span>
-              </div>
-              <p className="text-xs text-emerald-100/90 leading-relaxed font-sans">
-                In de onderstaande energiebalans zijn alle interacties tussen zonnepanelen, thuisbatterij, warmtepomp en EV-laden fysisch op elkaar afgestemd. Dezelfde zonne-kilowatturen worden <strong>nooit dubbel geteld</strong> als losse besparing voor meerdere apparaten tegelijk. Er worden uitsluitend reële energieprijzen en contractvoorwaarden gehanteerd, zonder speculatieve wettelijke vergoedingen.
-              </p>
-            </div>
-
             {/* 4 Summary Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-1">
@@ -2078,7 +2059,7 @@ Energie planner Peel en Maas
             <div className="border-b border-slate-100 pb-5">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <Sun className="w-5 h-5 text-amber-500" />
-                Zonnepanelen & Einde Salderingsregeling
+                Zonnepanelen & Direct Zelfverbruik
               </h3>
               <p className="text-xs text-slate-500 mt-1">
                 {calculation.solar.isUserYieldOverride ? (
@@ -2215,237 +2196,6 @@ Energie planner Peel en Maas
                     <Tooltip formatter={(value) => `${Math.round(Number(value))} kWh`} />
                   </PieChart>
                 </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Explanatory impact box of End of Saldering */}
-            <div className="bg-rose-50 border border-rose-100 rounded-2xl p-6 space-y-4">
-              <div className="flex gap-3">
-                <ShieldAlert className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <h4 className="text-sm font-bold text-rose-800">Consequentie Einde Salderingsregeling (Vanaf 2027)</h4>
-                  <p className="text-xs text-rose-700/90 leading-relaxed">
-                    Als de salderingsregeling per 2027 stopt, mag je de stroom die je teruglevert aan het net niet meer 1:1 wegstrepen tegen de stroom die je op andere momenten afneemt. Voor de teruggeleverde stroom ontvang je dan slechts een minimale vergoeding (geschat op € 0,06 per kWh), terwijl je voor afgenomen stroom de volledige prijs van <strong>€ {calculation.house.elektraPrijs.toFixed(2)} per kWh</strong> betaalt.
-                  </p>
-                </div>
-              </div>
-
-              {/* Exact financial loss calculation based on data */}
-              <div className="bg-white rounded-xl p-5 border border-rose-100 grid md:grid-cols-2 gap-4 items-center">
-                <div className="space-y-1">
-                  <span className="block text-[11px] font-bold text-rose-600 uppercase tracking-wide">Berekend verlies post-2027:</span>
-                  <p className="text-xs text-slate-600">
-                    Omdat je jaarlijks <strong>{Math.round(calculation.solar.gridFeedBaseKwh).toLocaleString('nl-NL')} kWh</strong> teruglevert, verlies je jaarlijks belastingvoordeel op deze kilowatturen.
-                  </p>
-                </div>
-                <div className="text-right md:border-l md:border-slate-100 md:pl-5">
-                  <span className="text-3xl font-extrabold text-rose-600">
-                    € {Math.round(calculation.solar.gridFeedBaseKwh * (calculation.house.elektraPrijs - 0.06)).toLocaleString('nl-NL')}
-                  </span>
-                  <span className="block text-[10px] text-slate-500 font-semibold mt-0.5">Extra kosten per jaar na afschaffing saldering</span>
-                </div>
-              </div>
-
-              {/* Detailed Calculation Accordion */}
-              <div className="bg-white/80 rounded-xl border border-rose-100/80 overflow-hidden shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => setShowSalderingDetail(!showSalderingDetail)}
-                  className="w-full flex items-center justify-between p-4 text-left font-bold text-slate-700 hover:bg-rose-50/50 transition-colors text-xs"
-                >
-                  <span className="flex items-center gap-2 text-rose-800">
-                    <HelpCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                    Hoe is deze verliespost berekend? Bekijk de uitgebreide berekening (met accu, warmtepomp, EV)
-                  </span>
-                  {showSalderingDetail ? (
-                    <ChevronUp className="w-4 h-4 text-rose-600 shrink-0" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 text-rose-600 shrink-0" />
-                  )}
-                </button>
-
-                {showSalderingDetail && (
-                  <div className="p-5 border-t border-rose-100/60 space-y-5 text-xs text-slate-600 bg-slate-50/50 animate-fadeIn">
-                    <div className="space-y-1.5">
-                      <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide">De Salderingsformule (Vanaf 2027)</span>
-                      <p className="bg-slate-100/80 p-3 rounded-lg font-mono text-[10px] text-slate-700 leading-relaxed border border-slate-200">
-                        <strong>Bruto Verliespost = Bruto Teruglevering (kWh) × (Stroomtarief [€ {calculation.house.elektraPrijs.toFixed(2)}] - Terugleververgoeding [€ 0,06])</strong>
-                        <br />
-                        <span className="text-slate-500 font-sans text-[9.5px] mt-1 block">
-                          Elke kWh die u opwekt en niet direct binnenshuis verbruikt, wordt teruggeleverd aan het net. Na de afschaffing van het salderen levert deze teruglevering u slechts een geschatte € 0,06/kWh op, terwijl u voor afname de hoofdprijs (€ {calculation.house.elektraPrijs.toFixed(2)}) betaalt. Dit verschil van <strong>€ {(calculation.house.elektraPrijs - 0.06).toFixed(2)}/kWh</strong> is uw netto verliespost.
-                        </span>
-                      </p>
-                    </div>
-
-                    <div className="space-y-2.5">
-                      <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide text-rose-800">Uitsplitsing Parameters van de Rekenmethode</span>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                        <div className="bg-white p-3 rounded-lg border border-slate-100 space-y-1 shadow-xs">
-                          <span className="text-[10px] font-bold text-blue-600 block">🔋 Thuisbatterij</span>
-                          <p className="text-[11px] leading-snug">
-                            <strong>Cap Accu:</strong> {calculation.tech.capaciteitAccu > 0 ? `${calculation.tech.capaciteitAccu} kWh` : `${batteryOpt ? batteryOpt.capacityKwh : 10} kWh (geadviseerd)`}
-                          </p>
-                          <p className="text-[10px] text-slate-400 leading-relaxed">Capaciteit om overdag overtollige zonnestroom tijdelijk op te slaan voor de avond.</p>
-                        </div>
-                        <div className="bg-white p-3 rounded-lg border border-slate-100 space-y-1 shadow-xs">
-                          <span className="text-[10px] font-bold text-indigo-600 block">♨️ Warmtepomp</span>
-                          <p className="text-[11px] leading-snug">
-                            <strong>Verbruik WP:</strong> {Math.round(chosenOpt?.elecIncreaseKwh || 1800)} kWh/jr
-                          </p>
-                          <p className="text-[10px] text-slate-400 leading-relaxed">Extra stroomverbruik van de warmtepomp om uw gasverbruik met 75%+ te verlagen.</p>
-                        </div>
-                        <div className="bg-white p-3 rounded-lg border border-slate-100 space-y-1 shadow-xs">
-                          <span className="text-[10px] font-bold text-purple-600 block">🚗 Slimme Laadpaal</span>
-                          <p className="text-[11px] leading-snug">
-                            <strong>Verbruik EV:</strong> {Math.round(calculation.laadpaal?.evAnnualDemandKwh || 2025)} kWh/jr
-                          </p>
-                          <p className="text-[10px] text-slate-400 leading-relaxed">Laadstroom benodigd voor de auto thuis op basis van kilometrage en verbruik.</p>
-                        </div>
-                        <div className="bg-white p-3 rounded-lg border border-slate-100 space-y-1 shadow-xs">
-                          <span className="text-[10px] font-bold text-amber-600 block">⚡ Arbitrage Trading</span>
-                          <p className="text-[11px] leading-snug">
-                            <strong>Systeem:</strong> {calculation.tech.typeContract === 'Dynamisch' ? 'Actief (Dynamisch)' : 'Geadviseerd / Optioneel'}
-                          </p>
-                          <p className="text-[10px] text-slate-400 leading-relaxed">Handelen op uurtarieven (slim laden bij lage tarieven, ontladen bij hoge tarieven).</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide">Stap-voor-stap Berekening van de Verliesbeperking</span>
-                      <div className="space-y-2.5">
-                        
-                        {/* 1. Base State */}
-                        <div className="bg-white p-3.5 rounded-xl border border-slate-150 flex justify-between items-start gap-4">
-                          <div className="space-y-1">
-                            <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
-                              <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block shrink-0" />
-                              Stap 1: Bruto Uitgangssituatie (Zonder slimme sturing)
-                            </span>
-                            <p className="text-[11px] text-slate-600 leading-relaxed">
-                              Uw panelen wekken jaarlijks <strong>{Math.round(calculation.solar.annualYieldKwh).toLocaleString('nl-NL')} kWh</strong> op. Zonder actieve seizoenssturing verbruikt u direct slechts {Math.round(calculation.solar.selfConsumptionBase)}% ({Math.round(calculation.solar.absoluteSelfConsumptionBaseKwh).toLocaleString('nl-NL')} kWh). 
-                              De resterende <strong>{Math.round(calculation.solar.gridFeedBaseKwh).toLocaleString('nl-NL')} kWh</strong> levert u terug aan het net.
-                            </p>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <span className="text-rose-600 font-extrabold block text-sm">
-                              + € {Math.round(calculation.solar.gridFeedBaseKwh * (calculation.house.elektraPrijs - 0.06)).toLocaleString('nl-NL')}
-                            </span>
-                            <span className="text-[9px] text-slate-400 block font-medium">bruto jaarverlies</span>
-                          </div>
-                        </div>
-
-                        {/* 2. Battery Impact */}
-                        <div className="bg-white p-3.5 rounded-xl border border-slate-150 flex justify-between items-start gap-4">
-                          <div className="space-y-1">
-                            <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
-                              <Battery className="w-4 h-4 text-blue-500 shrink-0" />
-                              Stap 2: Impact van de Thuisbatterij ({calculation.tech.capaciteitAccu > 0 ? `${calculation.tech.capaciteitAccu} kWh` : `${batteryOpt ? batteryOpt.capacityKwh : 10} kWh`})
-                            </span>
-                            <p className="text-[11px] text-slate-600 leading-relaxed">
-                              De thuisaccu slaat overdag zonnestroom op voor de avonduren. Dit verhoogt uw directe eigen verbruik met <strong>{Math.round(calculation.solar.absoluteSelfConsumptionWithBatteryKwh - calculation.solar.absoluteSelfConsumptionBaseKwh).toLocaleString('nl-NL')} kWh/jaar</strong>. 
-                              Hierdoor hoeft deze stroom niet meer goedkoop te worden teruggeleverd.
-                            </p>
-                            {calculation.tech.typeContract === 'Dynamisch' && (
-                              <p className={`text-[10px] font-semibold px-2 py-1 rounded-md inline-block mt-1 ${
-                                calculation.tech.batteryGridTrading 
-                                  ? 'text-blue-600 bg-blue-50' 
-                                  : 'text-amber-800 bg-amber-50'
-                              }`}>
-                                {calculation.tech.batteryGridTrading ? (
-                                  <span>🔗 <strong>Arbitrage Trading Actief:</strong> Dankzij uw dynamische contract en slimme EMS-batterijsturing koopt u stroom in op goedkope of negatieve uren en levert u terug op dure piekuren. Dit levert u circa <strong>€ {Math.round(batteryOpt ? (batteryOpt.capacityKwh * (calculation.tech.dynamicProvider === 'Zonneplan' ? 85 : calculation.tech.dynamicProvider === 'Frank' ? 70 : calculation.tech.dynamicProvider === 'Tibber' ? 65 : 60)) : 650).toLocaleString('nl-NL')} per jaar</strong> aan additioneel handelsvoordeel op!</span>
-                                ) : (
-                                  <span>☀️ <strong>100% Zonne-focus Actief:</strong> Accu slaat uitsluitend eigen zonnestroom op. Er vindt geen nethandel op dynamische tarieven plaats (€0/jaar pure arbitrage).</span>
-                                )}
-                              </p>
-                            )}
-                          </div>
-                          <div className="text-right shrink-0">
-                            <span className="text-emerald-600 font-extrabold block text-sm">
-                              - € {Math.round((calculation.solar.absoluteSelfConsumptionWithBatteryKwh - calculation.solar.absoluteSelfConsumptionBaseKwh) * (calculation.house.elektraPrijs - 0.06)).toLocaleString('nl-NL')}
-                            </span>
-                            <span className="text-[9px] text-slate-400 block font-medium">verlies vermeden</span>
-                          </div>
-                        </div>
-
-                        {/* 3. Heat Pump Impact */}
-                        <div className="bg-white p-3.5 rounded-xl border border-slate-150 flex justify-between items-start gap-4">
-                          <div className="space-y-1">
-                            <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
-                              <Flame className="w-4 h-4 text-orange-500 shrink-0" />
-                              Stap 3: Impact van de Warmtepomp ({Math.round(chosenOpt?.elecIncreaseKwh || 1800)} kWh/jr verbruik)
-                            </span>
-                            <p className="text-[11px] text-slate-600 leading-relaxed">
-                              Door de warmtepomp slim overdag te sturen (bijvoorbeeld door uw boiler overdag op te warmen tot 55°C met zonnestroom), dekken uw panelen direct <strong>{Math.round(chosenOpt?.solarCoverageKwh || 0).toLocaleString('nl-NL')} kWh/jaar</strong> van het warmtepompverbruik. Dit is stroom die u anders direct zou terugleveren.
-                            </p>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <span className="text-emerald-600 font-extrabold block text-sm">
-                              - € {Math.round((chosenOpt?.solarCoverageKwh || 0) * (calculation.house.elektraPrijs - 0.06)).toLocaleString('nl-NL')}
-                            </span>
-                            <span className="text-[9px] text-slate-400 block font-medium">verlies vermeden</span>
-                          </div>
-                        </div>
-
-                        {/* 4. EV Impact */}
-                        <div className="bg-white p-3.5 rounded-xl border border-slate-150 flex justify-between items-start gap-4">
-                          <div className="space-y-1">
-                            <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
-                              <Zap className="w-4 h-4 text-amber-500 shrink-0" />
-                              Stap 4: Impact van de Slimme EV Laadpaal ({Math.round(calculation.laadpaal?.evAnnualDemandKwh || 2025)} kWh/jr verbruik)
-                            </span>
-                            <p className="text-[11px] text-slate-600 leading-relaxed">
-                              {calculation.tech.slimEmsOnlySolar ? (
-                                <span><strong>EMS Alleen Laden op Zonnestroom Actief:</strong> Uw auto laadt <i>uitsluitend</i> bij overschot aan zonne-energie. Dit voorkomt dat u stroom van het net moet inkopen om te laden. Uw auto verbruikt zo direct <strong>{Math.round(calculation.laadpaal?.evSolarCoverageKwh || 0).toLocaleString('nl-NL')} kWh/jaar</strong> gratis zonnestroom.</span>
-                              ) : (
-                                <span>Door uw auto overdag thuis in te pluggen, claimt de laadpaal direct <strong>{Math.round(calculation.laadpaal?.evSolarCoverageKwh || 0).toLocaleString('nl-NL')} kWh/jaar</strong> direct uit zonnestroom die anders het net op was gegaan.</span>
-                              )}
-                            </p>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <span className="text-emerald-600 font-extrabold block text-sm">
-                              - € {Math.round((calculation.laadpaal?.evSolarCoverageKwh || 0) * (calculation.house.elektraPrijs - 0.06)).toLocaleString('nl-NL')}
-                            </span>
-                            <span className="text-[9px] text-slate-400 block font-medium">verlies vermeden</span>
-                          </div>
-                        </div>
-
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 pt-2.5 border-t border-slate-200">
-                      <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide">Netto Seizoensbalans na Optimale Integratiesturing</span>
-                      <div className="bg-emerald-100/20 p-4 rounded-xl border border-emerald-500/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <div className="space-y-1">
-                          <span className="font-bold text-slate-800 block text-xs">📉 Nieuwe Resterende Netto Teruglevering:</span>
-                          <p className="text-[11px] text-slate-600 leading-relaxed">
-                            Door het gecombineerde seizoensgebonden verbruik van de <strong>warmtepomp</strong> en de <strong>laadpaal</strong>, samen met de opslagcap van de <strong>thuisbatterij</strong>, minimaliseert u uw teruglevering. Er blijft na deze sturing jaarlijks nog slechts:  
-                            <strong className="text-slate-900 font-semibold block text-xs mt-0.5">
-                              {Math.max(0, Math.round(
-                                calculation.solar.gridFeedBaseKwh - 
-                                (calculation.solar.absoluteSelfConsumptionWithBatteryKwh - calculation.solar.absoluteSelfConsumptionBaseKwh) -
-                                (chosenOpt?.solarCoverageKwh || 0) -
-                                (calculation.laadpaal?.evSolarCoverageKwh || 0)
-                              )).toLocaleString('nl-NL')} kWh over om terug te leveren aan het net.
-                            </strong>
-                          </p>
-                        </div>
-                        <div className="text-right shrink-0 md:border-l md:border-slate-100 md:pl-5">
-                          <span className="text-2xl font-black text-emerald-600 block">
-                            € {Math.max(0, Math.round(
-                              Math.max(0, calculation.solar.gridFeedBaseKwh - 
-                                (calculation.solar.absoluteSelfConsumptionWithBatteryKwh - calculation.solar.absoluteSelfConsumptionBaseKwh) -
-                                (chosenOpt?.solarCoverageKwh || 0) -
-                                (calculation.laadpaal?.evSolarCoverageKwh || 0)
-                              ) * (calculation.house.elektraPrijs - 0.06)
-                            )).toLocaleString('nl-NL')}
-                          </span>
-                          <span className="text-[9px] text-slate-400 block font-bold">resterende verliespost / jr</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -2696,12 +2446,12 @@ Energie planner Peel en Maas
 
                     {calculation.tech.typeContract === 'Vast' ? (
                       <div className="space-y-2">
-                        <span className="text-xs font-extrabold text-rose-700 flex items-center gap-1">
-                          <ShieldAlert className="w-4 h-4 shrink-0" />
-                          Minder rendabel onder Vast contract
+                        <span className="text-xs font-extrabold text-amber-700 flex items-center gap-1">
+                          <ShieldAlert className="w-4 h-4 shrink-0 text-amber-600" />
+                          Zelfconsumptie &amp; Boetevermijding bij Vast contract
                         </span>
                         <p className="text-xs text-slate-600 leading-relaxed">
-                          Met een vast of variabel contract mag je in Nederland salderen (tot 2027). Hierdoor fungeert het elektriciteitsnet gratis als 'virtuele accu'. Een fysieke accu voegt dan financieel weinig toe behalve een lichte verhoging van direct eigen verbruik.
+                          Bij een vast contract bespaart de thuisaccu direct op vermeden terugleverkosten en verhoogt deze uw eigen zelfverbruik. Voor maximale opbrengsten kunt u overstappen op een dynamisch contract om ook actief te handelen op dagelijkse prijspieken en dalen (arbitrage).
                         </p>
                       </div>
                     ) : (
@@ -3292,15 +3042,38 @@ Energie planner Peel en Maas
                 </span>
               </div>
 
-              <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
-                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Stookgedragfactor
+              <div className={`p-3.5 rounded-2xl border ${
+                calculation.house.stookgedragDetails?.category === 'zuinig'
+                  ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
+                  : calculation.house.stookgedragDetails?.category === 'royaal'
+                  ? 'bg-rose-50/70 border-rose-200 text-rose-950'
+                  : 'bg-amber-50/70 border-amber-200 text-amber-950'
+              }`}>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    Stookgedrag
+                  </span>
+                  <span className="text-sm select-none">
+                    {calculation.house.stookgedragDetails?.emoji || '🟠'}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-1.5 mt-0.5">
+                  <span className="text-xl font-extrabold font-mono">
+                    {(calculation.house.stookgedragFactor || 1.0).toFixed(1)}x
+                  </span>
+                  <span className="text-xs font-bold">
+                    {calculation.house.stookgedragDetails?.percentageText || '0%'}
+                  </span>
+                </div>
+                <span className="text-[11px] font-semibold block truncate mt-0.5">
+                  {calculation.house.stookgedragDetails?.category === 'zuinig'
+                    ? 'Zuinige stoker'
+                    : calculation.house.stookgedragDetails?.category === 'royaal'
+                    ? 'Royale stoker'
+                    : 'Gemiddelde stoker'}
                 </span>
-                <span className="text-xl font-extrabold text-slate-800 block mt-0.5 font-mono">
-                  {(calculation.house.stookgedragFactor || 1.0).toFixed(1)}x
-                </span>
-                <span className="text-[11px] text-slate-500 font-medium block truncate">
-                  {calculation.house.stookgedragBerekend || 'Normaal'}
+                <span className="text-[10px] opacity-75 block">
+                  t.o.v. vergelijkbare woning
                 </span>
               </div>
             </div>
@@ -3384,7 +3157,7 @@ Energie planner Peel en Maas
                 • <strong>Norm-kengetallen:</strong> De besparingen per m² vloeien voort uit praktijkrichtlijnen voor isolatie (bijv. Spouwmuurisolatie = 7,0 m³/m², Dakisolatie binnenzijde = 9,0 m³/m², HR++ Glas = 12,0 m³/m²).
               </p>
               <p className="leading-relaxed">
-                • <strong>Stookgedragfactor ({(calculation.house.stookgedragFactor || 1.0).toFixed(1)}x — {calculation.house.stookgedragBerekend || 'Normaal'}):</strong> Deze waarde vergelijkt uw werkelijke gasverbruik ({calculation.house.verbruikM3 || 0} m³) met het gemiddelde verbruik van een gelijkwaardige woning en gezinssamenstelling ({calculation.resident.aantalPersonen || 1} pers.). Hierdoor sluit het advies exact aan op uw praktijksituatie.
+                • <strong>Stookgedrag ({calculation.house.stookgedragDetails?.emoji || '🟠'} {calculation.house.stookgedragDetails?.label || calculation.house.stookgedragBerekend || 'Gemiddelde stoker'} — {(calculation.house.stookgedragFactor || 1.0).toFixed(1)}x factor):</strong> {calculation.house.stookgedragDetails?.vergelijkingTekst || 'Vergelijkt het werkelijke gasverbruik met een gemiddelde normwoning'}. Uw werkelijke verwarmingsverbruik ({calculation.house.stookgedragDetails?.werkelijkVerwarmingsGas || calculation.house.verbruikM3 || 0} m³) is afgezet tegen het normverbruik van een gelijkwaardige woning ({calculation.house.stookgedragDetails?.verwachtVerwarmingsGas || '-'} m³ bij {calculation.resident.aantalPersonen || 1} bewoners). Hierdoor sluit de berekende besparing exact aan op uw praktijksituatie.
               </p>
             </div>
 

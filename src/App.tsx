@@ -157,7 +157,7 @@ const emptyTech: TechData = {
   evThuisLaden: 70,
   laadvermogen: 11,
   opslagLeverancier: 0.02,
-  selectedWarmtepompModel: 'Standard',
+  selectedWarmtepompModel: undefined,
   selectedWarmtepompType: undefined,
   solarStatus: 'nieuw',
   heatpumpStatus: 'nieuw',
@@ -724,7 +724,7 @@ export default function App() {
       { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Registratiecode", Waarde: resident.registratiecode || 'PM-CONCEPT', Details: "" },
       { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Woningadres", Waarde: `${resident.straat || ''} ${resident.huisnummer || ''}, ${resident.postcode || ''} ${resident.plaats || ''}`.trim(), Details: "" },
       { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Woningtype & Label", Waarde: `${house.soortWoning || 'Hoekwoning'} (Label ${house.energielabel || 'C'})`, Details: "" },
-      { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Berekend Stookgedrag", Waarde: `${calculation.house.stookgedragBerekend || 'Normaal'} (${(calculation.house.stookgedragFactor || 1.0).toFixed(1)}x factor)`, Details: "" },
+      { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Berekend Stookgedrag", Waarde: `${calculation.house.stookgedragDetails?.emoji ? calculation.house.stookgedragDetails.emoji + ' ' : ''}${calculation.house.stookgedragDetails?.label || calculation.house.stookgedragBerekend || 'Gemiddelde stoker'} (${(calculation.house.stookgedragFactor || 1.0).toFixed(1)}x factor)`, Details: calculation.house.stookgedragDetails?.vergelijkingTekst || "" },
       { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Contract 0-meting (Huidig)", Waarde: `${tech.baselineTypeContract || 'Vast'} (${baselineProviderName})`, Details: "" },
       { Categorie: "OVERZICHT BEREKENING", Onderdeel: "Contract Na Verduurzaming", Waarde: `${tech.typeContract || 'Vast'} (${postProviderName})`, Details: "" },
       
