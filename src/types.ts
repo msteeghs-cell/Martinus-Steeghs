@@ -94,10 +94,10 @@ export interface TechData {
   dynamicProvider?: 'Zonneplan' | 'Tibber' | 'Frank' | 'Anwb' | 'Custom';
   vastTarief?: number;
   vastGasTarief?: number;
-  vastTerugleverkosten?: number; // €/kWh terugleverkosten bij vast contract (standaard € 0.11/kWh)
-  vastTerugleverVergoeding?: number; // €/kWh terugleververgoeding overschot na salderen (standaard € 0.05/kWh)
-  dynamischStroomTarief?: number; // €/kWh gemiddeld dynamisch inkooptarief (standaard € 0.25/kWh)
-  dynamischTerugleverTarief?: number; // €/kWh gemiddeld dynamisch teruglevertarief op zonne-uren (standaard € 0.09/kWh)
+  vastTerugleverkosten?: number; // €/kWh terugleverkosten bij vast contract (standaard € 0.123/kWh)
+  vastTerugleverVergoeding?: number; // €/kWh terugleververgoeding overschot na salderen (standaard € 0.06/kWh)
+  dynamischStroomTarief?: number; // €/kWh gemiddeld dynamisch inkooptarief (standaard € 0.265/kWh)
+  dynamischTerugleverTarief?: number; // €/kWh gemiddeld dynamisch teruglevertarief op zonne-uren (standaard € 0.085/kWh)
   evKilometers?: number;
   evVerbruik?: number;
   evThuisLaden?: number;
@@ -246,6 +246,13 @@ export interface CalculationResult {
   solar: SolarPrognose;
   battery: BatteryImpact;
   heatpump: HeatpumpCheck;
+  electricityBalance?: {
+    netGridImportKwh: number;
+    existingSolarYieldKwh: number;
+    existingFeedInKwh: number;
+    existingDirectSolarKwh: number;
+    totalConsumptionKwh: number;
+  };
   laadpaal?: {
     evAnnualDemandKwh: number;
     evSolarCoverageKwh: number;

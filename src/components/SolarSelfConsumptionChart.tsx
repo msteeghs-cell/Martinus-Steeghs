@@ -34,8 +34,8 @@ export default function SolarSelfConsumptionChart({
 }: SolarSelfConsumptionChartProps) {
   // Local state for interactive post-saldering simulation parameters
   const [directSelfConsumptionPct, setDirectSelfConsumptionPct] = useState<number>(30); // default 30% without battery/EV
-  const [gridPurchasePrice, setGridPurchasePrice] = useState<number>(house.elektraPrijs || 0.35); // €/kWh
-  const [feedInCompensation, setFeedInCompensation] = useState<number>(0.05); // €/kWh net feed-in return (or -0.03 for penalty)
+  const [gridPurchasePrice, setGridPurchasePrice] = useState<number>(house.elektraPrijs || 0.31); // €/kWh
+  const [feedInCompensation, setFeedInCompensation] = useState<number>(0.06); // €/kWh net feed-in return (or -0.03 for penalty)
 
   const calculation = useMemo(() => {
     return calculateAll(resident, house, insulation, tech);
@@ -55,7 +55,7 @@ export default function SolarSelfConsumptionChart({
   const hasLaadpaal = Boolean((tech.evKilometers || 0) > 0);
   const evAnnualKwh = hasLaadpaal ? (calculation.laadpaal?.evAnnualDemandKwh || 0) : 0;
   
-  const baseAnnualDemand = calculation.house.verbruikKwh || 3500;
+  const baseAnnualDemand = calculation.electricityBalance?.totalConsumptionKwh ?? (calculation.house.verbruikKwh || 3500);
   const annualElectricityDemand = baseAnnualDemand + wpAnnualKwh + evAnnualKwh;
   const annualSolarYield = calculation.solar.annualYieldKwh || 0;
 
@@ -238,8 +238,8 @@ export default function SolarSelfConsumptionChart({
             <div className="grid grid-cols-3 gap-1.5">
               {[
                 { label: '€ 0,02', val: 0.02 },
-                { label: '€ 0,05', val: 0.05 },
-                { label: '€ 0,08', val: 0.08 },
+                { label: '€ 0,06', val: 0.06 },
+                { label: '€ 0,09', val: 0.09 },
               ].map(opt => (
                 <button
                   key={opt.val}

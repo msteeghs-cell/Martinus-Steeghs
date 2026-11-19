@@ -5,7 +5,7 @@ import {
   Sparkles, RefreshCw, Calendar, CheckCircle2, Zap, Info,
   TrendingDown, Gauge, AlertTriangle, Trash2, Download, Check, Sliders,
   FileSpreadsheet, PiggyBank, FileText, RotateCcw, ShieldCheck, Settings,
-  ExternalLink, Flame
+  ExternalLink, Flame, BookOpen
 } from 'lucide-react';
 import { EnergyCostPdfModal } from './EnergyCostPdfModal';
 import {
@@ -20,9 +20,11 @@ import {
   ComposedChart,
   Line
 } from 'recharts';
-import { calculateAll, getSolarInvestmentEstimate, getSolarInvestmentRange, getBatteryInvestmentEstimate, getBatteryInvestmentRange, getHeatpumpCopFactor } from '../utils/calculator';
+import { calculateAll, calculateTvtYears, formatTvt, getElectricityConsumptionBreakdown, getSolarInvestmentEstimate, getSolarInvestmentRange, getBatteryInvestmentEstimate, getBatteryInvestmentRange, getHeatpumpCopFactor } from '../utils/calculator';
 import { TOP4_FIXED_PROVIDERS, TOP4_DYNAMIC_PROVIDERS, getFixedProvider, getDynamicProvider } from '../utils/energyProviders';
 import { BOUWJAAR_NORMEN, getBouwjaarNorm, BouwjaarNorm } from '../utils/buildingNorms';
+import { getFormValidationSummary, focusFormField } from '../utils/formValidation';
+import MissingFieldsModal from './MissingFieldsModal';
 
 interface InputFormProps {
   resident: ResidentData;
@@ -119,7 +121,9 @@ export default function InputForm({
   });
 
   const [showSimExplanation, setShowSimExplanation] = useState<boolean>(false);
+  const [showMainGuide, setShowMainGuide] = useState<boolean>(false);
   const [showEnergyPdfModal, setShowEnergyPdfModal] = useState<boolean>(false);
+  const [showPdfMissingModal, setShowPdfMissingModal] = useState<boolean>(false);
   const [isGasFocused, setIsGasFocused] = useState<boolean>(false);
   const [isGasFocusedParam, setIsGasFocusedParam] = useState<boolean>(false);
   const [appliedNormInfo, setAppliedNormInfo] = useState<{
@@ -304,6 +308,11 @@ export default function InputForm({
   const liveCalcResult = calculateAll(resident, house, insulation, tech);
   const liveStookgedragBerekend = liveCalcResult.house.stookgedragBerekend;
   const liveStookgedragDetails = liveCalcResult.house.stookgedragDetails;
+  const formValidation = getFormValidationSummary(resident, house, tech);
+  const getFieldHighlight = (key: string, defaultClasses = 'bg-slate-50 border-slate-200') =>
+    formValidation.missingKeys.has(key)
+      ? 'bg-amber-50/70 border-amber-400 ring-1 ring-amber-200/80'
+      : defaultClasses;
 
   const paneelVermogenLocal = tech.vermogenPerPaneel || 400;
   const totalWpLocal = tech.aantalZonnepanelen * paneelVermogenLocal;
@@ -342,7 +351,7 @@ export default function InputForm({
     const newYield = (tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0)
       ? tech.userAnnualSolar
       : newVal * singlePanelYield;
-    const verbruik = house.verbruikKwh || 3500;
+    const verbruik = getElectricityConsumptionBreakdown(house, tech, newYield).totalConsumptionKwh || 3500;
     const ratio = newYield > 0 ? verbruik / newYield : 1;
 
     let calculatedSelfConsumption = 30;
@@ -366,7 +375,7 @@ export default function InputForm({
   };
 
   const calculatePostSalderingEarnings = (cap: number, prov?: string, customPriceOverride?: number) => {
-    if (cap <= 0) {
+    if (cap <= 0 || tech.batteryStatus === 'bestaand') {
       return {
         directSavings: 0,
         arbitrageYield: 0,
@@ -390,7 +399,7 @@ export default function InputForm({
       const optSelfConsumptionKwh = (localAnnualYieldKwh * optSelfConsumption) / 100;
       
       // Direct savings on increased self-consumption: replacing grid purchase (house.elektraPrijs) instead of feeding back (assumed 0.06 return rate)
-      directSavings = Math.max(0, (optSelfConsumptionKwh - baseSelfConsumptionKwh) * ((house.elektraPrijs || 0.35) - 0.06));
+      directSavings = Math.max(0, (optSelfConsumptionKwh - baseSelfConsumptionKwh) * ((house.elektraPrijs || 0.31) - 0.06));
     }
 
     // Arbitrage trading based on provider (rate in € per kWh capacity per year)
@@ -415,7 +424,7 @@ export default function InputForm({
       bruto = customPriceOverride;
     }
     const netInvestment = bruto * (100 / 121);
-    const tvt = totalSavings > 0 ? netInvestment / totalSavings : 99;
+    const tvt = calculateTvtYears(netInvestment, totalSavings);
 
     return {
       directSavings,
@@ -537,7 +546,7 @@ export default function InputForm({
     if (house.verwarming === 'Hybride warmtepomp') {
       base += 5;
       details.push('hybride WP (+5%)');
-    } else if (house.verwarming === 'Full electric') {
+    } else if (house.verwarming === 'Full electric' || house.verwarming === 'Volledige warmtepomp') {
       base += 10;
       details.push('full electric WP (+10%)');
     }
@@ -555,7 +564,7 @@ export default function InputForm({
     }
 
     // Ventilation type
-    if (house.ventilatie === 'Balans (Type D / WTW)') {
+    if (house.ventilatie === 'Balans (Type D/WTW)' || house.ventilatie === 'Balans (Type D / WTW)') {
       base += 3;
       details.push('balansvent. (+3%)');
     }
@@ -636,7 +645,7 @@ export default function InputForm({
         koken: 'Gas',
         ventilatie: 'Natuurlijk (Type A)',
         zonnepanelenPresent: 'Nee',
-        elektraPrijs: 0.35,
+        elektraPrijs: 0.31,
         elektraTeruglevering: 0,
         gasPrijs: 1.50,
         stookgedragOverride: 'auto',
@@ -709,7 +718,7 @@ export default function InputForm({
         koken: 'Gas',
         ventilatie: 'Natuurlijk (Type A)',
         zonnepanelenPresent: 'Nee',
-        elektraPrijs: 0.35,
+        elektraPrijs: 0.31,
         elektraTeruglevering: 0,
         gasPrijs: 1.50,
         stookgedragOverride: 'auto',
@@ -782,7 +791,7 @@ export default function InputForm({
         koken: 'Gas',
         ventilatie: 'Mechanisch (Type C)',
         zonnepanelenPresent: 'Nee',
-        elektraPrijs: 0.35,
+        elektraPrijs: 0.31,
         elektraTeruglevering: 0,
         gasPrijs: 1.50,
         stookgedragOverride: 'auto',
@@ -855,7 +864,7 @@ export default function InputForm({
         koken: 'Inductie',
         ventilatie: 'Mechanisch (Type C)',
         zonnepanelenPresent: 'Ja',
-        elektraPrijs: 0.35,
+        elektraPrijs: 0.31,
         elektraTeruglevering: 1500,
         gasPrijs: 1.50,
         stookgedragOverride: 'auto',
@@ -928,7 +937,7 @@ export default function InputForm({
         koken: 'Inductie',
         ventilatie: 'Mechanisch (Type C)',
         zonnepanelenPresent: 'Ja',
-        elektraPrijs: 0.35,
+        elektraPrijs: 0.31,
         elektraTeruglevering: 1500,
         gasPrijs: 1.50,
         stookgedragOverride: 'auto',
@@ -1002,7 +1011,7 @@ export default function InputForm({
         koken: 'Inductie',
         ventilatie: 'Mechanisch (Type C)',
         zonnepanelenPresent: 'Ja',
-        elektraPrijs: 0.35,
+        elektraPrijs: 0.31,
         elektraTeruglevering: 2000,
         gasPrijs: 1.50,
         stookgedragOverride: 'auto',
@@ -1084,11 +1093,12 @@ export default function InputForm({
 
   // (Note: localAnnualYieldKwh and its helper variables are declared at the top of the component so they can be referenced everywhere)
 
-  const opslagLeverancier = tech.opslagLeverancier !== undefined ? tech.opslagLeverancier : 0.02;
+  const activeDynamicProv = getDynamicProvider(tech.dynamicProvider);
+  const opslagLeverancier = tech.opslagLeverancier !== undefined ? tech.opslagLeverancier : activeDynamicProv.opslagLeverancier;
 
   // Personal break-even calculations
   const breakEvenFeedIn = opslagLeverancier; // Spot price at which net feed-in is negative
-  const energyTaxAndVat = 0.15; // standard ODE + tax + VAT in NL is around 15 cents
+  const energyTaxAndVat = 0.1108; // Energiebelasting stroom 2026 incl. 21% btw (€ 0,1108/kWh)
   const breakEvenImport = -(opslagLeverancier + energyTaxAndVat); // Spot price at which importing is net-free
 
   // Active advice calculation
@@ -1375,20 +1385,34 @@ export default function InputForm({
                 {/* 1. Warmtepomp / Verwarming */}
                 <div className="bg-white p-2.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('warmtepomp');
-                        const el = document.getElementById('panelTabbar');
-                        if (el) el.scrollIntoView({ behavior: 'smooth' });
-                      }}
-                      title="Klik om direct naar het tabblad Warmtepomp te gaan"
-                      className="flex items-center gap-1 hover:text-emerald-700 transition cursor-pointer group text-left"
-                    >
-                      <Zap className="w-3.5 h-3.5 text-amber-500 group-hover:scale-110 transition-transform" />
-                      <span className="group-hover:underline underline-offset-2">Verwarming / WP</span>
-                      <span className="text-[9px] text-slate-400 font-normal group-hover:text-emerald-600 transition-colors">➔</span>
-                    </button>
+                    <div className="flex items-center gap-0.5 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('warmtepomp');
+                          const el = document.getElementById('panelTabbar');
+                          if (el) el.scrollIntoView({ behavior: 'smooth' });
+                        }}
+                        title="Klik om direct naar het tabblad Warmtepomp te gaan"
+                        className="flex items-center gap-1 hover:text-emerald-700 transition cursor-pointer group text-left truncate"
+                      >
+                        <Zap className="w-3.5 h-3.5 text-amber-500 group-hover:scale-110 transition-transform shrink-0" />
+                        <span className="group-hover:underline underline-offset-2 truncate">Verwarming / WP</span>
+                        <span className="text-[9px] text-slate-400 font-normal group-hover:text-emerald-600 transition-colors shrink-0">➔</span>
+                      </button>
+                      <Tooltip
+                        position="bottom"
+                        align="left"
+                        width="w-64"
+                        text={
+                          <div className="space-y-1">
+                            <p className="font-bold text-emerald-300">Tip: Capaciteit wisselen (↻)</p>
+                            <p>Klik opnieuw op de actieve knop (<strong>Hybride WP</strong> of <strong>Volledig WP</strong>) om direct door de vermogens te wisselen:</p>
+                            <p className="font-mono text-[10px] text-amber-200">4-5 kW → 6-8 kW → 10-12 kW → Airco</p>
+                          </div>
+                        }
+                      />
+                    </div>
                     {(() => {
                       const wpCapStr = tech.selectedWarmtepompModel === 'Middelgroot 8kW' ? '6-8 kW'
                         : tech.selectedWarmtepompModel === 'Groot 12kW' ? '10-12 kW'
@@ -1421,10 +1445,11 @@ export default function InputForm({
                       CV-ketel
                     </button>
                     {(() => {
+                      const isHybrideActive = house.verwarming === 'Hybride warmtepomp';
                       const wpCapStr = tech.selectedWarmtepompModel === 'Middelgroot 8kW' ? '6-8 kW'
                         : tech.selectedWarmtepompModel === 'Groot 12kW' ? '10-12 kW'
                         : tech.selectedWarmtepompModel === 'LuchtLucht' ? 'Airco'
-                        : tech.selectedWarmtepompModel === 'Standard' ? '4-5 kW' : '';
+                        : '4-5 kW';
                       return (
                         <button
                           type="button"
@@ -1441,23 +1466,33 @@ export default function InputForm({
                               return { ...prev, selectedWarmtepompType: 'Hybride', selectedWarmtepompModel: nextModel };
                             });
                           }}
-                          className={`py-1 px-1 text-[9.5px] leading-tight font-medium rounded-lg border text-center transition ${
-                            house.verwarming === 'Hybride warmtepomp'
+                          title="Klik nogmaals om vermogen te wisselen: 4-5 kW → 6-8 kW → 10-12 kW → Airco"
+                          className={`py-1 px-1 text-[9.5px] leading-tight font-medium rounded-lg border text-center transition cursor-pointer ${
+                            isHybrideActive
                               ? 'bg-emerald-600 text-white border-emerald-600 font-bold shadow-xs'
                               : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                           }`}
                         >
-                          {house.verwarming === 'Hybride warmtepomp' && wpCapStr
-                            ? `Hybride (${wpCapStr})`
-                            : 'Hybride WP'}
+                          {isHybrideActive ? (
+                            <span className="flex flex-col items-center leading-tight">
+                              <span>Hybride WP</span>
+                              <span className="inline-flex items-center gap-0.5 text-[8.5px] font-semibold opacity-95 whitespace-nowrap">
+                                <span>{wpCapStr}</span>
+                                <span aria-hidden="true">↻</span>
+                              </span>
+                            </span>
+                          ) : (
+                            'Hybride WP'
+                          )}
                         </button>
                       );
                     })()}
                     {(() => {
+                      const isVolledigActive = house.verwarming === 'Volledige warmtepomp' || house.verwarming === 'Full electric';
                       const wpCapStr = tech.selectedWarmtepompModel === 'Middelgroot 8kW' ? '6-8 kW'
                         : tech.selectedWarmtepompModel === 'Groot 12kW' ? '10-12 kW'
                         : tech.selectedWarmtepompModel === 'LuchtLucht' ? 'Airco'
-                        : tech.selectedWarmtepompModel === 'Standard' ? '4-5 kW' : '';
+                        : '4-5 kW';
                       return (
                         <button
                           type="button"
@@ -1474,15 +1509,24 @@ export default function InputForm({
                               return { ...prev, selectedWarmtepompType: 'All-Electric', selectedWarmtepompModel: nextModel };
                             });
                           }}
-                          className={`py-1 px-1 text-[9.5px] leading-tight font-medium rounded-lg border text-center transition ${
-                            house.verwarming === 'Volledige warmtepomp' || house.verwarming === 'Full electric'
+                          title="Klik nogmaals om vermogen te wisselen: 4-5 kW → 6-8 kW → 10-12 kW → Airco"
+                          className={`py-1 px-1 text-[9.5px] leading-tight font-medium rounded-lg border text-center transition cursor-pointer ${
+                            isVolledigActive
                               ? 'bg-emerald-700 text-white border-emerald-700 font-bold shadow-xs'
                               : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                           }`}
                         >
-                          {(house.verwarming === 'Volledige warmtepomp' || house.verwarming === 'Full electric') && wpCapStr
-                            ? `Volledig WP (${wpCapStr})`
-                            : 'Volledig WP'}
+                          {isVolledigActive ? (
+                            <span className="flex flex-col items-center leading-tight">
+                              <span>Volledig WP</span>
+                              <span className="inline-flex items-center gap-0.5 text-[8.5px] font-semibold opacity-95 whitespace-nowrap">
+                                <span>{wpCapStr}</span>
+                                <span aria-hidden="true">↻</span>
+                              </span>
+                            </span>
+                          ) : (
+                            'Volledig WP'
+                          )}
                         </button>
                       );
                     })()}
@@ -1621,7 +1665,7 @@ export default function InputForm({
                       }`}
                       title="Klik om het aantal zonnepanelen te verhogen (+2)"
                     >
-                      {[0, 6, 10].includes(tech.aantalZonnepanelen) ? '16 st' : `${tech.aantalZonnepanelen} st`}
+                      {[0, 6, 10].includes(tech.aantalZonnepanelen) ? '16 st' : `${tech.aantalZonnepanelen} st ↻`}
                     </button>
                   </div>
                   {/* Status Toggle Solar */}
@@ -1742,7 +1786,7 @@ export default function InputForm({
                       }`}
                       title="Klik om de accucapaciteit te verhogen (+5 kWh)"
                     >
-                      {[0, 5, 10].includes(tech.capaciteitAccu) ? '15 kWh' : `${tech.capaciteitAccu} kWh`}
+                      {[0, 5, 10].includes(tech.capaciteitAccu) ? '15 kWh' : `${tech.capaciteitAccu} kWh ↻`}
                     </button>
                   </div>
                   {/* Status Toggle Battery */}
@@ -1945,7 +1989,7 @@ export default function InputForm({
                           {m.nipSubsidy > 0 ? `€${Math.round(m.nipSubsidy)}` : '€0'}
                         </td>
                         <td className="py-1 px-1 text-right font-mono font-semibold text-slate-800">€{Math.round(m.netCosts)}</td>
-                        <td className="py-1 px-1 text-right font-mono text-slate-600">{m.tvt > 0 ? `${(m.tvt ?? 0).toFixed(1)}j` : '0j'}</td>
+                        <td className="py-1 px-1 text-right font-mono text-slate-600">{formatTvt(m.tvt, m.netCosts, m.savingEuro, 'j')}</td>
                       </tr>
                     ))}
                     {/* Totale sommen */}
@@ -1956,7 +2000,7 @@ export default function InputForm({
                       <td className="py-1.5 px-1 text-right font-mono text-emerald-600">€{Math.round(liveCalcResult.totals.isde)}</td>
                       <td className="py-1.5 px-1 text-right font-mono text-blue-600">€{Math.round(liveCalcResult.totals.nip)}</td>
                       <td className="py-1.5 px-1 text-right font-mono text-slate-900">€{Math.round(liveCalcResult.totals.net)}</td>
-                      <td className="py-1.5 px-1 text-right font-mono">{(liveCalcResult.totals.tvt ?? 0).toFixed(1)}j</td>
+                      <td className="py-1.5 px-1 text-right font-mono">{formatTvt(liveCalcResult.totals.tvt, liveCalcResult.totals.net, liveCalcResult.totals.savingsEuro, 'j')}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1971,8 +2015,10 @@ export default function InputForm({
               // Gas costs
               const currentGasM3 = liveCalcResult.house?.verbruikM3 || 0;
 
-              const houseKwh = liveCalcResult.house?.verbruikKwh || 0;
               const solarKwh = liveCalcResult.solar?.annualYieldKwh || 0;
+              const elecBalance = liveCalcResult.electricityBalance || getElectricityConsumptionBreakdown(house, tech, solarKwh);
+              const netAfnameKwh = elecBalance.netGridImportKwh;
+              const houseKwh = elecBalance.totalConsumptionKwh;
               const batteryCap = liveCalcResult.tech?.capaciteitAccu || 0;
 
               // Self consumption percentage (with battery vs base)
@@ -2001,10 +2047,7 @@ export default function InputForm({
 
               const baselineSolarPresent = isBaselineSolarBestaand;
               const baselineSolarKwh = baselineSolarPresent ? solarKwh : 0;
-              const baselineSelfConsPct = isBaselineBatteryBestaand 
-                ? (liveCalcResult.solar?.selfConsumptionWithBattery || 65)
-                : (liveCalcResult.solar?.selfConsumptionBase || 35);
-              const baselineDirectSelfKwh = baselineSolarPresent ? Math.min(houseKwh, (baselineSolarKwh * baselineSelfConsPct) / 100) : 0;
+              const baselineDirectSelfKwh = baselineSolarPresent ? elecBalance.existingDirectSolarKwh : 0;
               const baselineFeedInKwh = baselineSolarPresent ? Math.max(0, baselineSolarKwh - baselineDirectSelfKwh) : 0;
               const baselineGridImportKwh = Math.max(0, houseKwh - baselineDirectSelfKwh);
 
@@ -2028,13 +2071,8 @@ export default function InputForm({
               const currentGasYr = Math.round(currentGasM3 * currentEffectiveGasTarief);
               const currentGasMth = Math.round(currentGasYr / 12);
 
-              let baselineBatteryTradingYield = 0;
-              if (isBaselineBatteryBestaand && batteryCap > 0 && !baselineIsVast && tech.batteryGridTrading !== false) {
-                const baseRatePerKwh = baselineDynamic.batteryTradingYieldPerKwh;
-                const solarStorageShare = baselineSolarKwh > 0 ? Math.min(0.45, (baselineSolarKwh / (batteryCap * 600))) : 0;
-                const correctedRatePerKwh = baseRatePerKwh * (1 - solarStorageShare * 0.35);
-                baselineBatteryTradingYield = batteryCap * correctedRatePerKwh;
-              }
+              // Bij batteryStatus === 'bestaand' tellen we geen extra batterijbesparing
+              const baselineBatteryTradingYield = 0;
 
               let currentElektraYr = 0;
               if (baselineSolarPresent) {
@@ -2095,14 +2133,16 @@ export default function InputForm({
                   ? liveCalcResult.tech.userAnnualWp
                   : (remainingGasAfterInsulation === 0 ? 0 : (aeOption ? Math.round(aeOption.elecIncreaseKwh) : Math.round(remainingGasAfterInsulation * wpCopInfo.factor)));
               } else if (isHybrideWp) {
+                const hybridOption = liveCalcResult.heatpump?.options?.find(o => o.type.includes('Hybride') || o.type.includes('Lucht'));
                 const isAirco = liveCalcResult.tech?.selectedWarmtepompModel === 'LuchtLucht';
                 const hybridRatio = isAirco ? 0.55 : 0.75;
-                postGasM3 = Math.max(0, Math.round(remainingGasAfterInsulation * (1 - hybridRatio)));
+                const fallbackHeatingGas = Math.max(0, remainingGasAfterInsulation - Math.max(0, (resident.aantalPersonen || 0) * 100));
+                const hybridGasSavedM3 = hybridOption ? hybridOption.gasSavingsM3 : (fallbackHeatingGas * hybridRatio);
+                postGasM3 = Math.max(0, Math.round(remainingGasAfterInsulation - hybridGasSavedM3));
 
-                const hybridOption = liveCalcResult.heatpump?.options?.find(o => o.type.includes('Hybride') || o.type.includes('Lucht'));
                 postAddElektraKwh = (liveCalcResult.tech?.userAnnualWp && liveCalcResult.tech.userAnnualWp > 0)
                   ? liveCalcResult.tech.userAnnualWp
-                  : (remainingGasAfterInsulation === 0 ? 0 : (hybridOption ? Math.round(hybridOption.elecIncreaseKwh) : Math.round(remainingGasAfterInsulation * hybridRatio * wpCopInfo.factor)));
+                  : (remainingGasAfterInsulation === 0 ? 0 : (hybridOption ? Math.round(hybridOption.elecIncreaseKwh) : Math.round(hybridGasSavedM3 * wpCopInfo.factor)));
               } else {
                 postGasM3 = remainingGasAfterInsulation;
                 postAddElektraKwh = 0;
@@ -2129,7 +2169,7 @@ export default function InputForm({
               // Grid trading or arbitrage yield if enabled and dynamic contract selected
               // CORRECTIE PUNT 6: Geen dubbeltelling met zonnestroom-opslag
               let batteryTradingYield = 0;
-              if (batteryCap > 0 && !postIsVast && liveCalcResult.tech?.batteryGridTrading !== false) {
+              if (tech.batteryStatus !== 'bestaand' && batteryCap > 0 && !postIsVast && liveCalcResult.tech?.batteryGridTrading !== false) {
                 const baseRatePerKwh = postDynamic.batteryTradingYieldPerKwh;
                 const solarStorageShare = solarKwh > 0 ? Math.min(0.45, (solarKwh / (batteryCap * 600))) : 0;
                 const correctedRatePerKwh = baseRatePerKwh * (1 - solarStorageShare * 0.35);
@@ -2251,7 +2291,7 @@ export default function InputForm({
                 solarSavingsCalculated = Math.round((postDirectSelfKwh * postDynInkoopTarief) + (postFeedInKwh * postDynTerugleverTarief));
               }
 
-              const batterySavingsCalculated = Math.round(batteryTradingYield);
+              const batterySavingsCalculated = tech.batteryStatus === 'bestaand' ? 0 : Math.round(batteryTradingYield);
               const isGasloos = postGasM3 === 0 && (house.verbruikM3 || 0) > 0;
               const fixedGasSaving = (isGasloos && tech.heatpumpStatus !== 'bestaand') ? 280 : 0;
               const chosenWpOpt = liveCalcResult.heatpump?.options?.find(o => isVolledigWp ? o.type === 'All-Electric' : (o.type.includes('Hybride') || o.type.includes('Lucht')));
@@ -2289,10 +2329,25 @@ export default function InputForm({
 
               return (
                 <div className="bg-slate-50/80 border border-slate-200/80 rounded-lg p-2 space-y-1.5 mt-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
-                      <PiggyBank className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Energiekosten Jouw Woning (Gas &amp; Elektra)
-                    </span>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
+                        <PiggyBank className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Energiekosten Jouw Woning (Gas &amp; Elektra)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowMainGuide(prev => !prev)}
+                        className={`text-[9.5px] px-2.5 py-0.5 rounded-full font-bold transition-colors flex items-center gap-1 cursor-pointer border shadow-2xs ${
+                          showMainGuide
+                            ? 'bg-sky-600 text-white border-sky-600'
+                            : 'text-sky-800 bg-sky-50 hover:bg-sky-100 border-sky-200/90'
+                        }`}
+                        title="Open compacte handleiding voor het gebruik van deze hoofdpagina"
+                      >
+                        <BookOpen className={`w-3 h-3 ${showMainGuide ? 'text-white' : 'text-sky-600'}`} />
+                        <span>{showMainGuide ? 'Sluit handleiding' : 'Handleiding'}</span>
+                      </button>
+                    </div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <button
                         type="button"
@@ -2305,7 +2360,13 @@ export default function InputForm({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setShowEnergyPdfModal(true)}
+                        onClick={() => {
+                          if (formValidation.missing.length > 0) {
+                            setShowPdfMissingModal(true);
+                          } else {
+                            setShowEnergyPdfModal(true);
+                          }
+                        }}
                         className="text-[9.5px] text-white bg-emerald-600 hover:bg-emerald-700 border border-emerald-600 px-2.5 py-0.5 rounded-full font-bold transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
                       >
                         <FileText className="w-3 h-3 text-white" />
@@ -2324,6 +2385,68 @@ export default function InputForm({
                       </span>
                     </div>
                   </div>
+
+                  {/* Compacte Handleiding Hoofdpagina */}
+                  {showMainGuide && (
+                    <div className="bg-sky-50/80 border border-sky-200/90 rounded-lg p-3 text-[10.5px] space-y-2.5 font-sans text-slate-700 shadow-2xs animate-fadeIn">
+                      <div className="flex items-center justify-between border-b border-sky-200/80 pb-1.5">
+                        <span className="font-bold text-sky-950 flex items-center gap-1.5 text-[11px]">
+                          <BookOpen className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                          Compacte Handleiding — Zo gebruik je deze hoofdpagina
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowMainGuide(false)}
+                          className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1 cursor-pointer"
+                          aria-label="Sluit handleiding"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                        <div className="bg-white p-2 rounded-lg border border-sky-100 space-y-1">
+                          <div className="font-bold text-sky-950 flex items-center gap-1.5 text-[10.5px]">
+                            <span className="w-4 h-4 rounded-full bg-sky-600 text-white text-[9px] font-black inline-flex items-center justify-center shrink-0">1</span>
+                            Woning &amp; Adres laden
+                          </div>
+                          <p className="text-[10px] text-slate-600 leading-snug">
+                            Kies bovenaan een bouwjaar-profiel of klik op <strong>Nieuw formulier (Wis alles)</strong>. Vul bij <em>1. Bewoners &amp; Adres</em> postcode + huisnummer in om bouwjaar, m² en energielabel automatisch op te halen en controleer het gas-/stroomverbruik.
+                          </p>
+                        </div>
+
+                        <div className="bg-white p-2 rounded-lg border border-sky-100 space-y-1">
+                          <div className="font-bold text-sky-950 flex items-center gap-1.5 text-[10.5px]">
+                            <span className="w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] font-black inline-flex items-center justify-center shrink-0">2</span>
+                            Nulmeting &amp; Contract
+                          </div>
+                          <p className="text-[10px] text-slate-600 leading-snug">
+                            Klik op <strong>0-meting</strong> (of <em>met PV / Accu</em>) om bestaande installaties op <strong>€ 0 investering</strong> te zetten. Kies in de tabel bij <em>Huidige Situatie</em> en <em>Na Verduurzaming</em> direct <strong>Vast / Dynamisch</strong> en de energieleverancier.
+                          </p>
+                        </div>
+
+                        <div className="bg-white p-2 rounded-lg border border-sky-100 space-y-1">
+                          <div className="font-bold text-sky-950 flex items-center gap-1.5 text-[10.5px]">
+                            <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[9px] font-black inline-flex items-center justify-center shrink-0">3</span>
+                            Maatregelen simuleren
+                          </div>
+                          <p className="text-[10px] text-slate-600 leading-snug">
+                            Klik op <strong>Warmtepomp</strong>, <strong>Zonnepanelen</strong>, <strong>Thuisaccu</strong>, <strong>Laadpaal</strong> en <strong>Isolatie</strong> om aantallen/m² te testen. De jaarkosten, besparing en terugverdientijd (TVT) rekenen direct live mee.
+                          </p>
+                        </div>
+
+                        <div className="bg-white p-2 rounded-lg border border-sky-100 space-y-1">
+                          <div className="font-bold text-sky-950 flex items-center gap-1.5 text-[10.5px]">
+                            <span className="w-4 h-4 rounded-full bg-indigo-600 text-white text-[9px] font-black inline-flex items-center justify-center shrink-0">4</span>
+                            Verfijnen &amp; Delen
+                          </div>
+                          <p className="text-[10px] text-slate-600 leading-snug">
+                            Gebruik de tabbladen voor grafieken en <strong>Instellingen</strong> (eigen tarieven). Klaar? Download <strong>Excel (.xlsx)</strong> of <strong>PDF</strong>, mail direct naar de bewoner (bovenin) of klik onderaan op <strong>Genereer Uitgebreid Adviesrapport</strong>.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Uitleg & Simulatietips Card */}
                   {showSimExplanation && (
@@ -2429,12 +2552,12 @@ export default function InputForm({
                               {baselineIsVast ? (
                                 <select
                                   aria-label="Aanbieder vast contract 0-meting"
-                                  value={tech.baselineFixedProvider || 'Essent'}
+                                  value={baselineFixed.id}
                                   onChange={(e) => {
-                                    const prov = getFixedProvider(e.target.value as any);
+                                    const prov = getFixedProvider(e.target.value);
                                     setTech(prev => ({
                                       ...prev,
-                                      baselineFixedProvider: prov.name as any,
+                                      baselineFixedProvider: prov.id,
                                       baselineVastTarief: prov.stroomTarief,
                                       baselineGasTarief: prov.gasTarief
                                     }));
@@ -2443,7 +2566,7 @@ export default function InputForm({
                                   title="Kies uit de 4 grootste energieleveranciers met vaste tarieven"
                                 >
                                   {TOP4_FIXED_PROVIDERS.map(p => (
-                                    <option key={p.id} value={p.name}>
+                                    <option key={p.id} value={p.id}>
                                       🏢 {p.name} (Stroom €{p.stroomTarief.toFixed(2)} • Gas €{p.gasTarief.toFixed(2)})
                                     </option>
                                   ))}
@@ -2451,12 +2574,12 @@ export default function InputForm({
                               ) : (
                                 <select
                                   aria-label="Aanbieder dynamisch contract 0-meting"
-                                  value={tech.baselineDynamicProvider || 'Zonneplan'}
+                                  value={baselineDynamic.id}
                                   onChange={(e) => {
-                                    const prov = getDynamicProvider(e.target.value as any);
+                                    const prov = getDynamicProvider(e.target.value);
                                     setTech(prev => ({
                                       ...prev,
-                                      baselineDynamicProvider: prov.name as any,
+                                      baselineDynamicProvider: prov.id,
                                       baselineDynamischStroomTarief: prov.stroomInkoop,
                                       baselineDynamischTerugleverTarief: prov.stroomTeruglever
                                     }));
@@ -2465,7 +2588,7 @@ export default function InputForm({
                                   title="Kies uit de 4 grootste dynamische energieleveranciers"
                                 >
                                   {TOP4_DYNAMIC_PROVIDERS.map(p => (
-                                    <option key={p.id} value={p.name}>
+                                    <option key={p.id} value={p.id}>
                                       ⚡ {p.name} (Stroom €{p.stroomInkoop.toFixed(2)} • Gas €{p.gasTarief.toFixed(2)})
                                     </option>
                                   ))}
@@ -2484,7 +2607,7 @@ export default function InputForm({
                           </div>
 
                           <p className="text-slate-600 text-[10px] leading-relaxed">
-                            Dit zijn je kosten op basis van je <strong>oorspronkelijke of werkelijke jaarverbruik</strong> ({currentGasM3} m³ gas &amp; {houseKwh} kWh stroom) en je huidige installaties.
+                            Dit zijn je kosten op basis van je <strong>oorspronkelijke of werkelijke jaarverbruik</strong> ({currentGasM3} m³ gas &amp; {houseKwh} kWh totaal stroomverbruik{isBaselineSolarBestaand ? `, waarvan ${netAfnameKwh} kWh netto afname` : ''}) en je huidige installaties.
                           </p>
                           <div className="bg-amber-50/40 p-2 rounded border border-amber-100/80 space-y-1 text-[9.5px] text-amber-950 mt-1">
                             <p className="font-bold flex items-center gap-1 text-[10px] text-amber-900">
@@ -2533,12 +2656,12 @@ export default function InputForm({
                                 {postIsVast ? (
                                   <select
                                     aria-label="Aanbieder vast contract na verduurzaming"
-                                    value={tech.fixedProvider || 'Essent'}
+                                    value={postFixed.id}
                                     onChange={(e) => {
-                                      const prov = getFixedProvider(e.target.value as any);
+                                      const prov = getFixedProvider(e.target.value);
                                       setTech(prev => ({
                                         ...prev,
-                                        fixedProvider: prov.name as any,
+                                        fixedProvider: prov.id,
                                         vastTarief: prov.stroomTarief,
                                         vastGasTarief: prov.gasTarief,
                                         vastTerugleverkosten: prov.terugleverkosten,
@@ -2549,7 +2672,7 @@ export default function InputForm({
                                     title="Kies uit de 4 grootste energieleveranciers met vaste tarieven"
                                   >
                                     {TOP4_FIXED_PROVIDERS.map(p => (
-                                      <option key={p.id} value={p.name}>
+                                      <option key={p.id} value={p.id}>
                                         🏢 {p.name} (Stroom €{p.stroomTarief.toFixed(2)} • Gas €{p.gasTarief.toFixed(2)})
                                       </option>
                                     ))}
@@ -2557,21 +2680,22 @@ export default function InputForm({
                                 ) : (
                                   <select
                                     aria-label="Aanbieder dynamisch contract na verduurzaming"
-                                    value={tech.dynamicProvider || 'Zonneplan'}
+                                    value={postDynamic.id}
                                     onChange={(e) => {
-                                      const prov = getDynamicProvider(e.target.value as any);
+                                      const prov = getDynamicProvider(e.target.value);
                                       setTech(prev => ({
                                         ...prev,
-                                        dynamicProvider: prov.name as any,
+                                        dynamicProvider: prov.id,
                                         dynamischStroomTarief: prov.stroomInkoop,
-                                        dynamischTerugleverTarief: prov.stroomTeruglever
+                                        dynamischTerugleverTarief: prov.stroomTeruglever,
+                                        opslagLeverancier: prov.opslagLeverancier
                                       }));
                                     }}
                                     className="text-[9px] bg-blue-50/90 border border-blue-300 text-blue-950 font-bold rounded px-1.5 py-0.5 focus:outline-blue-600 cursor-pointer shadow-2xs max-w-[190px]"
                                     title="Kies uit de 4 grootste dynamische energieleveranciers"
                                   >
                                     {TOP4_DYNAMIC_PROVIDERS.map(p => (
-                                      <option key={p.id} value={p.name}>
+                                      <option key={p.id} value={p.id}>
                                         ⚡ {p.name} (Stroom €{p.stroomInkoop.toFixed(2)} • Gas €{p.gasTarief.toFixed(2)})
                                       </option>
                                     ))}
@@ -2865,12 +2989,12 @@ export default function InputForm({
                               {baselineIsVast ? (
                                 <select
                                   aria-label="Aanbieder 0-meting vast"
-                                  value={tech.baselineFixedProvider || 'Essent'}
+                                  value={baselineFixed.id}
                                   onChange={(e) => {
-                                    const prov = getFixedProvider(e.target.value as any);
+                                    const prov = getFixedProvider(e.target.value);
                                     setTech(prev => ({
                                       ...prev,
-                                      baselineFixedProvider: prov.name as any,
+                                      baselineFixedProvider: prov.id,
                                       baselineVastTarief: prov.stroomTarief,
                                       baselineGasTarief: prov.gasTarief
                                     }));
@@ -2878,7 +3002,7 @@ export default function InputForm({
                                   className="text-[8.5px] bg-white border border-amber-300 text-amber-950 font-bold rounded px-1 py-0.2 focus:outline-amber-500 cursor-pointer"
                                 >
                                   {TOP4_FIXED_PROVIDERS.map(p => (
-                                    <option key={p.id} value={p.name}>
+                                    <option key={p.id} value={p.id}>
                                       🏢 {p.name}
                                     </option>
                                   ))}
@@ -2886,12 +3010,12 @@ export default function InputForm({
                               ) : (
                                 <select
                                   aria-label="Aanbieder 0-meting dynamisch"
-                                  value={tech.baselineDynamicProvider || 'Zonneplan'}
+                                  value={baselineDynamic.id}
                                   onChange={(e) => {
-                                    const prov = getDynamicProvider(e.target.value as any);
+                                    const prov = getDynamicProvider(e.target.value);
                                     setTech(prev => ({
                                       ...prev,
-                                      baselineDynamicProvider: prov.name as any,
+                                      baselineDynamicProvider: prov.id,
                                       baselineDynamischStroomTarief: prov.stroomInkoop,
                                       baselineDynamischTerugleverTarief: prov.stroomTeruglever
                                     }));
@@ -2899,7 +3023,7 @@ export default function InputForm({
                                   className="text-[8.5px] bg-white border border-blue-300 text-blue-950 font-bold rounded px-1 py-0.2 focus:outline-blue-500 cursor-pointer"
                                 >
                                   {TOP4_DYNAMIC_PROVIDERS.map(p => (
-                                    <option key={p.id} value={p.name}>
+                                    <option key={p.id} value={p.id}>
                                       ⚡ {p.name}
                                     </option>
                                   ))}
@@ -2953,12 +3077,12 @@ export default function InputForm({
                               {postIsVast ? (
                                 <select
                                   aria-label="Aanbieder na verduurzaming vast"
-                                  value={tech.fixedProvider || 'Essent'}
+                                  value={postFixed.id}
                                   onChange={(e) => {
-                                    const prov = getFixedProvider(e.target.value as any);
+                                    const prov = getFixedProvider(e.target.value);
                                     setTech(prev => ({
                                       ...prev,
-                                      fixedProvider: prov.name as any,
+                                      fixedProvider: prov.id,
                                       vastTarief: prov.stroomTarief,
                                       vastGasTarief: prov.gasTarief,
                                       vastTerugleverkosten: prov.terugleverkosten,
@@ -2968,7 +3092,7 @@ export default function InputForm({
                                   className="text-[8.5px] bg-white border border-emerald-300 text-emerald-950 font-bold rounded px-1 py-0.2 focus:outline-emerald-500 cursor-pointer"
                                 >
                                   {TOP4_FIXED_PROVIDERS.map(p => (
-                                    <option key={p.id} value={p.name}>
+                                    <option key={p.id} value={p.id}>
                                       🏢 {p.name}
                                     </option>
                                   ))}
@@ -2976,20 +3100,21 @@ export default function InputForm({
                               ) : (
                                 <select
                                   aria-label="Aanbieder na verduurzaming dynamisch"
-                                  value={tech.dynamicProvider || 'Zonneplan'}
+                                  value={postDynamic.id}
                                   onChange={(e) => {
-                                    const prov = getDynamicProvider(e.target.value as any);
+                                    const prov = getDynamicProvider(e.target.value);
                                     setTech(prev => ({
                                       ...prev,
-                                      dynamicProvider: prov.name as any,
+                                      dynamicProvider: prov.id,
                                       dynamischStroomTarief: prov.stroomInkoop,
-                                      dynamischTerugleverTarief: prov.stroomTeruglever
+                                      dynamischTerugleverTarief: prov.stroomTeruglever,
+                                      opslagLeverancier: prov.opslagLeverancier
                                     }));
                                   }}
                                   className="text-[8.5px] bg-white border border-blue-300 text-blue-950 font-bold rounded px-1 py-0.2 focus:outline-blue-500 cursor-pointer"
                                 >
                                   {TOP4_DYNAMIC_PROVIDERS.map(p => (
-                                    <option key={p.id} value={p.name}>
+                                    <option key={p.id} value={p.id}>
                                       ⚡ {p.name}
                                     </option>
                                   ))}
@@ -3103,8 +3228,23 @@ export default function InputForm({
                     naVerduurzamingLabel={naVerduurzamingLabel}
                     baselineTypeContract={tech.baselineTypeContract || 'Vast'}
                     typeContract={tech.typeContract}
-                    baselineProviderName={baselineIsVast ? (tech.baselineFixedProvider || 'Essent') : (tech.baselineDynamicProvider || 'Zonneplan')}
-                    postProviderName={postIsVast ? (tech.fixedProvider || 'Essent') : (tech.dynamicProvider || 'Zonneplan')}
+                    baselineProviderName={baselineIsVast ? baselineFixed.name : baselineDynamic.name}
+                    postProviderName={postIsVast ? postFixed.name : postDynamic.name}
+                  />
+                  <MissingFieldsModal
+                    isOpen={showPdfMissingModal}
+                    actionLabel="PDF Berekening Rapport"
+                    missingFields={formValidation.missing}
+                    onJumpToField={(elementId) => {
+                      setShowPdfMissingModal(false);
+                      setActiveTab('isolatie');
+                      focusFormField(elementId);
+                    }}
+                    onProceedAnyway={() => {
+                      setShowPdfMissingModal(false);
+                      setShowEnergyPdfModal(true);
+                    }}
+                    onClose={() => setShowPdfMissingModal(false)}
                   />
                 </div>
               );
@@ -3113,8 +3253,8 @@ export default function InputForm({
             {/* Totaalvoorstel Verduurzaming (Alle Maatregelen Samen) - Direct onder Energiekosten */}
             {liveCalcResult && (() => {
               const gPrice = liveCalcResult.house?.gasPrijs || 1.50;
-              const ePrice = liveCalcResult.house?.elektraPrijs || 0.35;
-              const houseKwh = liveCalcResult.house?.verbruikKwh || 3500;
+              const ePrice = liveCalcResult.house?.elektraPrijs || 0.31;
+              const houseKwh = liveCalcResult.electricityBalance?.totalConsumptionKwh ?? (liveCalcResult.house?.verbruikKwh || 0);
 
               // 1. Isolatie
               const isoNetCosts = liveCalcResult.totals?.net || 0;
@@ -3132,7 +3272,7 @@ export default function InputForm({
                 : (hasSolar ? (liveCalcResult.tech?.customZonnepanelenPrijs || getSolarInvestmentEstimate(solarPanels)) : 0);
               const solarSaldeerd = Math.min(solarYield, houseKwh);
               const solarSurplus = Math.max(0, solarYield - solarSaldeerd);
-              const solarSavings = Math.round((solarSaldeerd * ePrice) + (solarSurplus * 0.05));
+              const solarSavings = Math.round((solarSaldeerd * ePrice) + (solarSurplus * 0.06));
 
               // 3. Thuisbatterij
               const batCap = liveCalcResult.tech?.capaciteitAccu || 0;
@@ -3145,8 +3285,8 @@ export default function InputForm({
                 ? 0 
                 : (hasBat ? Math.round(batBruto * (100 / 121)) : 0);
               const currentProvider = liveCalcResult.tech?.dynamicProvider || 'Zonneplan';
-              const batEarnings = hasBat ? calculatePostSalderingEarnings(batCap, currentProvider, liveCalcResult.tech?.customAccuPrijs) : null;
-              const batSavings = batEarnings ? batEarnings.totalSavings : 0;
+              const batEarnings = (hasBat && !isBatBestaand) ? calculatePostSalderingEarnings(batCap, currentProvider, liveCalcResult.tech?.customAccuPrijs) : null;
+              const batSavings = isBatBestaand ? 0 : (batEarnings ? batEarnings.totalSavings : 0);
 
               // 4. Warmtepomp
               const houseWpType = liveCalcResult.house?.verwarming || 'CV-ketel';
@@ -3187,9 +3327,9 @@ export default function InputForm({
               const existingSavingsPerYear = Math.round((isSolarBestaand && hasSolar ? solarSavings : 0) + (isBatBestaand && hasBat ? batSavings : 0) + (isWpBestaand && hasWp ? wpSavings : 0) + (isLaadpaalBestaand && hasEv ? evSavings : 0));
               const totalCombinedSavingsPerYear = newCombinedSavingsPerYear + existingSavingsPerYear;
 
-              const totalCombinedTvtNum = newCombinedSavingsPerYear > 0 ? (newCombinedNetInvestment / newCombinedSavingsPerYear) : 0;
-              const totalCombinedTvt = totalCombinedTvtNum > 0 && totalCombinedTvtNum < 99 ? `${totalCombinedTvtNum.toFixed(1)} jaar` : (newCombinedNetInvestment === 0 ? '€ 0 (Reeds aanwezig)' : 'N.v.t.');
-              const totalCombinedRendement = newCombinedNetInvestment > 0 ? `${((newCombinedSavingsPerYear / newCombinedNetInvestment) * 100).toFixed(1)}%` : (newCombinedNetInvestment === 0 ? 'N.v.t.' : '0%');
+              const totalCombinedTvtNum = calculateTvtYears(newCombinedNetInvestment, newCombinedSavingsPerYear);
+              const totalCombinedTvt = formatTvt(totalCombinedTvtNum, newCombinedNetInvestment, newCombinedSavingsPerYear);
+              const totalCombinedRendement = (newCombinedNetInvestment > 0 && newCombinedSavingsPerYear > 0) ? `${((newCombinedSavingsPerYear / newCombinedNetInvestment) * 100).toFixed(1)}%` : 'n.v.t.';
 
               const hasAnyExisting = (isSolarBestaand && hasSolar) || (isBatBestaand && hasBat) || (isWpBestaand && hasWp) || (isLaadpaalBestaand && hasEv);
               const hasAnyNew = hasIso || (!isSolarBestaand && hasSolar) || (!isBatBestaand && hasBat) || (!isWpBestaand && hasWp) || (!isLaadpaalBestaand && hasEv);
@@ -3350,14 +3490,32 @@ export default function InputForm({
 
           {/* 1. Bewoner & Adres (BAG API!) */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
+            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <User className="w-4 h-4 text-emerald-600" />
                 <h3 className="text-sm font-semibold text-slate-700">1. Bewoners &amp; Adres Gegevens</h3>
               </div>
-              <span className="text-[10px] font-bold text-slate-400 bg-slate-200/50 px-2.5 py-0.5 rounded-full uppercase tracking-wider font-mono">
-                {resident.registratiecode || "PM-CONCEPT"}
-              </span>
+              <div className="flex items-center gap-1.5">
+                {formValidation.byBlock.block1.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => focusFormField(formValidation.byBlock.block1[0].elementId)}
+                    className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2 py-0.5 rounded-full transition cursor-pointer"
+                    title={`Klik om naar het eerste open veld te gaan (${formValidation.byBlock.block1.map(f => f.label).join(', ')})`}
+                  >
+                    <AlertTriangle className="w-3 h-3 text-amber-600" />
+                    <span>{formValidation.byBlock.block1.length} open</span>
+                  </button>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    <span>Compleet</span>
+                  </span>
+                )}
+                <span className="text-[10px] font-bold text-slate-400 bg-slate-200/50 px-2.5 py-0.5 rounded-full uppercase tracking-wider font-mono">
+                  {resident.registratiecode || "PM-CONCEPT"}
+                </span>
+              </div>
             </div>
             <div className="p-3.5 sm:p-4 space-y-2.5 sm:space-y-3">
               <div className="bg-emerald-50/50 rounded-xl p-2.5 sm:p-3 border border-emerald-100/50 space-y-2">
@@ -3375,7 +3533,7 @@ export default function InputForm({
                       onChange={(e) => updateResident({ postcode: e.target.value.toUpperCase() })}
                       onBlur={autoFetchBag}
                       placeholder="5981AD"
-                      className="w-full text-xs sm:text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 uppercase text-center"
+                      className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 uppercase text-center transition ${getFieldHighlight('postcode', 'bg-white border-slate-200')}`}
                       id="postcode"
                     />
                   </div>
@@ -3389,7 +3547,7 @@ export default function InputForm({
                       onChange={(e) => updateResident({ huisnummer: e.target.value })}
                       onBlur={autoFetchBag}
                       placeholder="12"
-                      className="w-full text-xs sm:text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 text-center"
+                      className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 text-center transition ${getFieldHighlight('huisnummer', 'bg-white border-slate-200')}`}
                       id="huisnummer"
                     />
                   </div>
@@ -3459,7 +3617,7 @@ export default function InputForm({
                     type="text"
                     value={resident.achternaam}
                     onChange={(e) => updateResident(prev => ({ achternaam: e.target.value, naam: `${prev.voorletters} ${e.target.value}`.trim() }))}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('achternaam')}`}
                     placeholder="Bijv. Janssen"
                     id="achternaam"
                   />
@@ -3486,7 +3644,7 @@ export default function InputForm({
                   <select
                     value={resident.plaats}
                     onChange={(e) => updateResident({ plaats: e.target.value })}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('plaats')}`}
                     id="plaats"
                   >
                     <option value="">-- Selecteer Kerkdorp --</option>
@@ -3506,7 +3664,7 @@ export default function InputForm({
                     type="tel"
                     value={resident.telefoon}
                     onChange={(e) => updateResident({ telefoon: e.target.value })}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('telefoon')}`}
                     placeholder="0612345678"
                     id="telefoon"
                   />
@@ -3620,9 +3778,27 @@ export default function InputForm({
 
           {/* 2. Woning Kenmerken & Installaties */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center gap-2">
-              <Home className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-sm font-semibold text-slate-700">2. Woning &amp; Huidige Installaties</h3>
+            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Home className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-sm font-semibold text-slate-700">2. Woning &amp; Huidige Installaties</h3>
+              </div>
+              {formValidation.byBlock.block2.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => focusFormField(formValidation.byBlock.block2[0].elementId)}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2 py-0.5 rounded-full transition cursor-pointer"
+                  title={`Klik om naar het eerste open veld te gaan (${formValidation.byBlock.block2.map(f => f.label).join(', ')})`}
+                >
+                  <AlertTriangle className="w-3 h-3 text-amber-600" />
+                  <span>{formValidation.byBlock.block2.length} open</span>
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                  <span>Compleet</span>
+                </span>
+              )}
             </div>
             <div className="p-3.5 sm:p-4 space-y-2.5 sm:space-y-3">
               {/* Basis Woninggegevens in 3 kolommen */}
@@ -3635,7 +3811,7 @@ export default function InputForm({
                   <select
                     value={house.soortWoning}
                     onChange={(e) => setHouse(prev => ({ ...prev, soortWoning: e.target.value }))}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('soortWoning')}`}
                     id="soort_woning"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3657,7 +3833,7 @@ export default function InputForm({
                     type="number"
                     value={house.bouwjaar || ''}
                     onChange={(e) => setHouse(prev => ({ ...prev, bouwjaar: Number(e.target.value) }))}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('bouwjaar')}`}
                     placeholder="Bijv. 1978"
                     id="bouwjaar"
                   />
@@ -3671,7 +3847,7 @@ export default function InputForm({
                     type="number"
                     value={house.woonoppervlakte || ''}
                     onChange={(e) => setHouse(prev => ({ ...prev, woonoppervlakte: Number(e.target.value) }))}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('woonoppervlakte')}`}
                     placeholder="Bijv. 115"
                     id="woonopp"
                   />
@@ -3685,7 +3861,7 @@ export default function InputForm({
                     type="number"
                     value={resident.aantalPersonen || ''}
                     onChange={(e) => setResident(prev => ({ ...prev, aantalPersonen: Number(e.target.value) }))}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('aantalPersonen')}`}
                     placeholder="Bijv. 2"
                     id="aantal_personen"
                   />
@@ -3702,7 +3878,7 @@ export default function InputForm({
                     type="number"
                     value={house.wozWaarde || ''}
                     onChange={(e) => setHouse(prev => ({ ...prev, wozWaarde: Number(e.target.value) }))}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('wozWaarde')}`}
                     placeholder="Bijv. 385000"
                     id="woz_waarde"
                   />
@@ -3741,7 +3917,7 @@ export default function InputForm({
                         <p className="font-bold text-slate-200">Hoofdverwarming types:</p>
                         <p>• <strong>CV-ketel:</strong> Traditionele gasverwarming d.m.v. aardgas.</p>
                         <p>• <strong>Hybride warmtepomp:</strong> Warmtepomp gecombineerd met een CV-ketel voor koude dagen en tapwater.</p>
-                        <p>• <strong>Full electric:</strong> Volledig gasloos verwarmen op elektriciteit d.m.v. een warmtepomp.</p>
+                        <p>• <strong>Volledige warmtepomp / Full electric:</strong> Volledig gasloos verwarmen op elektriciteit d.m.v. een warmtepomp.</p>
                       </div>
                     } />
                   </label>
@@ -3758,14 +3934,15 @@ export default function InputForm({
                         setTech(prev => ({ ...prev, selectedWarmtepompType: 'All-Electric' }));
                       }
                     }}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('verwarming')}`}
                     id="verwarming"
                   >
                     <option value="">-- Selecteer --</option>
-                    <option>CV-ketel</option>
-                    <option>Hybride warmtepomp</option>
-                    <option>Full electric</option>
-                    <option>Andere</option>
+                    <option value="CV-ketel">CV-ketel</option>
+                    <option value="Hybride warmtepomp">Hybride warmtepomp</option>
+                    <option value="Volledige warmtepomp">Volledige warmtepomp</option>
+                    <option value="Full electric">Full electric</option>
+                    <option value="Andere">Andere</option>
                   </select>
                 </div>
                 <div>
@@ -3783,7 +3960,7 @@ export default function InputForm({
                   <select
                     value={house.afgiftesysteem}
                     onChange={(e) => setHouse(prev => ({ ...prev, afgiftesysteem: e.target.value }))}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('afgiftesysteem')}`}
                     id="afgiftesysteem"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3809,7 +3986,7 @@ export default function InputForm({
                   <select
                     value={house.tapwater}
                     onChange={(e) => setHouse(prev => ({ ...prev, tapwater: e.target.value }))}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('tapwater')}`}
                     id="tapwater"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3836,7 +4013,7 @@ export default function InputForm({
                   <select
                     value={house.koken}
                     onChange={(e) => setHouse(prev => ({ ...prev, koken: e.target.value }))}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('koken')}`}
                     id="koken"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3861,7 +4038,7 @@ export default function InputForm({
                   <select
                     value={house.ventilatie}
                     onChange={(e) => setHouse(prev => ({ ...prev, ventilatie: e.target.value }))}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('ventilatie')}`}
                     id="ventilatie"
                   >
                     <option value="">-- Selecteer --</option>
@@ -4082,7 +4259,7 @@ export default function InputForm({
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_elektra_verbruik">
                             <span>Stroomverbruik</span>
-                            <Tooltip text="Je totale jaarlijkse elektriciteitsverbruik in kWh volgens je jaarnota. Dit getal wordt automatisch overgenomen naar het volgende blok '3. Energieverbruik & Stookgedrag'." />
+                            <Tooltip text="Je jaarlijkse elektriciteitsafname van het net (netto afname in kWh volgens je jaarnota). Bij bestaande zonnepanelen telt de rekentool automatisch je direct verbruikte zonnestroom (opwekking − teruglevering) hierbij op voor het totale stroomverbruik. Wordt gesynchroniseerd met Blok 3." />
                             <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
                               Naar Blok 3
                             </span>
@@ -4160,9 +4337,27 @@ export default function InputForm({
 
           {/* 3. Energie verbruik en kosten */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center gap-2">
-              <Zap className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-sm font-semibold text-slate-700">3. Energieverbruik &amp; Stookgedrag (Jaarrekening)</h3>
+            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-sm font-semibold text-slate-700">3. Energieverbruik &amp; Stookgedrag (Jaarrekening)</h3>
+              </div>
+              {formValidation.byBlock.block3.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => focusFormField(formValidation.byBlock.block3[0].elementId)}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2 py-0.5 rounded-full transition cursor-pointer"
+                  title={`Klik om naar het eerste open veld te gaan (${formValidation.byBlock.block3.map(f => f.label).join(', ')})`}
+                >
+                  <AlertTriangle className="w-3 h-3 text-amber-600" />
+                  <span>{formValidation.byBlock.block3.length} open</span>
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                  <span>Compleet</span>
+                </span>
+              )}
             </div>
             <div className="p-3.5 sm:p-4 space-y-2.5 sm:space-y-3">
               <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
@@ -4170,7 +4365,7 @@ export default function InputForm({
                   <div className="flex items-center justify-between mb-0.5">
                     <label className="block text-xs font-medium text-slate-500 flex items-center gap-1" htmlFor="elektra_verbruik">
                       <span>Elektra (kWh)</span>
-                      <Tooltip text="Het huidige jaarlijkse elektriciteitsverbruik in kWh (volgens de meest recente jaarrekening). Gesynchroniseerd met het blok Bestaande Zonnepanelen." />
+                      <Tooltip text="Je jaarlijkse elektriciteitsafname van het net (netto afname in kWh volgens je meest recente jaarrekening). Gesynchroniseerd met het blok Bestaande Zonnepanelen." />
                     </label>
                     {(house.zonnepanelenPresent === 'Ja' || tech.aantalZonnepanelen > 0) && (
                       <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
@@ -4185,7 +4380,7 @@ export default function InputForm({
                       const val = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
                       setHouse(prev => ({ ...prev, verbruikKwh: val }));
                     }}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-mono font-medium"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-mono font-medium transition ${getFieldHighlight('verbruikKwh')}`}
                     id="elektra_verbruik"
                     placeholder="bijv. 3500"
                   />
@@ -4204,7 +4399,7 @@ export default function InputForm({
                     type="number"
                     value={house.elektraPrijs || ''}
                     onChange={(e) => setHouse(prev => ({ ...prev, elektraPrijs: Number(e.target.value) }))}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('elektraPrijs')}`}
                     step="0.01"
                     id="elektra_prijs"
                   />
@@ -4271,7 +4466,9 @@ export default function InputForm({
                         ? 'border-rose-400 bg-rose-50/40 text-rose-950 font-medium'
                         : (house.verbruikM3 === 0 && isAllElectricOrBestaandWp)
                           ? 'border-emerald-300 bg-emerald-50/60 text-emerald-900 font-bold'
-                          : 'bg-slate-50 border-slate-200 text-slate-800'
+                          : formValidation.missingKeys.has('verbruikM3')
+                            ? 'border-amber-400 bg-amber-50/70 ring-1 ring-amber-200/80 text-slate-800'
+                            : 'bg-slate-50 border-slate-200 text-slate-800'
                     }`}
                     id="gas_totaal"
                   />
@@ -4313,10 +4510,10 @@ export default function InputForm({
                       const val = e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.');
                       setHouse(prev => ({ ...prev, gasPrijs: Number(val) }));
                     }}
-                    className={`w-full text-xs sm:text-sm rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 transition ${
+                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 transition ${
                       house.verbruikM3 === 0 && isAllElectricOrBestaandWp
-                        ? 'bg-slate-100/70 border border-slate-200 text-slate-400 font-medium'
-                        : 'bg-slate-50 border border-slate-200 text-slate-800'
+                        ? 'bg-slate-100/70 border-slate-200 text-slate-400 font-medium'
+                        : getFieldHighlight('gasPrijs')
                     }`}
                     id="gas_prijs"
                   />
@@ -5171,7 +5368,7 @@ export default function InputForm({
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="zon_elektra_verbruik">
                             <span>Stroomverbruik</span>
-                            <Tooltip text="Je totale jaarlijkse elektriciteitsverbruik in kWh (volgens je energienota). Gesynchroniseerd met Blok 3: Energieverbruik & Stookgedrag." />
+                            <Tooltip text="Je jaarlijkse elektriciteitsafname van het net (netto afname in kWh volgens je energienota). Gesynchroniseerd met Blok 3: Energieverbruik & Stookgedrag." />
                             <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
                               Blok 3 sync
                             </span>
@@ -5323,45 +5520,33 @@ export default function InputForm({
                 validationAction = 'Verhoog het aantal zonnepanelen om een zonnestroom-advies te simuleren.';
               }
             } else {
-              // We have solar panels
+              // We have solar panels: verbruikKwh is netto afname, total = afname + (opbrengst - teruglevering)
               const directSolarConsumption = Math.max(0, zonnepanelenYield - terugleveringElectra);
+              displayTotalConsumption = Math.round(verbruikElectra + directSolarConsumption);
+              selfConsumptionPercent = zonnepanelenYield > 0 ? Math.min(100, Math.max(0, Math.round((directSolarConsumption / zonnepanelenYield) * 100))) : 0;
 
               if (terugleveringElectra > zonnepanelenYield) {
                 validationSeverity = 'danger';
                 validationTitle = 'Kritieke onduidelijkheid: Te hoge teruglevering';
                 validationMessage = `Je opgegeven teruglevering (${terugleveringElectra} kWh) is groter dan je berekende zonne-opwekking (${zonnepanelenYield} kWh). Dit is natuurkundig onmogelijk.`;
-                validationAction = 'Controleer je jaarrekening. Heb je per ongeluk je verbruik en teruglevering omgewisseld op de Woning-pagina, of is je ingestelde paneelvermogen/aantal panelen te laag?';
+                validationAction = 'Controleer je jaarrekening. Heb je per ongeluk je afname en teruglevering omgewisseld op de Woning-pagina, of is je ingestelde paneelvermogen/aantal panelen te laag?';
               } else if (terugleveringElectra === 0) {
                 validationSeverity = 'warning';
                 validationTitle = 'Aandachtspunt: Teruglevering staat op 0';
                 validationMessage = `Je hebt ${aantalZonnepanelen} panelen die samen naar schatting ${zonnepanelenYield} kWh opwekken, maar je teruglevering staat op 0 kWh. Dit is in de praktijk zeldzaam zonder zero-export of enorme thuisaccu.`;
                 validationAction = `Pas je teruglevering aan op de Woning-pagina. Gemiddeld is je teruglevering zonder batterij zo'n 70% tot 75% van je opwekking, oftewel ca. ${Math.round(zonnepanelenYield * 0.72)} kWh.`;
-              } else if (terugleveringElectra < (zonnepanelenYield - verbruikElectra) && zonnepanelenYield > verbruikElectra) {
-                // EXCELLENT INSIGHT: The user entered their grid import (net afname) as stroomverbruik!
+              } else if (selfConsumptionPercent > 95) {
                 isNettoAfnameMode = true;
-                selfConsumptionPercent = Math.min(100, Math.max(0, Math.round((directSolarConsumption / zonnepanelenYield) * 100)));
-                displayTotalConsumption = Math.round(verbruikElectra + directSolarConsumption);
-
-                validationSeverity = 'success';
-                validationTitle = 'Gegevens consistent (Netto Afname gedetecteerd)';
-                validationMessage = `We hebben je gegevens geanalyseerd. Je stroomverbruik van ${verbruikElectra} kWh staat voor je netto afname (grid import) van het net. Samen met je opwekking (${zonnepanelenYield} kWh) en teruglevering (${terugleveringElectra} kWh) verbruik je naar schatting ${Math.round(directSolarConsumption)} kWh (${selfConsumptionPercent}%) direct zelf. Je totale werkelijke stroomverbruik van de woning is dus ${displayTotalConsumption} kWh per jaar (inclusief direct verbruikte zonnestroom). Dit is een uitstekend sluitende balans!`;
-                validationAction = 'We hanteren dit totale werkelijke verbruik van de woning in al onze verdere berekeningen.';
+                validationSeverity = 'warning';
+                validationTitle = 'Opvallend: Zeer hoog direct eigen verbruik';
+                validationMessage = `Volgens je invoer verbruik je maar liefst ${selfConsumptionPercent}% of je opgewekte stroom direct zelf (${Math.round(directSolarConsumption)} kWh), waardoor je totale verbruik ${displayTotalConsumption} kWh is (afname ${verbruikElectra} kWh + direct verbruik ${Math.round(directSolarConsumption)} kWh).`;
+                validationAction = 'Controleer of je teruglevering klopt met je werkelijke jaarrekening. Als je een laadpaal of warmtepomp overdag gebruikt, kan dit percentage wel kloppen!';
               } else {
-                // Consistent! Let's calculate estimated direct self-consumption
-                selfConsumptionPercent = Math.min(100, Math.max(0, Math.round((directSolarConsumption / zonnepanelenYield) * 100)));
-                displayTotalConsumption = verbruikElectra;
-
-                if (selfConsumptionPercent > 95) {
-                  validationSeverity = 'warning';
-                  validationTitle = 'Opvallend: Zeer hoog direct eigen verbruik';
-                  validationMessage = `Volgens je invoer verbruik je maar liefst ${selfConsumptionPercent}% of je opgewekte stroom direct zelf (${Math.round(directSolarConsumption)} kWh). Dit is extreem hoog (gemiddeld is dit 30% zonder batterij).`;
-                  validationAction = 'Controleer of je teruglevering klopt met je werkelijke jaarrekening. Als je een laadpaal of warmtepomp overdag gebruikt, kan dit percentage wel kloppen!';
-                } else {
-                  validationSeverity = 'success';
-                  validationTitle = 'Gegevens zijn logisch consistent!';
-                  validationMessage = `Op basis van je ingevoerde verbruik (${verbruikElectra} kWh) en teruglevering (${terugleveringElectra} kWh) verbruik je naar schatting ${selfConsumptionPercent}% van je opgewekte zonnestroom direct zelf. Dit is een gezonde verhouding.`;
-                  validationAction = 'Gebruik de onderstaande interactieve schuifregelaars om te zien hoe een thuisaccu of dynamisch contract dit beïnvloedt.';
-                }
+                isNettoAfnameMode = true;
+                validationSeverity = 'success';
+                validationTitle = 'Gegevens zijn consistent (Netto Afname)';
+                validationMessage = `Je ingevoerde stroomverbruik van ${verbruikElectra} kWh geldt als netto afname van het net. Samen met je opwekking (${zonnepanelenYield} kWh) en teruglevering (${terugleveringElectra} kWh) verbruik je ${Math.round(directSolarConsumption)} kWh (${selfConsumptionPercent}%) direct zelf. Je totale woningverbruik is dus ${displayTotalConsumption} kWh per jaar.`;
+                validationAction = 'We hanteren dit totale werkelijke verbruik (afname + direct eigen verbruik) in al onze verdere berekeningen.';
               }
             }
 
@@ -5532,23 +5717,36 @@ export default function InputForm({
                     <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block">Snelkeuze energieleverancier:</span>
                     <div className="flex flex-wrap gap-1">
                       {[
-                        { name: 'Zonneplan', val: 0.0218, desc: 'Populair, vaste inkoopkosten' },
-                        { name: 'Tibber', val: 0.0202, desc: 'Slim laden, lage opslag' },
-                        { name: 'ANWB', val: 0.0224, desc: 'Samen naar duurzamer' },
-                        { name: 'Frank', val: 0.0240, desc: 'Volledig transparant' }
+                        { id: 'Zonneplan' as const, name: 'Zonneplan', val: 0.0218, desc: 'Populair, vaste inkoopkosten' },
+                        { id: 'Tibber' as const, name: 'Tibber', val: 0.0202, desc: 'Slim laden, lage opslag' },
+                        { id: 'Anwb' as const, name: 'ANWB', val: 0.0224, desc: 'Samen naar duurzamer' },
+                        { id: 'Frank' as const, name: 'Frank', val: 0.0240, desc: 'Volledig transparant' }
                       ].map((provider) => {
-                        const isSelected = Math.abs(opslagLeverancier - provider.val) < 0.0002;
+                        const isProviderMatch = getDynamicProvider(tech.dynamicProvider).id === provider.id;
+                        const isSliderMatch = Math.abs(opslagLeverancier - provider.val) < 0.0001;
+                        const isSelected = isProviderMatch && (isSliderMatch || Math.abs(opslagLeverancier - 0.02) < 0.00001);
                         return (
                           <button
                             key={provider.name}
                             type="button"
-                            onClick={() => setTech(prev => ({ ...prev, opslagLeverancier: provider.val }))}
+                            onClick={() => {
+                              const prov = getDynamicProvider(provider.id);
+                              setTech(prev => ({
+                                ...prev,
+                                typeContract: 'Dynamisch',
+                                batteryGridTrading: true,
+                                dynamicProvider: prov.id,
+                                dynamischStroomTarief: prov.stroomInkoop,
+                                dynamischTerugleverTarief: prov.stroomTeruglever,
+                                opslagLeverancier: prov.opslagLeverancier
+                              }));
+                            }}
                             className={`text-[10px] px-2 py-0.5 rounded font-medium border transition-all ${
                               isSelected 
                                 ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm font-bold' 
                                 : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-800'
                             }`}
-                            title={`${provider.name}: €${provider.val.toFixed(4)}/kWh (${provider.desc})`}
+                            title={`${provider.name}: €${provider.val.toFixed(4)}/kWh (${provider.desc}) — synchroniseert ook met het Live Rekenoverzicht`}
                           >
                             {provider.name} (€{provider.val.toFixed(3)})
                           </button>
@@ -5601,8 +5799,8 @@ export default function InputForm({
                   <strong className="text-slate-700 text-sm font-mono">{localAnnualYieldKwh} kWh / jaar</strong>
                 </div>
                 <div>
-                  <span className="text-slate-400 block font-medium">Jaarlijks stroomverbruik</span>
-                  <strong className="text-slate-700 text-sm font-mono">{house.verbruikKwh || 0} kWh / jaar</strong>
+                  <span className="text-slate-400 block font-medium">Jaarlijks totaal stroomverbruik</span>
+                  <strong className="text-slate-700 text-sm font-mono">{getElectricityConsumptionBreakdown(house, tech, localAnnualYieldKwh).totalConsumptionKwh} kWh / jaar</strong>
                 </div>
                 <div className="col-span-2 pt-2 border-t border-slate-200/50 flex flex-col sm:flex-row justify-between gap-2">
                   <div>
@@ -5902,7 +6100,7 @@ export default function InputForm({
 
             {/* INGENIEUS CAPACITEITSADVIES OP BASIS VAN WONINGDATA */}
             {(() => {
-              const baseElectricKwh = house.verbruikKwh || 3500;
+              const baseElectricKwh = getElectricityConsumptionBreakdown(house, tech, localAnnualYieldKwh).totalConsumptionKwh || 3500;
               const hasHeatpump = Boolean(
                 tech.selectedWarmtepompType || 
                 tech.selectedWarmtepompModel || 
@@ -6201,12 +6399,21 @@ export default function InputForm({
                     { id: 'Frank' as const, name: 'Frank Energie', subtitle: 'Slim Handelen' },
                     { id: 'Anwb' as const, name: 'ANWB Energie', subtitle: 'Slim Laden' }
                   ].map((provider) => {
-                    const isSelected = tech.dynamicProvider === provider.id || (!tech.dynamicProvider && provider.id === 'Zonneplan');
+                    const isSelected = getDynamicProvider(tech.dynamicProvider).id === provider.id;
                     return (
                       <button
                         key={provider.id}
                         type="button"
-                        onClick={() => setTech(prev => ({ ...prev, dynamicProvider: provider.id }))}
+                        onClick={() => {
+                          const prov = getDynamicProvider(provider.id);
+                          setTech(prev => ({
+                            ...prev,
+                            dynamicProvider: prov.id,
+                            dynamischStroomTarief: prov.stroomInkoop,
+                            dynamischTerugleverTarief: prov.stroomTeruglever,
+                            opslagLeverancier: prov.opslagLeverancier
+                          }));
+                        }}
                         className={`p-2.5 rounded-xl border text-left transition flex flex-col ${
                           isSelected
                             ? 'bg-blue-50/50 border-blue-300 text-blue-900 ring-2 ring-blue-100'
@@ -6288,18 +6495,19 @@ export default function InputForm({
                   onClick={() => {
                     setHouse(prev => ({
                       ...prev,
-                      elektraPrijs: 0.28,
-                      gasPrijs: 1.35
+                      elektraPrijs: 0.31,
+                      gasPrijs: 1.50
                     }));
                     setTech(prev => ({
                       ...prev,
-                      vastTarief: 0.28,
-                      vastGasTarief: 1.35,
-                      vastTerugleverkosten: 0.11,
-                      vastTerugleverVergoeding: 0.05,
-                      dynamischStroomTarief: 0.25,
-                      dynamischTerugleverTarief: 0.09,
-                      opslagLeverancier: 0.02,
+                      vastTarief: 0.31,
+                      vastGasTarief: 1.50,
+                      vastTerugleverkosten: 0.123,
+                      vastTerugleverVergoeding: 0.06,
+                      dynamicProvider: 'Zonneplan',
+                      dynamischStroomTarief: 0.265,
+                      dynamischTerugleverTarief: 0.085,
+                      opslagLeverancier: 0.0218,
                       omzettingsverliezen: 10,
                       huidigDirectVerbruik: 30,
                       evVerbruik: 18,
@@ -6416,12 +6624,12 @@ export default function InputForm({
                     <div>
                       <div className="flex items-center gap-1 mb-1">
                         <label className="block text-xs font-medium text-slate-600">Terugleverkosten (€/kWh)</label>
-                        <Tooltip text="De kosten / boete die vaste leveranciers rekenen per teruggeleverde kWh zonnestroom (gemiddeld € 0,11/kWh bij Essent, Vattenfall, Eneco)." />
+                        <Tooltip text="De kosten / boete die vaste leveranciers rekenen per teruggeleverde kWh zonnestroom (gemiddeld € 0,12 - € 0,14/kWh bij Essent, Vattenfall, Eneco, Greenchoice)." />
                       </div>
                       <input
                         type="number"
                         step="0.01"
-                        value={tech.vastTerugleverkosten !== undefined ? tech.vastTerugleverkosten : 0.11}
+                        value={tech.vastTerugleverkosten !== undefined ? tech.vastTerugleverkosten : 0.123}
                         onChange={(e) => setTech(prev => ({ ...prev, vastTerugleverkosten: Number(e.target.value) }))}
                         className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
                       />
@@ -6430,12 +6638,12 @@ export default function InputForm({
                     <div>
                       <div className="flex items-center gap-1 mb-1">
                         <label className="block text-xs font-medium text-slate-600">Terugleververgoeding (€/kWh)</label>
-                        <Tooltip text="De vergoeding die je ontvangt voor elke teruggeleverde kWh stroom in 2027 (standaard circa € 0,05/kWh bij vaste contracten)." />
+                        <Tooltip text="De netto vergoeding die je ontvangt voor elke teruggeleverde kWh stroom (standaard circa € 0,06/kWh bij vaste contracten)." />
                       </div>
                       <input
                         type="number"
                         step="0.01"
-                        value={tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : 0.05}
+                        value={tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : 0.06}
                         onChange={(e) => setTech(prev => ({ ...prev, vastTerugleverVergoeding: Number(e.target.value) }))}
                         className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
                       />
@@ -6444,7 +6652,7 @@ export default function InputForm({
                     <div>
                       <div className="flex items-center gap-1 mb-1">
                         <label className="block text-xs font-medium text-slate-600">Gastarief (€/m³)</label>
-                        <Tooltip text="Het gastarief inclusief energiebelasting en btw (standaard ca. € 1,35/m³)." />
+                        <Tooltip text="Het gastarief inclusief energiebelasting (€ 0,73/m³) en btw (standaard ca. € 1,50/m³)." />
                       </div>
                       <input
                         type="number"
@@ -6471,7 +6679,7 @@ export default function InputForm({
                           onClick={() => {
                             setTech(prev => ({
                               ...prev,
-                              fixedProvider: p.name as any,
+                              fixedProvider: p.id,
                               vastTarief: p.stroomTarief,
                               vastGasTarief: p.gasTarief,
                               vastTerugleverkosten: p.terugleverkosten,
@@ -6480,7 +6688,7 @@ export default function InputForm({
                             setHouse(prev => ({ ...prev, elektraPrijs: p.stroomTarief, gasPrijs: p.gasTarief }));
                           }}
                           className={`p-2 rounded-lg border text-left text-xs transition cursor-pointer ${
-                            (tech.fixedProvider || 'Essent') === p.name
+                            getFixedProvider(tech.fixedProvider).id === p.id
                               ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
                               : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                           }`}
@@ -6510,12 +6718,12 @@ export default function InputForm({
                     <div>
                       <div className="flex items-center gap-1 mb-1">
                         <label className="block text-xs font-medium text-slate-600">Gem. inkooptarief afname (€/kWh)</label>
-                        <Tooltip text="Het gewogen gemiddelde dynamische stroomtarief inclusief energiebelasting en inkoopvergoeding (gemiddeld € 0,25/kWh)." />
+                        <Tooltip text="Het gewogen gemiddelde dynamische stroomtarief inclusief energiebelasting (€ 0,111/kWh), btw en inkoopvergoeding (gemiddeld € 0,26 - € 0,28/kWh)." />
                       </div>
                       <input
                         type="number"
                         step="0.01"
-                        value={tech.dynamischStroomTarief !== undefined ? tech.dynamischStroomTarief : 0.25}
+                        value={tech.dynamischStroomTarief !== undefined ? tech.dynamischStroomTarief : 0.265}
                         onChange={(e) => setTech(prev => ({ ...prev, dynamischStroomTarief: Number(e.target.value) }))}
                         className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-blue-500 font-semibold"
                       />
@@ -6524,12 +6732,12 @@ export default function InputForm({
                     <div>
                       <div className="flex items-center gap-1 mb-1">
                         <label className="block text-xs font-medium text-slate-600">Gem. teruglever zonne-uren (€/kWh)</label>
-                        <Tooltip text="Het gemiddelde markttarief op uren dat zonnepanelen stroom terugleveren. Bij dynamisch betaal je €0 terugleverboetes (gemiddeld circa € 0,09/kWh)." />
+                        <Tooltip text="Het gemiddelde markttarief op uren dat zonnepanelen stroom terugleveren. Bij dynamisch betaal je €0 terugleverboetes (gemiddeld circa € 0,085/kWh)." />
                       </div>
                       <input
                         type="number"
                         step="0.01"
-                        value={tech.dynamischTerugleverTarief !== undefined ? tech.dynamischTerugleverTarief : 0.09}
+                        value={tech.dynamischTerugleverTarief !== undefined ? tech.dynamischTerugleverTarief : 0.085}
                         onChange={(e) => setTech(prev => ({ ...prev, dynamischTerugleverTarief: Number(e.target.value) }))}
                         className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-blue-500 font-semibold"
                       />
@@ -6543,7 +6751,7 @@ export default function InputForm({
                       <input
                         type="number"
                         step="0.005"
-                        value={tech.opslagLeverancier !== undefined ? tech.opslagLeverancier : 0.02}
+                        value={tech.opslagLeverancier !== undefined ? tech.opslagLeverancier : getDynamicProvider(tech.dynamicProvider).opslagLeverancier}
                         onChange={(e) => setTech(prev => ({ ...prev, opslagLeverancier: Number(e.target.value) }))}
                         className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-blue-500 font-semibold"
                       />
@@ -6561,13 +6769,14 @@ export default function InputForm({
                           onClick={() => {
                             setTech(prev => ({
                               ...prev,
-                              dynamicProvider: p.name as any,
+                              dynamicProvider: p.id,
                               dynamischStroomTarief: p.stroomInkoop,
-                              dynamischTerugleverTarief: p.stroomTeruglever
+                              dynamischTerugleverTarief: p.stroomTeruglever,
+                              opslagLeverancier: p.opslagLeverancier
                             }));
                           }}
                           className={`p-2 rounded-lg border text-left text-xs transition cursor-pointer ${
-                            (tech.dynamicProvider || 'Zonneplan') === p.name
+                            getDynamicProvider(tech.dynamicProvider).id === p.id
                               ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
                               : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                           }`}

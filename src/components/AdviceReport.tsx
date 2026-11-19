@@ -3,9 +3,10 @@ import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CalculationResult, TechData } from '../types';
-import { getBatterySimulationData, COEFFS, getSolarInvestmentEstimate, getSolarInvestmentRange } from '../utils/calculator';
+import { getBatterySimulationData, calculateTvtYears, formatTvt, getElectricityConsumptionBreakdown, COEFFS, getSolarInvestmentEstimate, getSolarInvestmentRange } from '../utils/calculator';
 import BatteryMarketOverview from './BatteryMarketOverview';
 import BatterySolarChart from './BatterySolarChart';
+import EmailModal from './EmailModal';
 import { 
   FileText, Copy, Printer, Check, TrendingDown, ShieldAlert, Award, Zap, HelpCircle, 
   BarChart3, LineChart as LineIcon, Landmark, Sparkles, ArrowRightLeft, Clock, PiggyBank,
@@ -39,6 +40,7 @@ interface AdviceReportProps {
   activeTab: 'isolatie' | 'zon' | 'accu' | 'saldering' | 'warmtepomp' | 'laadpaal';
   setActiveTab: (tab: 'isolatie' | 'zon' | 'accu' | 'saldering' | 'warmtepomp' | 'laadpaal') => void;
   setTech?: React.Dispatch<React.SetStateAction<TechData>>;
+  onOpenEmailModal?: () => void;
 }
 
 function ReportTooltip({
@@ -88,7 +90,8 @@ export default function AdviceReport({
   loading,
   activeTab: outerTab,
   setActiveTab,
-  setTech
+  setTech,
+  onOpenEmailModal
 }: AdviceReportProps) {
   const [copied, setCopied] = React.useState(false);
   const [isEmailModalOpen, setIsEmailModalOpen] = React.useState(false);
@@ -97,6 +100,14 @@ export default function AdviceReport({
   const [sendingEmail, setSendingEmail] = React.useState(false);
   const [emailStatus, setEmailStatus] = React.useState<'idle' | 'success' | 'error'>('idle');
   const [emailStatusMessage, setEmailStatusMessage] = React.useState('');
+  
+  // E-mail sjabloon instellingen namens energiecoöperatie / gemeente
+  const [senderOrg, setSenderOrg] = React.useState('Energiecoöperatie Peel en Maas & Gemeente');
+  const [coachName, setCoachName] = React.useState(calculation.resident.coach || 'Vrijwillige Energiecoach');
+  const [customIntro, setCustomIntro] = React.useState(
+    'Hierbij ontvangt u het onafhankelijke verduurzamingsadvies voor uw woning, samengesteld namens de lokale energiecoöperatie en de gemeente. Samen helpen we u met praktische stappen, eerlijke subsidies (ISDE en NIP) en lagere maandlasten.'
+  );
+  const [includeKeyFigures, setIncludeKeyFigures] = React.useState(true);
 
   // Use a local state for the active tab inside AdviceReport
   const [localActiveTab, setLocalActiveTab] = React.useState<'graph' | 'integral' | 'solar' | 'saldering' | 'battery' | 'heatpump' | 'laadpaal' | 'text' | null>('graph');
@@ -159,11 +170,13 @@ export default function AdviceReport({
     }
   }, [calculation.tech.capaciteitAccu, calculation.solar.annualYieldKwh]);
 
+  const resolvedHouseConsumptionKwh = calculation.electricityBalance?.totalConsumptionKwh ?? getElectricityConsumptionBreakdown(calculation.house, calculation.tech, calculation.solar.annualYieldKwh || 0).totalConsumptionKwh;
+
   // Compute monthly battery simulation data points
   const batteryChartData = React.useMemo(() => {
     return getBatterySimulationData(
       calculation.solar.annualYieldKwh || 0,
-      calculation.house.verbruikKwh || 3500,
+      resolvedHouseConsumptionKwh || 3500,
       chartBatteryCapacity || 10,
       calculation.tech.omzettingsverliezen || 20,
       calculation.solar.selfConsumptionBase || 30,
@@ -173,7 +186,7 @@ export default function AdviceReport({
     );
   }, [
     calculation.solar.annualYieldKwh, 
-    calculation.house.verbruikKwh, 
+    resolvedHouseConsumptionKwh, 
     chartBatteryCapacity, 
     calculation.tech.omzettingsverliezen, 
     calculation.solar.selfConsumptionBase, 
@@ -254,7 +267,38 @@ export default function AdviceReport({
 
     try {
       const clientName = `${calculation.resident.aanhef || ''} ${calculation.resident.voorletters || ''} ${calculation.resident.achternaam || ''}`.trim() || 'Bewoner';
+      const address = `${calculation.resident.straat || ''} ${calculation.resident.huisnummer || ''} ${calculation.resident.toevoeging || ''}, ${calculation.resident.postcode || ''} ${calculation.resident.plaats || ''}`.trim().replace(/^,\s*/, '');
       
+      const keyFigures = includeKeyFigures ? {
+        savingsEuro: Math.round(calculation.totals.savingsEuro),
+        netInvestment: Math.round(calculation.totals.net),
+        totalSubsidies: Math.round(calculation.totals.isde + calculation.totals.nip),
+        tvt: formatTvt(calculation.totals.tvt, calculation.totals.net, calculation.totals.savingsEuro),
+      } : null;
+
+      const fallbackText = `
+${senderOrg} – Onafhankelijk Verduurzamingsadvies
+--------------------------------------------------
+Beste ${clientName},
+
+${customIntro}
+
+Woning: ${address || 'Uw woning'}
+
+BELANGRIJKSTE RESULTATEN VOOR UW WONING:
+• Verwachte jaarlijkse besparing: € ${Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')} per jaar
+• Totale investering na subsidies: € ${Math.round(calculation.totals.net).toLocaleString('nl-NL')}
+• Beschikbare subsidies (ISDE + NIP): € ${Math.round(calculation.totals.isde + calculation.totals.nip).toLocaleString('nl-NL')}
+• Verwachte terugverdientijd: ${formatTvt(calculation.totals.tvt, calculation.totals.net, calculation.totals.savingsEuro)}
+
+Vragen of hulp nodig bij het aanvragen van offertes of subsidies?
+Onze energiecoaches denken graag onafhankelijk met u mee.
+
+Met vriendelijke groet,
+${coachName}
+${senderOrg}
+      `.trim();
+
       const response = await fetch('/api/send-email', {
         method: 'POST',
         headers: {
@@ -263,23 +307,13 @@ export default function AdviceReport({
         body: JSON.stringify({
           email: targetEmail,
           clientName: clientName,
-          reportText: adviceMarkdown || `
-Energie planner Peel en Maas Adviesrapport
-
-Beste ${clientName},
-
-Hierbij ontvang je de berekende resultaten voor jouw woning aan de ${calculation.resident.straat || ''} ${calculation.resident.huisnummer || ''}.
-
-- Totale bruto kosten: €${Math.round(calculation.totals.bruto).toLocaleString('nl-NL')}
-- Totale ISDE subsidie: €${Math.round(calculation.totals.isde).toLocaleString('nl-NL')}
-- Totale NIP subsidie: €${Math.round(calculation.totals.nip).toLocaleString('nl-NL')}
-- Netto eigen bijdrage: €${Math.round(calculation.totals.net).toLocaleString('nl-NL')}
-- Verwachte jaarlijkse besparing: €${Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}
-- Terugverdientijd: ${calculation.totals.tvt.toFixed(1)} jaar
-
-Met vriendelijke groet,
-Energie planner Peel en Maas
-          `.trim()
+          reportText: adviceMarkdown || fallbackText,
+          senderOrganization: senderOrg,
+          senderCoach: coachName,
+          customIntroText: customIntro,
+          address: address,
+          keyFigures: keyFigures,
+          customSubject: `Persoonlijk Verduurzamingsadvies ${address ? `voor ${address}` : `voor ${clientName}`} – ${senderOrg}`
         }),
       });
 
@@ -288,9 +322,9 @@ Energie planner Peel en Maas
       if (response.ok) {
         setEmailStatus('success');
         if (data.isSimulated) {
-          setEmailStatusMessage('Advies succesvol verzonden! (Simulatiemodus: de e-mail is gelogd op de server console omdat er geen SMTP is geconfigureerd).');
+          setEmailStatusMessage(`Adviesrapport per e-mail verstuurd naar ${targetEmail} (Simulatiemodus actief: e-mail is opgesteld en gelogd op de server).`);
         } else {
-          setEmailStatusMessage(`Advies succesvol verzonden naar ${targetEmail}!`);
+          setEmailStatusMessage(`Adviesrapport succesvol verzonden naar ${targetEmail}!`);
         }
       } else {
         throw new Error(data.error || 'Er ging iets fout bij het verzenden.');
@@ -305,23 +339,29 @@ Energie planner Peel en Maas
 
   const handleMailto = () => {
     const clientName = `${calculation.resident.aanhef || ''} ${calculation.resident.voorletters || ''} ${calculation.resident.achternaam || ''}`.trim() || 'Bewoner';
-    const subject = encodeURIComponent(`Jouw Energie planner Peel en Maas Adviesrapport - ${clientName}`);
+    const address = `${calculation.resident.straat || ''} ${calculation.resident.huisnummer || ''}`.trim();
+    const subject = encodeURIComponent(`Persoonlijk Verduurzamingsadvies ${address ? `voor ${address}` : `voor ${clientName}`} – ${senderOrg}`);
     
-    const bodyContent = adviceMarkdown || `
+    const bodyContent = `
 Beste ${clientName},
 
-Bedankt voor het invullen van de Energie planner Peel en Maas. Hierbij ontvang je jouw persoonlijke, onafhankelijke verduurzamingsadvies.
+${customIntro}
 
-Hier zijn jouw belangrijkste resultaten:
-- Totale bruto kosten: €${Math.round(calculation.totals.bruto).toLocaleString('nl-NL')}
-- Totale ISDE subsidie: €${Math.round(calculation.totals.isde).toLocaleString('nl-NL')}
-- Totale NIP subsidie: €${Math.round(calculation.totals.nip).toLocaleString('nl-NL')}
-- Netto eigen bijdrage: €${Math.round(calculation.totals.net).toLocaleString('nl-NL')}
-- Verwachte jaarlijkse besparing: €${Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')}
-- Gemiddelde terugverdientijd: ${calculation.totals.tvt.toFixed(1)} jaar
+Hier zijn de belangrijkste uitkomsten van het verduurzamingsadvies voor uw woning (${address || 'uw adres'}):
+• Totale bruto kosten: €${Math.round(calculation.totals.bruto).toLocaleString('nl-NL')}
+• Totale ISDE subsidie: €${Math.round(calculation.totals.isde).toLocaleString('nl-NL')}
+• Totale NIP subsidie: €${Math.round(calculation.totals.nip).toLocaleString('nl-NL')}
+• Netto eigen bijdrage: €${Math.round(calculation.totals.net).toLocaleString('nl-NL')}
+• Verwachte jaarlijkse besparing: €${Math.round(calculation.totals.savingsEuro).toLocaleString('nl-NL')} / jr
+• Gemiddelde terugverdientijd: ${formatTvt(calculation.totals.tvt, calculation.totals.net, calculation.totals.savingsEuro)}
+
+${adviceMarkdown ? `\n--- VOLLEDIG ADVIESRAPPORT ---\n\n${adviceMarkdown}\n` : ''}
+
+Heeft u vragen over offertes of het aanvragen van subsidies? Neem gerust contact op met de lokale energiecoach.
 
 Met vriendelijke groet,
-Energie planner Peel en Maas
+${coachName}
+${senderOrg}
     `.trim();
 
     const body = encodeURIComponent(bodyContent);
@@ -390,12 +430,13 @@ Energie planner Peel en Maas
         ? calculation.tech.customZonnepanelenPrijs
         : getSolarInvestmentEstimate(solarPanelsCount));
   const solarYieldAmount = calculation.solar.annualYieldKwh || 0;
-  const houseDemandKwh = calculation.house.verbruikKwh || 3500;
+  const elecBal = calculation.electricityBalance || getElectricityConsumptionBreakdown(calculation.house, calculation.tech, solarYieldAmount);
+  const houseDemandKwh = elecBal.totalConsumptionKwh;
   const solarSaldeerdKwh = Math.min(solarYieldAmount, houseDemandKwh);
   const solarSurplusKwh = Math.max(0, solarYieldAmount - solarSaldeerdKwh);
-  const solarSavings = Math.round((solarSaldeerdKwh * calculation.house.elektraPrijs) + (solarSurplusKwh * 0.05));
+  const solarSavings = Math.round((solarSaldeerdKwh * calculation.house.elektraPrijs) + (solarSurplusKwh * 0.06));
   const solarROI = solarNetInvestment > 0 ? Number(((solarSavings / solarNetInvestment) * 100).toFixed(1)) : 0;
-  const solarTvt = solarSavings > 0 ? Number((solarNetInvestment / solarSavings).toFixed(1)) : 0;
+  const solarTvt = Number(calculateTvtYears(solarNetInvestment, solarSavings).toFixed(1));
 
   const selectedCap = calculation.tech.capaciteitAccu || 0;
   const batteryOpt = calculation.battery.options.find(opt => opt.capacityKwh === selectedCap) ||
@@ -403,8 +444,8 @@ Energie planner Peel en Maas
                      calculation.battery.options[1] ||
                      calculation.battery.options[0];
 
-  const batteryNetInvestment = batteryOpt ? batteryOpt.netInvestment : 7500;
-  const batterySavings = batteryOpt ? Math.round(calculation.tech.typeContract === 'Dynamisch' ? batteryOpt.annualSavingsDynamisch : batteryOpt.annualSavingsVastPost2027) : 0;
+  const batteryNetInvestment = isBatBestaand ? 0 : (batteryOpt ? batteryOpt.netInvestment : 7500);
+  const batterySavings = isBatBestaand ? 0 : (batteryOpt ? Math.round(calculation.tech.typeContract === 'Dynamisch' ? batteryOpt.annualSavingsDynamisch : batteryOpt.annualSavingsVastPost2027) : 0);
   const batteryROI = batteryNetInvestment > 0 ? Number(((batterySavings / batteryNetInvestment) * 100).toFixed(1)) : 0;
 
   const roiChartData = [
@@ -433,7 +474,7 @@ Energie planner Peel en Maas
       roi: batteryROI,
       investment: batteryNetInvestment,
       savings: batterySavings,
-      tvt: batterySavings > 0 ? Number((batteryNetInvestment / batterySavings).toFixed(1)) : 0,
+      tvt: Number(calculateTvtYears(batteryNetInvestment, batterySavings).toFixed(1)),
       color: '#3b82f6', // Blue
       details: batteryOpt ? `${batteryOpt.capacityKwh} kWh (${calculation.tech.typeContract} contract)` : 'Geadviseerd model'
     }
@@ -475,7 +516,7 @@ Energie planner Peel en Maas
                       isTvt ? 'text-amber-400 text-sm' : 
                       isSubsidie ? 'text-blue-400' : 'text-orange-400'
                     }`}>
-                      {isTvt ? `${p.value} jaar` : `€ ${p.value.toLocaleString('nl-NL')}`}
+                      {isTvt ? (p.value > 0 ? `${p.value} jaar` : 'n.v.t.') : `€ ${p.value.toLocaleString('nl-NL')}`}
                     </span>
                   </div>
                   <p className="text-[10px] text-slate-400 pl-4">{desc}</p>
@@ -796,7 +837,7 @@ Energie planner Peel en Maas
   const isoCount = calculation.measures?.length || 0;
   const isoSavingsM3 = Math.round(calculation.measures?.reduce((sum, m) => sum + m.savingM3, 0) || 0);
   const isoNetCosts = Math.round(calculation.totals?.net || 0);
-  const isoTvt = calculation.totals?.tvt > 0 ? `${calculation.totals.tvt.toFixed(1)} jaar` : 'N.v.t.';
+  const isoTvt = formatTvt(calculation.totals?.tvt || 0, isoNetCosts, calculation.totals?.savingsEuro || 0);
 
   // ☀️ Zon values
   const solarPanels = calculation.tech?.aantalZonnepanelen || 0;
@@ -806,12 +847,12 @@ Energie planner Peel en Maas
   // 🔋 Thuisbatterij values
   const batCapacity = calculation.tech?.capaciteitAccu || 0;
   const batSavings = batterySavings;
-  const batTvtVal = batteryNetInvestment > 0 && batterySavings > 0 ? (batteryNetInvestment / batterySavings) : 0;
-  const batTvt = batTvtVal > 0 ? `${batTvtVal.toFixed(1)} jaar` : 'N.v.t.';
+  const batTvtVal = isBatBestaand ? 0 : calculateTvtYears(batteryNetInvestment, batterySavings);
+  const batTvt = formatTvt(batTvtVal, batteryNetInvestment, batterySavings);
 
   // ⚖️ Saldering values
   const salderingContract = calculation.tech?.typeContract || 'Vast';
-  const salderingLoss = Math.round((calculation.solar?.gridFeedBaseKwh || 0) * ((calculation.house?.elektraPrijs || 0.30) - 0.06));
+  const salderingLoss = Math.round((calculation.solar?.gridFeedBaseKwh || 0) * ((calculation.house?.elektraPrijs || 0.31) - 0.06));
 
   // ♨️ Warmtepomp values
   const selectedType = calculation.tech?.selectedWarmtepompType || 'Hybride';
@@ -829,14 +870,14 @@ Energie planner Peel en Maas
     ? (!calculation.heatpump.isInsulatedSufficiently ? 'Eerst isoleren' : (chosenOpt?.isFeasible ? 'Zinvol / Geadviseerd' : 'Beperkt rendabel')) 
     : 'Onbekend';
   const wpTvtVal = chosenOpt ? chosenOpt.tvt : 0;
-  const wpTvt = wpTvtVal > 0 && wpTvtVal < 99 ? `${wpTvtVal.toFixed(1)} jaar` : 'Onbekend';
+  const wpTvt = formatTvt(wpTvtVal, chosenOpt?.netInvestment, chosenOpt?.netSavingsEuro);
 
   // 🚗 Laadpaal values (gecorrigeerd conform kritische audit: zuiver t.o.v. openbaar laden, geen speculatieve ERE)
   const evKm = calculation.tech?.evKilometers ?? 15000;
   const evEfficiency = calculation.tech?.evVerbruik ?? 18;
   const evHomeShare = calculation.tech?.evThuisLaden ?? 75;
   const evVol = Math.round((evKm / 100) * evEfficiency * (evHomeShare / 100));
-  const evSavings = evVol * (0.50 - (calculation.house?.elektraPrijs ?? 0.35));
+  const evSavings = evVol * (0.50 - (calculation.house?.elektraPrijs ?? 0.31));
   const ereRevenue = 0; // Geen fictieve ERE-vergoeding in de rekenmodellen
   const totalEvBenefit = Math.round(evSavings);
 
@@ -859,13 +900,16 @@ Energie planner Peel en Maas
   );
 
   // ⚡ INTEGRALE ENERGIEBALANS (Geen dubbele telling; één integrale energiebalans)
-  const baseElecPrice = calculation.house?.elektraPrijs ?? 0.35;
-  const baseGasPrice = calculation.house?.gasPrijs ?? 1.35;
-  const currentHouseElecKwh = calculation.house?.verbruikKwh ?? 3800;
+  const baseElecPrice = calculation.house?.elektraPrijs ?? 0.31;
+  const baseGasPrice = calculation.house?.gasPrijs ?? 1.50;
+  const currentHouseElecKwh = elecBal.totalConsumptionKwh;
   const currentHouseGasM3 = calculation.house?.verbruikM3 ?? 1562;
 
-  // Huidige situatie energiekosten
-  const baselineEnergyCostsYr = Math.round((currentHouseElecKwh * baseElecPrice) + (currentHouseGasM3 * baseGasPrice));
+  // Huidige situatie energiekosten (gebaseerd op netto afname en teruglevering indien zonnepanelen bestaand zijn)
+  const baselineElecNetImportKwh = isSolarBestaand ? elecBal.netGridImportKwh : currentHouseElecKwh;
+  const baselineElecFeedInKwh = isSolarBestaand ? elecBal.existingFeedInKwh : 0;
+  const baselineElecCostYr = Math.round((baselineElecNetImportKwh * baseElecPrice) - (baselineElecFeedInKwh * 0.06));
+  const baselineEnergyCostsYr = Math.round(baselineElecCostYr + (currentHouseGasM3 * baseGasPrice));
 
   // Totale elektriciteitsvraag na maatregelen (woning + warmtepomp + EV)
   const wpElecDemandKwh = hasWp ? (chosenOpt?.elecIncreaseKwh ?? (calculation.tech?.userAnnualWp || 3515)) : 0;
@@ -883,10 +927,12 @@ Energie planner Peel en Maas
   );
 
   // PV direct eigenverbruik zonder batterij (begrensd door gelijktijdig huishoudelijk verbruik)
-  const pvDirectSelfConsumptionKwh = Math.min(
-    currentHouseElecKwh,
-    Math.round((annualSolarYieldKwh * (calculation.tech?.huidigDirectVerbruik ?? 30)) / 100)
-  );
+  const pvDirectSelfConsumptionKwh = isSolarBestaand
+    ? Math.min(currentHouseElecKwh, Math.round(elecBal.existingDirectSolarKwh))
+    : Math.min(
+        currentHouseElecKwh,
+        Math.round((annualSolarYieldKwh * (calculation.tech?.huidigDirectVerbruik ?? 30)) / 100)
+      );
   const pvFeedWithoutBatKwh = Math.max(0, annualSolarYieldKwh - pvDirectSelfConsumptionKwh);
 
   // PV eigenverbruik mét batterij (begrensd door totale stroomvraag)
@@ -898,17 +944,16 @@ Energie planner Peel en Maas
   // Werkelijke netimport na alle maatregelen (geen fictieve 0 kWh)
   const postNetImportKwh = Math.max(0, totalPostElecDemandKwh - pvSelfConsumptionWithBatKwh);
 
-  // Batterij-opbrengsten
-  const batExtraSelfConsumptionKwh = Math.max(0, pvSelfConsumptionWithBatKwh - pvDirectSelfConsumptionKwh);
-  const batExtraSelfConsumptionSavings = Math.round(batExtraSelfConsumptionKwh * (baseElecPrice - 0.06));
+  // Batterij-opbrengsten: bij batteryStatus === 'bestaand' tellen we geen batterijbesparing
+  const batExtraSelfConsumptionKwh = isBatBestaand ? 0 : Math.max(0, pvSelfConsumptionWithBatKwh - pvDirectSelfConsumptionKwh);
+  const batExtraSelfConsumptionSavings = isBatBestaand ? 0 : Math.round(batExtraSelfConsumptionKwh * (baseElecPrice - 0.06));
   const isTradingActive = calculation.tech?.batteryGridTrading !== false;
   const tradingProvider = calculation.tech?.dynamicProvider || 'Zonneplan';
   const tradingRatePerKwh = tradingProvider === 'Zonneplan' ? 45 : tradingProvider === 'Frank' ? 40 : tradingProvider === 'Tibber' ? 35 : 30;
-  // Zowel nieuwe als bestaande thuisbatterijen genereren operationele nethandelsbaten bij actieve handelssturing
-  const batTradingYield = (hasBat && isTradingActive)
+  const batTradingYield = (!isBatBestaand && hasBat && isTradingActive)
     ? Math.round(batCapacity * tradingRatePerKwh)
     : 0;
-  const totalBatteryYieldEuro = batExtraSelfConsumptionSavings + batTradingYield;
+  const totalBatteryYieldEuro = isBatBestaand ? 0 : (batExtraSelfConsumptionSavings + batTradingYield);
 
   // Warmtepomp gasbesparing & vastrecht
   const wpGasSavingM3 = hasWp ? (chosenOpt?.gasSavingsM3 ?? currentHouseGasM3) : 0;
@@ -951,11 +996,8 @@ Energie planner Peel en Maas
     ((hasWp && !isWpBestaand) ? (chosenOpt?.subsidy || 0) : 0)
   );
 
-  const hasAnyExisting = (isSolarBestaand && hasSolar) || (isBatBestaand && hasBat) || (isWpBestaand && hasWp) || (isLaadpaalBestaand && hasEv);
-  const totalCombinedTvtNum = totalCombinedSavingsPerYear > 0 ? (totalCombinedNetInvestment / totalCombinedSavingsPerYear) : 0;
-  const totalCombinedTvt = totalCombinedNetInvestment === 0 
-    ? (hasAnyExisting ? 'Reeds gerealiseerd' : 'N.v.t.') 
-    : (totalCombinedTvtNum > 0 && totalCombinedTvtNum < 99 ? `${totalCombinedTvtNum.toFixed(1)} jaar` : 'N.v.t.');
+  const totalCombinedTvtNum = calculateTvtYears(totalCombinedNetInvestment, totalCombinedSavingsPerYear);
+  const totalCombinedTvt = formatTvt(totalCombinedTvtNum, totalCombinedNetInvestment, totalCombinedSavingsPerYear);
 
   return (
     <div className="space-y-3.5" id="advice-report-section">
@@ -1027,7 +1069,7 @@ Energie planner Peel en Maas
               </span>
               <span className="block text-[10px] text-amber-700 font-medium truncate">
                 {solarPanelsCount > 0
-                  ? `Inv: €${Math.round(solarNetInvestment).toLocaleString('nl-NL')} • TVT: ${solarTvt > 0 ? `${solarTvt} jr` : 'N.v.t.'}`
+                  ? `Inv: €${Math.round(solarNetInvestment).toLocaleString('nl-NL')} • TVT: ${formatTvt(solarTvt, solarNetInvestment, solarSavings, ' jr')}`
                   : 'Geen zonnepanelen'}
               </span>
             </div>
@@ -1248,95 +1290,21 @@ Energie planner Peel en Maas
                 <span>Afdrukken / PDF</span>
               </button>
 
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    setIsEmailModalOpen(!isEmailModalOpen);
-                    setEmailStatus('idle');
-                    setEmailStatusMessage('');
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition shadow-xs cursor-pointer ${
-                    isEmailModalOpen 
-                      ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-bold' 
-                      : 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50'
-                  }`}
-                  id="mail-report-btn"
-                >
-                  <Mail className="w-3.5 h-3.5" />
-                  <span>Mail Advies</span>
-                </button>
-
-                {isEmailModalOpen && (
-                  <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-150 rounded-2xl shadow-xl z-50 p-4 space-y-3 animate-fadeIn" id="email-popover" style={{ transformOrigin: 'top right' }}>
-                    <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-                      <span className="text-xs font-bold text-slate-700">Adviesrapport mailen</span>
-                      <button 
-                        type="button"
-                        onClick={() => setIsEmailModalOpen(false)}
-                        className="text-slate-400 hover:text-slate-600 text-xs font-medium cursor-pointer"
-                      >
-                        Sluiten
-                      </button>
-                    </div>
-                    
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">E-mailadres van de klant</label>
-                      <input
-                        type="email"
-                        value={targetEmail}
-                        onChange={(e) => setTargetEmail(e.target.value)}
-                        placeholder="bijv. klant@example.nl"
-                        className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 font-medium bg-slate-50/50 focus:bg-white transition"
-                      />
-                    </div>
-
-                    {emailStatusMessage && (
-                      <div className={`p-2.5 rounded-xl text-[11px] leading-relaxed border ${
-                        emailStatus === 'success' 
-                          ? 'bg-emerald-50 text-emerald-800 border-emerald-100' 
-                          : 'bg-rose-50 text-rose-800 border-rose-100'
-                      }`}>
-                        {emailStatusMessage}
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      <button
-                        type="button"
-                        disabled={sendingEmail}
-                        onClick={handleSendEmail}
-                        className="flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:bg-slate-200 disabled:cursor-not-allowed text-white text-xs font-bold py-2 px-3 rounded-xl transition shadow-xs cursor-pointer"
-                      >
-                        {sendingEmail ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Mailing...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Send className="w-3.5 h-3.5" />
-                            <span>Direct Mailen</span>
-                          </>
-                        )}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleMailto}
-                        className="flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition cursor-pointer"
-                        title="Open in je eigen e-mailprogramma"
-                      >
-                        <Mail className="w-3.5 h-3.5" />
-                        <span>Eigen Mailer</span>
-                      </button>
-                    </div>
-
-                    <p className="text-[9px] text-slate-400 leading-normal text-center">
-                      Stuurt direct een mail met de berekeningen en de AI samenvatting naar de klant.
-                    </p>
-                  </div>
-                )}
-              </div>
+              <button
+                onClick={() => {
+                  if (onOpenEmailModal) {
+                    onOpenEmailModal();
+                  } else {
+                    setIsEmailModalOpen(true);
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 transition shadow-2xs cursor-pointer"
+                id="mail-report-btn"
+                title="Verstuur adviesrapport direct per e-mail naar bewoner met een vriendelijk sjabloon namens de energiecoöperatie/gemeente"
+              >
+                <Mail className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Verstuur naar Bewoner</span>
+              </button>
             </div>
           </div>
 
@@ -1386,14 +1354,25 @@ Energie planner Peel en Maas
                   Zonnestroom, thuisbatterij, warmtepomp en EV-laden zijn integraal doorgerekend. Er is geen sprake van het dubbel optellen van dezelfde kilowatturen.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setLocalActiveTab('integral')}
-                className="shrink-0 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs px-3 py-1.5 rounded-xl transition shadow-2xs cursor-pointer flex items-center gap-1.5"
-              >
-                <span>Toon Audit Benchmark</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsEmailModalOpen(true)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl transition shadow-2xs cursor-pointer flex items-center gap-1.5"
+                  title="Verstuur adviesrapport direct per e-mail naar bewoner met een vriendelijk sjabloon"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>Verstuur naar Bewoner</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLocalActiveTab('integral')}
+                  className="bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold text-xs px-3 py-1.5 rounded-xl transition shadow-2xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <span>Audit Benchmark</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1623,6 +1602,8 @@ Energie planner Peel en Maas
                           ) : (
                             'Geen thuisbatterij geselecteerd (0 kWh).'
                           )
+                        ) : isBatBestaand ? (
+                          'Bestaande thuisbatterij: € 0 extra batterijbesparing meegerekend.'
                         ) : !isTradingActive ? (
                           'Handelssturing is uitgeschakeld in instellingen (100% zonne-focus; alleen eigen zonnestroom opslaan).'
                         ) : (
@@ -1633,12 +1614,12 @@ Energie planner Peel en Maas
                     <tr className="bg-slate-50/50">
                       <td className="py-2 px-3.5 font-bold text-slate-700">Totale batterij-opbrengst</td>
                       <td className="py-2 px-3.5 font-mono font-bold text-emerald-700">€ {totalBatteryYieldEuro.toLocaleString('nl-NL')}/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Som van extra eigenverbruik en handelsopbrengst.</td>
+                      <td className="py-2 px-3.5 text-slate-600">{isBatBestaand ? 'Bestaande batterij: geen batterijbesparing geteld.' : 'Som van extra eigenverbruik en handelsopbrengst.'}</td>
                     </tr>
                     <tr className="bg-slate-50/50">
                       <td className="py-2 px-3.5 font-bold text-slate-700">Batterij TVT</td>
                       <td className="py-2 px-3.5 font-mono font-bold text-slate-900">
-                        {hasBat ? (isBatBestaand ? 'Reeds gerealiseerd' : (totalBatteryYieldEuro > 0 ? `${(newBatNet / totalBatteryYieldEuro).toFixed(1)} jaar` : 'N.v.t.')) : 'N.v.t.'}
+                        {hasBat ? (isBatBestaand ? 'n.v.t.' : formatTvt(calculateTvtYears(newBatNet, totalBatteryYieldEuro), newBatNet, totalBatteryYieldEuro)) : 'n.v.t.'}
                       </td>
                       <td className="py-2 px-3.5 text-slate-600">
                         {hasBat ? (isBatBestaand ? 'Bestaande batterij (€0 nieuwe investering).' : `Op € ${newBatNet.toLocaleString('nl-NL')} investering.`) : 'Geen batterij geselecteerd.'}
@@ -1672,7 +1653,7 @@ Energie planner Peel en Maas
                     <tr className="bg-orange-50/30">
                       <td className="py-2 px-3.5 font-bold text-orange-950">WP TVT</td>
                       <td className="py-2 px-3.5 font-mono font-bold text-slate-900">
-                        {hasWp ? (isWpBestaand ? 'Reeds gerealiseerd' : (nettoWpSavingsEuro > 0 ? `${(newWpNet / nettoWpSavingsEuro).toFixed(1)} jaar` : 'N.v.t.')) : 'N.v.t.'}
+                        {hasWp ? (isWpBestaand ? 'n.v.t.' : formatTvt(calculateTvtYears(newWpNet, nettoWpSavingsEuro), newWpNet, nettoWpSavingsEuro)) : 'n.v.t.'}
                       </td>
                       <td className="py-2 px-3.5 text-slate-600">{hasWp ? (isWpBestaand ? 'Bestaande warmtepomp' : 'O.b.v. netto investering en gecorrigeerde netto besparing.') : 'Geen warmtepomp.'}</td>
                     </tr>
@@ -1684,14 +1665,14 @@ Energie planner Peel en Maas
                     <tr>
                       <td className="py-2 px-3.5 font-bold text-slate-700">EV TVT</td>
                       <td className="py-2 px-3.5 font-mono font-bold text-slate-900">
-                        {hasEv ? (isLaadpaalBestaand ? 'Reeds gerealiseerd' : (evBenefitEuro > 0 ? `${(newEvNet / evBenefitEuro).toFixed(1)} jaar` : 'N.v.t.')) : 'N.v.t.'}
+                        {hasEv ? (isLaadpaalBestaand ? 'n.v.t.' : formatTvt(calculateTvtYears(newEvNet, evBenefitEuro), newEvNet, evBenefitEuro)) : 'n.v.t.'}
                       </td>
                       <td className="py-2 px-3.5 text-slate-600">{hasEv ? (isLaadpaalBestaand ? 'Bestaande laadpaal.' : `Op € ${newEvNet.toLocaleString('nl-NL')} installatiekosten.`) : 'Geen laadpaal.'}</td>
                     </tr>
                     <tr className="bg-slate-100/60 font-semibold">
                       <td className="py-2 px-3.5 text-slate-800">Huidige totale energiekosten</td>
                       <td className="py-2 px-3.5 font-mono font-bold text-slate-900">€ {baselineEnergyCostsYr.toLocaleString('nl-NL')}/jaar</td>
-                      <td className="py-2 px-3.5 text-slate-600">Elektriciteit € {Math.round(currentHouseElecKwh * baseElecPrice).toLocaleString('nl-NL')} + gas € {Math.round(currentHouseGasM3 * baseGasPrice).toLocaleString('nl-NL')}.</td>
+                      <td className="py-2 px-3.5 text-slate-600">Elektriciteit € {baselineElecCostYr.toLocaleString('nl-NL')} + gas € {Math.round(currentHouseGasM3 * baseGasPrice).toLocaleString('nl-NL')}.</td>
                     </tr>
                     <tr className="bg-slate-100/60 font-semibold">
                       <td className="py-2 px-3.5 text-slate-800">Nieuwe netto energiekosten</td>
@@ -1761,7 +1742,7 @@ Energie planner Peel en Maas
                 <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">Jouw break-even punt</span>
                 <div className="text-center">
                   <span className="text-2xl font-extrabold text-emerald-600">
-                    {calculation.totals.tvt > 0 ? `${calculation.totals.tvt.toFixed(1)} jaar` : '0 jaar'}
+                    {formatTvt(calculation.totals.tvt, calculation.totals.net, calculation.totals.savingsEuro)}
                   </span>
                   <p className="text-[10px] text-slate-500 mt-1">Gemiddelde terugverdientijd</p>
                 </div>
@@ -2029,9 +2010,9 @@ Energie planner Peel en Maas
                                   Investering: €{Math.round(item.investment).toLocaleString('nl-NL')}
                                 </span>
                               )}
-                              {item.investment > 0 && item.savings > 0 && (
+                              {(item.investment > 0 || item.savings > 0) && (
                                 <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded font-mono">
-                                  TVT: {item.tvt.toFixed(1)} jr
+                                  TVT: {formatTvt(item.tvt, item.investment, item.savings, ' jr')}
                                 </span>
                               )}
                             </div>
@@ -2140,7 +2121,7 @@ Energie planner Peel en Maas
                   <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Terugverdientijd (TVT)</span>
                   <span className="text-xl font-extrabold text-amber-600 flex items-center gap-1.5">
                     <TrendingUp className="w-5 h-5 text-amber-500 shrink-0" />
-                    {solarTvt.toFixed(1)} jaar
+                    {formatTvt(solarTvt, solarNetInvestment, solarSavings)}
                   </span>
                   <p className="text-xs text-slate-500">
                     Verwachte terugverdientijd van de zonnepanelen-investering.
@@ -2340,11 +2321,11 @@ Energie planner Peel en Maas
                         <div className="border-t border-slate-200/50 pt-2 space-y-1 text-[11px]">
                           <div className="flex justify-between items-center">
                             <span className="text-slate-500">TVT (Vast contract):</span>
-                            <span className="font-bold text-slate-700">{opt.annualSavingsVastPost2027 > 0 ? `${opt.tvtPost2027.toFixed(1)} jaar` : 'Geen'}</span>
+                            <span className="font-bold text-slate-700">{formatTvt(opt.tvtPost2027, opt.netInvestment, opt.annualSavingsVastPost2027)}</span>
                           </div>
                           <div className="flex justify-between items-center font-bold">
                             <span className="text-slate-700">TVT (Dynamisch + Trading):</span>
-                            <span className="text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded text-[10px]">{opt.annualSavingsDynamisch > 0 ? `${opt.tvtDynamisch.toFixed(1)} jaar` : 'Geen'}</span>
+                            <span className="text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded text-[10px]">{formatTvt(opt.tvtDynamisch, opt.netInvestment, opt.annualSavingsDynamisch)}</span>
                           </div>
                         </div>
                       </div>
@@ -2693,13 +2674,13 @@ Energie planner Peel en Maas
                         <div className="flex justify-between items-center border-t border-slate-200/50 pt-2">
                           <span className="text-xs font-bold text-slate-700">Terugverdientijd:</span>
                           <span className={`text-xs px-2.5 py-1 rounded-full font-extrabold ${
-                            opt.tvt < 8 
+                            opt.tvt > 0 && opt.tvt < 8 
                               ? 'bg-emerald-100 text-emerald-800' 
-                              : opt.tvt < 15 
+                              : opt.tvt > 0 && opt.tvt < 15 
                                 ? 'bg-amber-100 text-amber-800' 
                                 : 'bg-slate-150 text-slate-700'
                           }`}>
-                            {opt.netSavingsEuro > 0 ? `${opt.tvt.toFixed(1)} jaar` : 'Geen rendement'}
+                            {formatTvt(opt.tvt, opt.netInvestment, opt.netSavingsEuro)}
                           </span>
                         </div>
                       </div>
@@ -2808,8 +2789,8 @@ Energie planner Peel en Maas
                     </tr>
                     <tr className="bg-slate-100/30 font-black text-slate-900">
                       <td className="px-5 py-3">Terugverdientijd (TVT)</td>
-                      <td className="px-5 py-3 text-right text-blue-700">{calculation.heatpump.options[0].netSavingsEuro > 0 ? `${calculation.heatpump.options[0].tvt.toFixed(1)} jaar` : 'Onbekend'}</td>
-                      <td className="px-5 py-3 text-right text-indigo-700">{calculation.heatpump.options[1].netSavingsEuro > 0 ? `${calculation.heatpump.options[1].tvt.toFixed(1)} jaar` : 'Onbekend'}</td>
+                      <td className="px-5 py-3 text-right text-blue-700">{formatTvt(calculation.heatpump.options[0].tvt, calculation.heatpump.options[0].netInvestment, calculation.heatpump.options[0].netSavingsEuro)}</td>
+                      <td className="px-5 py-3 text-right text-indigo-700">{formatTvt(calculation.heatpump.options[1].tvt, calculation.heatpump.options[1].netInvestment, calculation.heatpump.options[1].netSavingsEuro)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -2918,7 +2899,7 @@ Energie planner Peel en Maas
                   </span>
                 </div>
                 <div className="bg-emerald-50 text-emerald-800 font-extrabold text-xs px-3 py-1.5 rounded-lg border border-emerald-100 font-mono">
-                  Terugverdientijd: ~{(calculation.laadpaal?.tvt ?? 1.8).toFixed(1)} jaar {(calculation.tech?.customLaadpaalPrijs !== undefined && calculation.tech?.customLaadpaalPrijs > 0) ? '(op basis van eigen prijsopgave)' : '(standaard raming)'}
+                  Terugverdientijd: {formatTvt(calculation.laadpaal?.tvt ?? 0, calculation.laadpaal?.netInvestmentEuro, calculation.laadpaal?.totalSavingsEuro)} {(calculation.tech?.customLaadpaalPrijs !== undefined && calculation.tech?.customLaadpaalPrijs > 0) ? '(op basis van eigen prijsopgave)' : '(standaard raming)'}
                 </div>
               </div>
 
@@ -3176,6 +3157,14 @@ Energie planner Peel en Maas
         </div>,
         document.body
       )}
+
+      {/* E-mail naar Bewoner Modal met Vriendelijk Begeleidend Sjabloon namens Energiecoöperatie & Gemeente */}
+      <EmailModal
+        isOpen={isEmailModalOpen}
+        onClose={() => setIsEmailModalOpen(false)}
+        calculation={calculation}
+        adviceMarkdown={adviceMarkdown}
+      />
     </div>
   );
 }

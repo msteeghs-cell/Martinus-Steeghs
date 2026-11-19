@@ -18,6 +18,7 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { CalculationResult, ResidentData, HouseData } from '../types';
+import { getDynamicProvider } from '../utils/energyProviders';
 
 interface EnergyCostPdfModalProps {
   isOpen: boolean;
@@ -176,7 +177,7 @@ Woningtype: ${house?.soortWoning || 'Hoekwoning'} (Bouwjaar: ${house?.bouwjaar |
 - Thuisbatterij (${batteryCap} kWh, eigenverbruik: ${Math.round(selfConsPct)}%): € ${Math.round(batteryInv).toLocaleString('nl-NL')}
 - Warmtepomp (${isVolledigWp ? 'All-Electric' : isHybrideWp ? 'Hybride' : 'Geen'} - ${wpCapacityStr}): € ${Math.round(wpInv).toLocaleString('nl-NL')}
 - **Totale Netto Investering**: € ${Math.round(totalInvestmentInv).toLocaleString('nl-NL')}
-- **Geschatte Terugverdientijd**: ${paybackYears ? `${paybackYears} jaar` : 'Direct rendement'}
+- **Geschatte Terugverdientijd**: ${paybackYears ? `${paybackYears} jaar` : 'n.v.t.'}
 
 ---
 
@@ -303,7 +304,7 @@ Woningtype: ${house?.soortWoning || 'Hoekwoning'} (Bouwjaar: ${house?.bouwjaar |
                 € {Math.round(totalInvestmentInv).toLocaleString('nl-NL')}
               </p>
               <p className="text-[10px] text-purple-800 font-medium">
-                {paybackYears ? `~${paybackYears} jaar TVT` : 'Direct rendement'}
+                {paybackYears ? `~${paybackYears} jaar TVT` : 'TVT: n.v.t.'}
               </p>
             </div>
           </div>
@@ -477,7 +478,11 @@ Woningtype: ${house?.soortWoning || 'Hoekwoning'} (Bouwjaar: ${house?.bouwjaar |
                         <span className="block text-[10px] text-sky-700 font-semibold mt-0.5">
                           Dynamische handelsopbrengst: € {Math.round(batteryTradingYield).toLocaleString('nl-NL')}/jaar
                           <span className="block text-[9px] text-slate-500 font-normal">
-                            (Formule: {batteryCap} kWh × € {Math.round(batteryCap > 0 ? batteryTradingYield / batteryCap : 38.25).toLocaleString('nl-NL')}/kWh/jaar via {liveCalcResult.tech?.dynamicProvider || 'Zonneplan'})
+                            {(() => {
+                              const dynProv = getDynamicProvider(liveCalcResult.tech?.dynamicProvider);
+                              const rate = batteryCap > 0 ? batteryTradingYield / batteryCap : dynProv.batteryTradingYieldPerKwh;
+                              return `(Formule: ${batteryCap} kWh × € ${rate.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/kWh/jaar via ${dynProv.name})`;
+                            })()}
                           </span>
                         </span>
                       )}
@@ -551,7 +556,7 @@ Woningtype: ${house?.soortWoning || 'Hoekwoning'} (Bouwjaar: ${house?.bouwjaar |
                       {isVolledigWp ? (
                         <span className="font-bold text-emerald-800">100% vervanging van het resterende gas ({currentGasM3 - totalGasSavingsM3} m³ saved).</span>
                       ) : isHybrideWp ? (
-                        <span className="font-bold text-emerald-800">Hybride ketel dekt ~75% van de warmtevraag via stroom.</span>
+                        <span className="font-bold text-emerald-800">Hybride ketel dekt ~75% van het resterende verwarmingsgas via stroom.</span>
                       ) : (
                         <span>Geen warmtepomp ingesteld.</span>
                       )}
@@ -597,13 +602,21 @@ Woningtype: ${house?.soortWoning || 'Hoekwoning'} (Bouwjaar: ${house?.bouwjaar |
                   <p className="text-slate-700 leading-snug">
                     <strong>Hoe wordt dit berekend?</strong> Bij een dynamisch energiecontract met nethandel (Smart EMS) slaat de accu goedkope (of negatieve) wind- en zonnestroom op en ontlaadt/levert terug op dure piekuren op de EPEX- &amp; onbalansmarkt.
                   </p>
-                  <div className="bg-white p-2 rounded border border-sky-200 font-mono text-[11px] text-sky-950 font-bold flex flex-wrap justify-between items-center gap-2">
-                    <span>Formule: Accucapaciteit ({batteryCap} kWh) × Spottarief per kWh/jaar (€ {Math.round(batteryCap > 0 ? batteryTradingYield / batteryCap : 38.25).toLocaleString('nl-NL')})</span>
-                    <span className="text-emerald-700 font-black text-xs">= € {Math.round(batteryTradingYield).toLocaleString('nl-NL')} / jaar</span>
-                  </div>
-                  <p className="text-slate-600 text-[9.5px]">
-                    * Provider: <strong>{liveCalcResult.tech?.dynamicProvider || 'Zonneplan'}</strong> (Powerplay sturing op onbalansmarkt: € 85,00/kWh bruto × 45% nettorendementsfactor = <strong>€ 38,25 per kWh accucapaciteit per jaar</strong>. Rekenvoorbeeld voor jouw {batteryCap} kWh accu: {batteryCap} × € 38,25 = <strong>€ {Math.round(batteryTradingYield).toLocaleString('nl-NL')} per jaar</strong>).
-                  </p>
+                  {(() => {
+                    const dynProv = getDynamicProvider(liveCalcResult.tech?.dynamicProvider);
+                    const effRate = batteryCap > 0 ? batteryTradingYield / batteryCap : dynProv.batteryTradingYieldPerKwh;
+                    return (
+                      <>
+                        <div className="bg-white p-2 rounded border border-sky-200 font-mono text-[11px] text-sky-950 font-bold flex flex-wrap justify-between items-center gap-2">
+                          <span>Formule: Accucapaciteit ({batteryCap} kWh) × Spottarief per kWh/jaar (€ {effRate.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
+                          <span className="text-emerald-700 font-black text-xs">= € {Math.round(batteryTradingYield).toLocaleString('nl-NL')} / jaar</span>
+                        </div>
+                        <p className="text-slate-600 text-[9.5px]">
+                          * Provider: <strong>{dynProv.name}</strong> ({dynProv.subtitle}: <strong>€ {dynProv.batteryTradingYieldPerKwh.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} per kWh accucapaciteit per jaar</strong> basisrendement). Rekenvoorbeeld voor jouw {batteryCap} kWh accu (gecorrigeerd voor zonnestroomopslag): <strong>€ {Math.round(batteryTradingYield).toLocaleString('nl-NL')} per jaar</strong>.
+                        </p>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -623,7 +636,7 @@ Woningtype: ${house?.soortWoning || 'Hoekwoning'} (Bouwjaar: ${house?.bouwjaar |
                 <div className="text-right shrink-0 bg-white/90 px-3 py-1.5 rounded border border-emerald-200">
                   <span className="text-[10px] text-slate-500 block uppercase font-bold">Investeringsrendement</span>
                   <span className="text-xs font-black text-emerald-900">
-                    {paybackYears ? `${paybackYears} jaar TVT (~${(100 / parseFloat(paybackYears)).toFixed(1)}%/jr)` : 'Direct positieve kasstroom'}
+                    {paybackYears ? `${paybackYears} jaar TVT (~${(100 / parseFloat(paybackYears)).toFixed(1)}%/jr)` : 'TVT: n.v.t.'}
                   </span>
                 </div>
               </div>

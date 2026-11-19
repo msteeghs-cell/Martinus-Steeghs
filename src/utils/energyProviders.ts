@@ -25,6 +25,7 @@ export interface DynamicProviderInfo {
   stroomTeruglever: number; // €/kWh gemiddeld opbrengsttarief zonne-uren
   gasTarief: number; // €/m³ dynamisch gas
   terugleverkosten: number; // Altijd €0 boete bij dynamisch!
+  opslagLeverancier: number; // €/kWh inkoopopslag van de leverancier
   batteryTradingYieldPerKwh: number; // €/kWh/jaar opbrengst slimme thuisbatterij / arbitrage
   description: string;
 }
@@ -36,11 +37,11 @@ export const TOP4_FIXED_PROVIDERS: FixedProviderInfo[] = [
     subtitle: 'Marktleider Nederland',
     badge: 'Nr. 1 Aanbieder',
     marketShareNote: 'Grootste aanbieder van NL met vaste zekerheid',
-    stroomTarief: 0.285,
-    gasTarief: 1.34,
-    terugleverkosten: 0.115,
-    terugleverVergoeding: 0.055,
-    vastrechtMaand: 7.99,
+    stroomTarief: 0.310,
+    gasTarief: 1.50,
+    terugleverkosten: 0.123,
+    terugleverVergoeding: 0.060,
+    vastrechtMaand: 9.25,
     description: 'Grootste energieleverancier van Nederland met vaste zekerheidstarieven.',
   },
   {
@@ -49,12 +50,12 @@ export const TOP4_FIXED_PROVIDERS: FixedProviderInfo[] = [
     subtitle: 'Vaste Zekerheid',
     badge: 'Top 3 NL',
     marketShareNote: 'Top 3 aanbieder met scherpe vaste tarieven',
-    stroomTarief: 0.275,
-    gasTarief: 1.32,
-    terugleverkosten: 0.110,
-    terugleverVergoeding: 0.050,
-    vastrechtMaand: 7.50,
-    description: 'Eén van de grootste aanbieders met scherpe vaste contracten.',
+    stroomTarief: 0.320,
+    gasTarief: 1.65,
+    terugleverkosten: 0.118,
+    terugleverVergoeding: 0.055,
+    vastrechtMaand: 8.99,
+    description: 'Eén van de grootste aanbieders met vaste en variabele zekerheidscontracten.',
   },
   {
     id: 'Eneco',
@@ -62,25 +63,25 @@ export const TOP4_FIXED_PROVIDERS: FixedProviderInfo[] = [
     subtitle: 'Hollands Groen',
     badge: 'Groene Stroom',
     marketShareNote: '100% Europese & Nederlandse wind- en zonne-energie',
-    stroomTarief: 0.290,
-    gasTarief: 1.35,
-    terugleverkosten: 0.115,
-    terugleverVergoeding: 0.050,
-    vastrechtMaand: 8.25,
+    stroomTarief: 0.335,
+    gasTarief: 1.72,
+    terugleverkosten: 0.133,
+    terugleverVergoeding: 0.055,
+    vastrechtMaand: 9.49,
     description: 'Duurzaam vast contract met 100% Europese/Nederlandse wind- en zonne-energie.',
   },
   {
     id: 'Greenchoice',
     name: 'Greenchoice',
     subtitle: '100% Duurzaam & Bos',
-    badge: 'Beste Overschot',
-    marketShareNote: 'Groene pionier met gunstige terugleververgoeding',
-    stroomTarief: 0.270,
-    gasTarief: 1.30,
-    terugleverkosten: 0.105,
-    terugleverVergoeding: 0.060,
-    vastrechtMaand: 7.95,
-    description: 'Groene aanbieder met relatief lage terugleverkosten en gunstige overschotvergoeding.',
+    badge: 'Scherp Stroomtarief',
+    marketShareNote: 'Groene pionier met scherp leveringstarief stroom & gas',
+    stroomTarief: 0.295,
+    gasTarief: 1.48,
+    terugleverkosten: 0.145,
+    terugleverVergoeding: 0.065,
+    vastrechtMaand: 9.32,
+    description: 'Groene aanbieder met scherp stroom- en gastarief (terugleverkosten per kWh).',
   },
 ];
 
@@ -91,10 +92,11 @@ export const TOP4_DYNAMIC_PROVIDERS: DynamicProviderInfo[] = [
     subtitle: 'Powerplay AI Accusturing',
     badge: 'Marktleider Dynamisch',
     usp: 'Marktleider met hoogste accurendement via Powerplay',
-    stroomInkoop: 0.240,
-    stroomTeruglever: 0.090,
-    gasTarief: 1.18,
+    stroomInkoop: 0.265,
+    stroomTeruglever: 0.085,
+    gasTarief: 1.38,
     terugleverkosten: 0.0,
+    opslagLeverancier: 0.0218,
     batteryTradingYieldPerKwh: 38.25,
     description: 'Marktleider in dynamische energie en AI-geoptimaliseerde thuisbatterij nethandel (Powerplay).',
   },
@@ -104,10 +106,11 @@ export const TOP4_DYNAMIC_PROVIDERS: DynamicProviderInfo[] = [
     subtitle: 'Smart Home & API',
     badge: 'Tech Pionier',
     usp: 'Pionier in digitale API sturing & smart EV-laden',
-    stroomInkoop: 0.250,
-    stroomTeruglever: 0.090,
-    gasTarief: 1.20,
+    stroomInkoop: 0.275,
+    stroomTeruglever: 0.085,
+    gasTarief: 1.40,
     terugleverkosten: 0.0,
+    opslagLeverancier: 0.0202,
     batteryTradingYieldPerKwh: 29.25,
     description: 'Pionier in digitale dynamische stroom met uitstekende integraties en smart EV-laden.',
   },
@@ -117,12 +120,13 @@ export const TOP4_DYNAMIC_PROVIDERS: DynamicProviderInfo[] = [
     subtitle: 'Slim Handelen & Arbitrage',
     badge: 'Geautomatiseerd',
     usp: 'Geavanceerd algoritme voor slim handelen op de onbalansmarkt',
-    stroomInkoop: 0.245,
-    stroomTeruglever: 0.090,
-    gasTarief: 1.19,
+    stroomInkoop: 0.260,
+    stroomTeruglever: 0.085,
+    gasTarief: 1.37,
     terugleverkosten: 0.0,
+    opslagLeverancier: 0.0240,
     batteryTradingYieldPerKwh: 31.50,
-    description: 'Innovatieve dynamische speler met geavanceerde slimme handelsalgoritmes voor thuisaccu’s.',
+    description: 'Innovatieve dynamische speler met scherpe inkoopkosten en slimme handelsalgoritmes.',
   },
   {
     id: 'Anwb',
@@ -130,19 +134,30 @@ export const TOP4_DYNAMIC_PROVIDERS: DynamicProviderInfo[] = [
     subtitle: 'Vertrouwd & Transparant',
     badge: 'Inkoop Beursprijs',
     usp: 'Transparante uurtarieven direct tegen beursprijs',
-    stroomInkoop: 0.255,
-    stroomTeruglever: 0.090,
-    gasTarief: 1.21,
+    stroomInkoop: 0.270,
+    stroomTeruglever: 0.085,
+    gasTarief: 1.41,
     terugleverkosten: 0.0,
+    opslagLeverancier: 0.0224,
     batteryTradingYieldPerKwh: 27.00,
     description: 'Transparante uurtarieven rechtstreeks tegen de beursprijs via de vertrouwde ANWB.',
   },
 ];
 
 export function getFixedProvider(id?: string): FixedProviderInfo {
-  return TOP4_FIXED_PROVIDERS.find(p => p.id === id) || TOP4_FIXED_PROVIDERS[0];
+  const normalized = (id || '').trim().toLowerCase();
+  return (
+    TOP4_FIXED_PROVIDERS.find(
+      p => p.id.toLowerCase() === normalized || p.name.toLowerCase() === normalized
+    ) || TOP4_FIXED_PROVIDERS[0]
+  );
 }
 
 export function getDynamicProvider(id?: string): DynamicProviderInfo {
-  return TOP4_DYNAMIC_PROVIDERS.find(p => p.id === id) || TOP4_DYNAMIC_PROVIDERS[0];
+  const normalized = (id || '').trim().toLowerCase();
+  return (
+    TOP4_DYNAMIC_PROVIDERS.find(
+      p => p.id.toLowerCase() === normalized || p.name.toLowerCase() === normalized
+    ) || TOP4_DYNAMIC_PROVIDERS[0]
+  );
 }

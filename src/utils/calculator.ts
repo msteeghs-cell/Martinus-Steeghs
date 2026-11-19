@@ -12,8 +12,9 @@ import {
   CalculationResult,
   InconsistencyWarning
 } from '../types';
+import { getDynamicProvider } from './energyProviders';
 
-export const ELEC_PRICE = 0.25; // €/kWh
+export const ELEC_PRICE = 0.31; // €/kWh (2026 gemiddeld incl. energiebelasting & btw)
 
 // Key figures from prompt / Pilot HTML
 export const COEFFS = {
@@ -231,6 +232,51 @@ export function getHeatpumpCopFactor(
   return { factor: 2.35, scop: 3.7, label: 'Gemengd Afgiftesysteem (SCOP 3.7 • ~2.35 kWh/m³)' };
 }
 
+export function calculateTvtYears(netInvestment: number, annualSavingsEuro: number): number {
+  if (!Number.isFinite(netInvestment) || !Number.isFinite(annualSavingsEuro)) return 0;
+  if (netInvestment <= 0 || annualSavingsEuro <= 0) return 0;
+  return netInvestment / annualSavingsEuro;
+}
+
+export function formatTvt(
+  tvtYears: number,
+  netInvestment?: number,
+  annualSavingsEuro?: number,
+  suffix: string = ' jaar'
+): string {
+  if (netInvestment !== undefined && (!Number.isFinite(netInvestment) || netInvestment <= 0)) {
+    return 'n.v.t.';
+  }
+  if (annualSavingsEuro !== undefined && (!Number.isFinite(annualSavingsEuro) || annualSavingsEuro <= 0)) {
+    return 'n.v.t.';
+  }
+  if (!Number.isFinite(tvtYears) || tvtYears <= 0 || tvtYears >= 99) {
+    return 'n.v.t.';
+  }
+  return `${tvtYears.toFixed(1)}${suffix}`;
+}
+
+export function getElectricityConsumptionBreakdown(
+  house: HouseData,
+  tech: TechData,
+  annualYieldKwh: number
+) {
+  const netGridImportKwh = Math.max(0, house.verbruikKwh || 0);
+  const hasExistingSolar = tech.solarStatus === 'bestaand' || house.zonnepanelenPresent === 'Ja';
+  const existingSolarYieldKwh = hasExistingSolar ? Math.max(0, annualYieldKwh || 0) : 0;
+  const existingFeedInKwh = hasExistingSolar ? Math.max(0, house.elektraTeruglevering || 0) : 0;
+  const existingDirectSolarKwh = hasExistingSolar ? Math.max(0, existingSolarYieldKwh - existingFeedInKwh) : 0;
+  const totalConsumptionKwh = netGridImportKwh + existingDirectSolarKwh;
+
+  return {
+    netGridImportKwh,
+    existingSolarYieldKwh,
+    existingFeedInKwh,
+    existingDirectSolarKwh,
+    totalConsumptionKwh,
+  };
+}
+
 export function calculateAll(
   resident: ResidentData,
   house: HouseData,
@@ -243,6 +289,8 @@ export function calculateAll(
 
   const { aantalPersonen } = resident;
   const { verbruikM3, woonoppervlakte, bouwjaar, stookgedragOverride, gasPrijs } = house;
+  const tapwaterGas = Math.max(0, (aantalPersonen || 0) * 100);
+  const werkelijkVerwarmingsGas = Math.max(0, verbruikM3 - tapwaterGas);
 
   if (aantalPersonen > 0 && verbruikM3 > 0 && woonoppervlakte > 0 && bouwjaar > 0) {
     let normFactor = 11;
@@ -252,8 +300,6 @@ export function calculateAll(
     else if (bouwjaar > 2015) normFactor = 2.5;
 
     const verwachtVerwarmingsGas = DeNormalizeOpp(woonoppervlakte) * normFactor;
-    const tapwaterGas = aantalPersonen * 100;
-    const werkelijkVerwarmingsGas = Math.max(0, verbruikM3 - tapwaterGas);
 
     const ratio = werkelijkVerwarmingsGas / verwachtVerwarmingsGas;
     const roundedFactor = Math.round(ratio * 10) / 10;
@@ -328,14 +374,12 @@ export function calculateAll(
       textClass = 'text-rose-800';
     }
 
-    const tapwaterGas = aantalPersonen * 100;
     let normFactor = 11;
     if (bouwjaar >= 1975 && bouwjaar <= 1991) normFactor = 9;
     else if (bouwjaar >= 1992 && bouwjaar <= 2005) normFactor = 6.5;
     else if (bouwjaar >= 2006 && bouwjaar <= 2015) normFactor = 4.5;
     else if (bouwjaar > 2015) normFactor = 2.5;
     const verwachtVerwarmingsGas = Math.round(DeNormalizeOpp(woonoppervlakte) * normFactor);
-    const werkelijkVerwarmingsGas = Math.max(0, verbruikM3 - tapwaterGas);
 
     stookgedragDetails = {
       category,
@@ -514,7 +558,7 @@ export function calculateAll(
   // Calculate TVT and priority for each base measure
   measures = measures.map((m) => {
     const priority = m.savingM3 > 0 ? m.netCosts / m.savingM3 : 99999;
-    const tvt = m.savingEuro > 0 ? m.netCosts / m.savingEuro : 0;
+    const tvt = calculateTvtYears(m.netCosts, m.savingEuro);
     return {
       ...m,
       priority,
@@ -531,7 +575,7 @@ export function calculateAll(
     savingsEuro: measures.reduce((sum, m) => sum + m.savingEuro, 0),
     tvt: 0,
   };
-  totals.tvt = totals.savingsEuro > 0 ? totals.net / totals.savingsEuro : 0;
+  totals.tvt = calculateTvtYears(totals.net, totals.savingsEuro);
 
   // --- OPTIMIZATION ALGORITHM (Beste scenario) ---
   let optimalMeasures = [...measures];
@@ -653,7 +697,7 @@ export function calculateAll(
 
       optimalMeasures = bestTestMeasures.map((m) => {
         const priority = m.savingM3 > 0 ? m.netCosts / m.savingM3 : 0;
-        const tvt = m.savingEuro > 0 ? m.netCosts / m.savingEuro : 0;
+        const tvt = calculateTvtYears(m.netCosts, m.savingEuro);
         return { ...m, priority, tvt };
       });
     }
@@ -668,7 +712,7 @@ export function calculateAll(
     savingsEuro: optimalMeasures.reduce((sum, m) => sum + m.savingEuro, 0),
     tvt: 0,
   };
-  totalsOptimal.tvt = totalsOptimal.savingsEuro > 0 ? totalsOptimal.net / totalsOptimal.savingsEuro : 0;
+  totalsOptimal.tvt = calculateTvtYears(totalsOptimal.net, totalsOptimal.savingsEuro);
 
   // --- MODULE 2: ZONNEPANELEN ---
   const orientRad = (tech.dakOrientatie * Math.PI) / 180;
@@ -712,7 +756,8 @@ export function calculateAll(
 
   const selfConsumptionWithBattery = Math.min(85, selfConsumptionBase + efficiencyIncrease);
 
-  const houseDemand = updatedHouse.verbruikKwh || 3500;
+  const electricityBalance = getElectricityConsumptionBreakdown(updatedHouse, tech, annualYieldKwh);
+  const houseDemand = electricityBalance.totalConsumptionKwh;
   // Bounded direct self-consumption: direct self-consumption without battery cannot physically exceed household base demand
   const absoluteSelfConsumptionBaseKwh = Math.min(houseDemand, (annualYieldKwh * selfConsumptionBase) / 100);
   
@@ -738,10 +783,10 @@ export function calculateAll(
   const saldeerdKwh = Math.min(annualYieldKwh, houseDemand);
   const surplusKwh = Math.max(0, annualYieldKwh - saldeerdKwh);
   
-  const vastTerugleverkosten = tech.vastTerugleverkosten !== undefined ? tech.vastTerugleverkosten : 0.11;
-  const vastTerugleverVergoeding = tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : 0.05;
-  const dynInkoopTarief = tech.dynamischStroomTarief !== undefined ? tech.dynamischStroomTarief : 0.25;
-  const returnRateDynamisch = tech.dynamischTerugleverTarief !== undefined ? tech.dynamischTerugleverTarief : 0.09;
+  const vastTerugleverkosten = tech.vastTerugleverkosten !== undefined ? tech.vastTerugleverkosten : 0.123;
+  const vastTerugleverVergoeding = tech.vastTerugleverVergoeding !== undefined ? tech.vastTerugleverVergoeding : 0.06;
+  const dynInkoopTarief = tech.dynamischStroomTarief !== undefined ? tech.dynamischStroomTarief : 0.265;
+  const returnRateDynamisch = tech.dynamischTerugleverTarief !== undefined ? tech.dynamischTerugleverTarief : 0.085;
 
   // Pre-2027 (Salderingsregeling actief):
   // Bij Vast contract: salderen tegen leveringstarief, overschot tegen terugleververgoeding, minus terugleverkosten per teruggeleverde kWh
@@ -765,10 +810,11 @@ export function calculateAll(
   const savingsDynamischBase = (absoluteSelfConsumptionBaseKwh * dynInkoopTarief) + (gridFeedBaseKwh * returnRateDynamisch);
   const savingsDynamischWithBattery = (absoluteSelfConsumptionWithBatteryKwh * dynInkoopTarief) + (gridFeedWithBatteryKwh * returnRateDynamisch);
 
-  const contractSavingsVast = savingsVastWithBattery - savingsVastBase;
-  const contractSavingsDynamisch = savingsDynamischWithBattery - savingsDynamischBase;
+  const isBatteryBestaand = tech.batteryStatus === 'bestaand';
+  const contractSavingsVast = isBatteryBestaand ? 0 : (savingsVastWithBattery - savingsVastBase);
+  const contractSavingsDynamisch = isBatteryBestaand ? 0 : (savingsDynamischWithBattery - savingsDynamischBase);
 
-  const costSavingsPost2027 = tech.typeContract === 'Vast' ? contractSavingsVast : contractSavingsDynamisch;
+  const costSavingsPost2027 = isBatteryBestaand ? 0 : (tech.typeContract === 'Vast' ? contractSavingsVast : contractSavingsDynamisch);
 
   // Generate comparison options for home batteries (5 kWh, 10 kWh, 15 kWh, and optionally 30 kWh)
   const batteryCapacities = [5, 10, 15];
@@ -787,14 +833,14 @@ export function calculateAll(
           : cap === 10);
 
     let bruto = getBatteryInvestmentEstimate(cap);
-    if (tech.batteryStatus === 'bestaand') {
+    if (isBatteryBestaand) {
       bruto = 0;
     } else if (tech.capaciteitAccu === cap && tech.customAccuPrijs !== undefined && tech.customAccuPrijs > 0) {
       bruto = tech.customAccuPrijs;
     }
     // In the Netherlands, 21% VAT can often be reclaimed (Btw-teruggave voor thuisaccu's bij dynamisch contract/handelen)
-    const btwRefund = bruto * (21 / 121);
-    const net = bruto - btwRefund;
+    const btwRefund = isBatteryBestaand ? 0 : bruto * (21 / 121);
+    const net = isBatteryBestaand ? 0 : bruto - btwRefund;
 
     let optEffIncrease = 0;
     if (annualYieldKwh > 0) {
@@ -808,40 +854,40 @@ export function calculateAll(
     const optGridFeedKwh = annualYieldKwh - optAbsSelfConsumptionKwh;
 
     // Vast pre-2027 has almost no yield under saldering, but dynamic allows active trading (arbitrage)
-    const optVastSavingsPre2027 = cap * 10; // small self-consumption advantage pre-2027 under saldering
+    const optVastSavingsPre2027 = isBatteryBestaand ? 0 : cap * 10; // small self-consumption advantage pre-2027 under saldering
     
     // Vast post-2027 (saldering turned off)
     const optSavingsVastWithBattery = optAbsSelfConsumptionKwh * updatedHouse.elektraPrijs;
-    const optContractSavingsVast = Math.max(0, optSavingsVastWithBattery - savingsVastBase);
+    const optContractSavingsVast = isBatteryBestaand ? 0 : Math.max(0, optSavingsVastWithBattery - savingsVastBase);
 
     // Dynamisch contract (arbitrage trading on imbalances & peak shaving)
     // CORRECTIE PUNT 6: Geen dubbeltelling! Als de batterij 's zomers zonnestroom opslaat, 
     // is de headroom voor intraday nethandel in die maanden lager.
     let baseArbitragePerKwh = 55 * 0.45;
-    const provider = tech.dynamicProvider || 'Zonneplan';
+    const providerId = getDynamicProvider(tech.dynamicProvider).id;
     if (tech.customArbitrageYieldPerKwh !== undefined && tech.customArbitrageYieldPerKwh > 0) {
       baseArbitragePerKwh = tech.customArbitrageYieldPerKwh * 0.45;
-    } else if (provider === 'Zonneplan') {
+    } else if (providerId === 'Zonneplan') {
       baseArbitragePerKwh = 38.25; // Realistische onbalansopbrengst per kWh accu
-    } else if (provider === 'Frank') {
+    } else if (providerId === 'Frank') {
       baseArbitragePerKwh = 31.50; // Slim Handelen EPEX-arbitrage
-    } else if (provider === 'Tibber') {
+    } else if (providerId === 'Tibber') {
       baseArbitragePerKwh = 29.25; // Smart API arbitrage/Bliq/Home Assistant
-    } else if (provider === 'Anwb') {
+    } else if (providerId === 'Anwb') {
       baseArbitragePerKwh = 27.00; // EV Slim laden & basis arbitrage
     }
 
     // Bereken zonne-opslag beslag op de batterij om dubbeltelling te voorkomen
     const solarStorageShare = annualYieldKwh > 0 ? Math.min(0.45, (annualYieldKwh / (cap * 600))) : 0;
     const correctedArbitragePerKwh = baseArbitragePerKwh * (1 - solarStorageShare * 0.35);
-    const arbitrageYield = tech.batteryGridTrading ? cap * correctedArbitragePerKwh : 0;
+    const arbitrageYield = !isBatteryBestaand && tech.batteryGridTrading ? cap * correctedArbitragePerKwh : 0;
     const optSavingsDynamischWithBattery = (optAbsSelfConsumptionKwh * updatedHouse.elektraPrijs) + (optGridFeedKwh * returnRateDynamisch);
-    const optContractSavingsDynamisch = Math.max(0, optSavingsDynamischWithBattery - savingsDynamischBase);
-    const optDynamischTotalSavings = optContractSavingsDynamisch + arbitrageYield;
+    const optContractSavingsDynamisch = isBatteryBestaand ? 0 : Math.max(0, optSavingsDynamischWithBattery - savingsDynamischBase);
+    const optDynamischTotalSavings = isBatteryBestaand ? 0 : optContractSavingsDynamisch + arbitrageYield;
 
-    const tvtPre = optVastSavingsPre2027 > 0 ? net / optVastSavingsPre2027 : 99;
-    const tvtPost = optContractSavingsVast > 0 ? net / optContractSavingsVast : 99;
-    const tvtDyn = optDynamischTotalSavings > 0 ? net / optDynamischTotalSavings : 99;
+    const tvtPre = calculateTvtYears(net, optVastSavingsPre2027);
+    const tvtPost = calculateTvtYears(net, optContractSavingsVast);
+    const tvtDyn = calculateTvtYears(net, optDynamischTotalSavings);
 
     let rec = '';
     if (cap === 5) {
@@ -895,7 +941,7 @@ export function calculateAll(
   const chosenEvSolarCoverageKwh = isBatteryActive ? evSolarCoverageWithBatteryKwh : evSolarCoverageBaseKwh;
   const chosenEvGridImportKwh = isBatteryActive ? evGridImportWithBatteryKwh : evGridImportBaseKwh;
 
-  const evSolarChargingSavingsEuro = chosenEvSolarCoverageKwh * (0.50 - 0.05); // zonnestroom 'kost' ons de misgelopen terugleververgoeding
+  const evSolarChargingSavingsEuro = chosenEvSolarCoverageKwh * (0.50 - 0.06); // zonnestroom 'kost' ons de misgelopen terugleververgoeding
   const evGridChargingSavingsEuro = chosenEvGridImportKwh * (0.50 - updatedHouse.elektraPrijs); // netstroom laden bespaart het verschil tussen openbaar (€0,50) en thuisnet
   const evSavingsEuro = Math.round(evSolarChargingSavingsEuro + evGridChargingSavingsEuro);
 
@@ -911,7 +957,7 @@ export function calculateAll(
   } else if (tech.customLaadpaalPrijs !== undefined && tech.customLaadpaalPrijs > 0) {
     laadpaalInvestment = tech.customLaadpaalPrijs;
   }
-  const laadpaalTvt = (totalEvSavingsEuro > 0 && laadpaalInvestment > 0) ? laadpaalInvestment / totalEvSavingsEuro : 0;
+  const laadpaalTvt = calculateTvtYears(laadpaalInvestment, totalEvSavingsEuro);
 
   const laadpaalResult = {
     evAnnualDemandKwh: Math.round(evAnnualDemandKwh),
@@ -1050,7 +1096,8 @@ export function calculateAll(
 
   // 1. Hybride option (or Lucht-lucht Airco)
   const hybridNet = hybridBruto - hybridSubsidy;
-  const hybridGasSaved = remainingGasM3 * (selectedModel === 'LuchtLucht' ? 0.55 : 0.75);
+  const remainingHeatingGasM3 = Math.max(0, werkelijkVerwarmingsGas - totalGasSaved);
+  const hybridGasSaved = remainingHeatingGasM3 * (selectedModel === 'LuchtLucht' ? 0.55 : 0.75);
   
   const isVastContract = (tech.typeContract || 'Vast') === 'Vast';
   const effectiveGasTarief = (tech.vastGasTarief !== undefined && tech.vastGasTarief > 0)
@@ -1061,11 +1108,11 @@ export function calculateAll(
     ? tech.vastTarief
     : (!isVastContract && tech.dynamischStroomTarief !== undefined && tech.dynamischStroomTarief > 0)
       ? tech.dynamischStroomTarief
-      : (updatedHouse.elektraPrijs || 0.35);
+      : (updatedHouse.elektraPrijs || 0.31);
 
   const effectiveTerugleverVergoeding = (tech.vastTerugleverVergoeding !== undefined)
     ? tech.vastTerugleverVergoeding
-    : 0.055;
+    : 0.06;
 
   const hybridGasSavingEuro = hybridGasSaved * effectiveGasTarief;
   
@@ -1094,7 +1141,7 @@ export function calculateAll(
   );
 
   const hybridNetSavings = Math.max(0, Math.round(hybridGasSavingEuro - hybridElecCostEuro));
-  const hybridTvt = hybridNetSavings > 0 ? hybridNet / hybridNetSavings : 99;
+  const hybridTvt = calculateTvtYears(hybridNet, hybridNetSavings);
   const hybridFeasible = selectedModel === 'LuchtLucht' ? true : isInsulatedSufficiently;
   const hybridFeasibilityReason = selectedModel === 'LuchtLucht'
     ? `Uitstekend geschikt! Een lucht-lucht warmtepomp (airco) verwarmt direct via lucht-blaasunits. Hierdoor is dit systeem ook bij een matig of slecht geïsoleerde woning direct uiterst effectief en rendabel, zonder dat er vloerverwarming of nieuwe radiatoren nodig zijn.`
@@ -1135,7 +1182,7 @@ export function calculateAll(
 
   const aeFixedGasSaving = (verbruikM3 > 0 || remainingGasM3 > 0) ? 280 : 0; // Complete removal of gas connection saves ~€280/year in vastrecht
   const aeNetSavings = Math.max(0, Math.round(aeGasSavingEuro + aeFixedGasSaving - aeElecCostEuro));
-  const aeTvt = aeNetSavings > 0 ? aeNet / aeNetSavings : 99;
+  const aeTvt = calculateTvtYears(aeNet, aeNetSavings);
   
   // All-electric is feasible if highly insulated or remaining gas is quite low
   const aeFeasible = isInsulatedSufficiently && (isLabelSufficient || remainingGasM3 < targetGas * 0.8 || remainingGasM3 < 1000);
@@ -1200,7 +1247,7 @@ export function calculateAll(
     if (isRecommended) {
       if (selectedModel === 'LuchtLucht') {
         explanation = `Positief advies: Een lucht-lucht warmtepomp (airco) is een slimme en snelle manier om op gas te besparen. Je woning is goed geïsoleerd, wat het rendement nog verder verhoogt. Je kunt hiermee heel gericht de woonkamer en/of andere verblijfsruimten verwarmen, terwijl de CV-ketel alleen nog voor tapwater en koude badkamers zorgt.`;
-      } else if (aeFeasible && aeTvt < hybridTvt + 3) {
+      } else if (aeFeasible && aeTvt > 0 && (hybridTvt <= 0 || aeTvt < hybridTvt + 3)) {
         explanation = `Positief advies: Je woning is uitstekend geïsoleerd met een laag resterend gasverbruik van ${Math.round(remainingGasM3)} m³ (ruim onder de streefwaarde van ${targetGas} m³ voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m²). Een volledig elektrische warmtepomp (All-Electric) is hier zeer interessant! Hiermee ga je volledig gasloos en bespaar je tevens de vaste gaskosten. Een hybride warmtepomp is ook een veilige en rendabele optie.`;
       } else {
         explanation = `Positief advies: Je woning is goed geïsoleerd. Je resterende gasverbruik van ${Math.round(remainingGasM3)} m³ ligt netjes onder de streefwaarde van ${targetGas} m³ voor een ${updatedHouse.soortWoning || 'woning'} van ${opp} m². Een hybride warmtepomp is hier de meest financieel rendabele optie en zal je gasverbruik met circa 75% verminderen!`;
@@ -1241,6 +1288,7 @@ export function calculateAll(
     solar,
     battery,
     heatpump,
+    electricityBalance,
     laadpaal: laadpaalResult,
     inconsistencies,
     opmerkingenOffertes: '',
@@ -1469,12 +1517,12 @@ export function getBatterySimulationData(
   const additionScale = sumBatteryAdditionM > 0 ? targetBatteryAdditionY / sumBatteryAdditionM : 1;
 
   // Provider rate per kWh capacity for dynamic contract trading yield
-  const provider = dynamicProvider || 'Zonneplan';
+  const providerId = getDynamicProvider(dynamicProvider).id;
   let ratePerKwh = 24.75;
-  if (provider === 'Zonneplan') ratePerKwh = 38.25;
-  else if (provider === 'Frank') ratePerKwh = 31.50;
-  else if (provider === 'Tibber') ratePerKwh = 29.25;
-  else if (provider === 'Anwb') ratePerKwh = 27.00;
+  if (providerId === 'Zonneplan') ratePerKwh = 38.25;
+  else if (providerId === 'Frank') ratePerKwh = 31.50;
+  else if (providerId === 'Tibber') ratePerKwh = 29.25;
+  else if (providerId === 'Anwb') ratePerKwh = 27.00;
 
   const annualArbitrage = (batteryGridTrading !== false && capacity > 0) ? capacity * ratePerKwh : 0;
 

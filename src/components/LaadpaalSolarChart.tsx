@@ -225,11 +225,13 @@ export default function LaadpaalSolarChart({
 
   const chartBatteryCapacity = tech.capaciteitAccu || 0;
 
+  const totalHouseConsumptionKwh = calcResult.electricityBalance?.totalConsumptionKwh ?? (house.verbruikKwh || 3500);
+
   // Compute monthly battery simulation data points
   const batteryChartData = useMemo(() => {
     return getBatterySimulationData(
       Number(finalAnnualSolar) || 0,
-      house.verbruikKwh || 3500,
+      totalHouseConsumptionKwh || 3500,
       chartBatteryCapacity,
       tech.omzettingsverliezen || 20,
       calcResult.solar.selfConsumptionBase || 30,
@@ -237,7 +239,7 @@ export default function LaadpaalSolarChart({
       tech.dynamicProvider || 'Zonneplan',
       tech.batteryGridTrading
     );
-  }, [finalAnnualSolar, house.verbruikKwh, chartBatteryCapacity, tech.omzettingsverliezen, calcResult.solar.selfConsumptionBase, calcResult.solar.absoluteSelfConsumptionBaseKwh, tech.dynamicProvider, tech.batteryGridTrading]);
+  }, [finalAnnualSolar, totalHouseConsumptionKwh, chartBatteryCapacity, tech.omzettingsverliezen, calcResult.solar.selfConsumptionBase, calcResult.solar.absoluteSelfConsumptionBaseKwh, tech.dynamicProvider, tech.batteryGridTrading]);
 
   // Compute monthly laadpaal simulation data points
   const laadpaalChartData = useMemo(() => {

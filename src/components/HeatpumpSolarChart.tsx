@@ -219,8 +219,8 @@ export default function HeatpumpSolarChart({
   const solarDistribution = [1.2, 4.6, 8.0, 12.0, 14.5, 16.0, 15.5, 12.5, 9.0, 4.5, 1.1, 1.1]; // Jan-Dec (sums to exactly 100.0)
   const months = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
 
-  const inkoopprijs = house.elektraPrijs || 0.25;
-  const terugleververgoeding = 0.05; // Standard returned solar rate in the Netherlands
+  const inkoopprijs = house.elektraPrijs || 0.31;
+  const terugleververgoeding = 0.06; // Standard returned solar rate in the Netherlands
 
   // Recalculate local solar yield (to get exact solarM for each month, perfectly aligned with the Zon tab)
   const paneelVermogenLocal = tech.vermogenPerPaneel || 400;

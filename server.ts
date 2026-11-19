@@ -279,19 +279,130 @@ Schrijf direct en persoonlijk tot de bewoner ("je/jij"). Wees to-the-point, prof
 // API endpoint to send advice report to the resident's email
 app.post('/api/send-email', async (req, res) => {
   try {
-    const { email, clientName, reportText } = req.body;
+    const { 
+      email, 
+      clientName, 
+      reportText, 
+      reportType = 'compact',
+      customSubject, 
+      customHtml,
+      customIntroText,
+      senderOrganization = 'Energiecoöperatie Peel en Maas & Gemeente',
+      senderCoach = 'Uw lokale Energiecoach',
+      address = '',
+      keyFigures = null
+    } = req.body;
+
     if (!email) {
       return res.status(400).json({ error: 'E-mailadres is verplicht.' });
     }
 
-    console.log(`[Email API] Verzoek om rapport te verzenden naar: ${email} voor klant: ${clientName}`);
+    console.log(`[Email API] Verzoek om rapport (${reportType}) te verzenden naar: ${email} voor klant: ${clientName} namens ${senderOrganization}`);
 
     // Fetch SMTP settings from environment variables
     const host = process.env.SMTP_HOST;
     const port = Number(process.env.SMTP_PORT || 587);
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
-    const from = process.env.SMTP_FROM || 'no-reply@energieplanner.peelenmaas.nl';
+    const from = process.env.SMTP_FROM || 'advies@energieplanner-peelenmaas.nl';
+
+    const defaultSubject = reportType === 'uitgebreid'
+      ? `Uitgebreid Verduurzamingsadvies voor ${clientName || 'uw woning'} – ${senderOrganization}`
+      : `Persoonlijk Verduurzamingsadvies (Compact Overzicht) voor ${clientName || 'uw woning'} – ${senderOrganization}`;
+    const subject = customSubject || defaultSubject;
+
+    // Generate clean, modern, friendly HTML email
+    const emailHtml = customHtml || `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 650px; margin: 0 auto; color: #1e293b; background-color: #f8fafc; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #ffffff; padding: 28px 24px; border-radius: 16px 16px 0 0; text-align: left;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <span style="display: inline-block; background-color: rgba(255, 255, 255, 0.2); color: #ffffff; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 10px; border-radius: 20px;">
+              ${senderOrganization}
+            </span>
+            <span style="display: inline-block; background-color: #ffffff; color: #065f46; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 8px; border-radius: 6px;">
+              ${reportType === 'uitgebreid' ? 'Uitgebreid Rapport' : 'Compact Rapport'}
+            </span>
+          </div>
+          <h1 style="margin: 0; font-size: 22px; font-weight: 800; line-height: 1.3;">
+            Jouw Onafhankelijk Verduurzamingsadvies
+          </h1>
+          ${address ? `<p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">Woning: <strong>${address}</strong></p>` : ''}
+        </div>
+
+        <div style="padding: 28px 24px; background-color: #ffffff; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 16px 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+          <p style="font-size: 15px; margin-top: 0; line-height: 1.6;">
+            Beste <strong>${clientName || 'bewoner'}</strong>,
+          </p>
+          
+          <p style="font-size: 14px; line-height: 1.6; color: #334155;">
+            ${customIntroText || `Namens de energiecoöperatie en gemeente Peel en Maas ontvang je hierbij het uitgewerkte adviesrapport voor jouw woning. Samen zetten we de volgende stap naar een comfortabele, energiezuinige en toekomstbestendige woning met lagere maandlasten.`}
+          </p>
+
+          ${keyFigures ? `
+            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 16px; margin: 20px 0;">
+              <h3 style="margin: 0 0 10px 0; font-size: 13px; font-weight: 800; color: #166534; text-transform: uppercase; letter-spacing: 0.5px;">
+                Kerncijfers &amp; Verwachte Voordelen
+              </h3>
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #1f2937;">
+                ${keyFigures.savingsEuro ? `
+                  <tr>
+                    <td style="padding: 4px 0; color: #4b5563;">Verwachte jaarlijkse besparing:</td>
+                    <td style="padding: 4px 0; text-align: right; font-weight: 700; color: #059669;">€ ${Number(keyFigures.savingsEuro).toLocaleString('nl-NL')} per jaar</td>
+                  </tr>` : ''}
+                ${keyFigures.netInvestment ? `
+                  <tr>
+                    <td style="padding: 4px 0; color: #4b5563;">Netto investering (na subsidie):</td>
+                    <td style="padding: 4px 0; text-align: right; font-weight: 700;">€ ${Number(keyFigures.netInvestment).toLocaleString('nl-NL')}</td>
+                  </tr>` : ''}
+                ${keyFigures.totalSubsidies ? `
+                  <tr>
+                    <td style="padding: 4px 0; color: #4b5563;">Verwachte subsidies (ISDE + NIP):</td>
+                    <td style="padding: 4px 0; text-align: right; font-weight: 700; color: #2563eb;">€ ${Number(keyFigures.totalSubsidies).toLocaleString('nl-NL')}</td>
+                  </tr>` : ''}
+                ${keyFigures.tvt ? `
+                  <tr>
+                    <td style="padding: 4px 0; color: #4b5563;">Gemiddelde terugverdientijd:</td>
+                    <td style="padding: 4px 0; text-align: right; font-weight: 700;">${keyFigures.tvt}</td>
+                  </tr>` : ''}
+              </table>
+            </div>
+          ` : ''}
+
+          <div style="background-color: #f8fafc; border-left: 4px solid #10b981; padding: 14px 16px; margin: 20px 0; border-radius: 0 8px 8px 0; font-size: 13px; color: #334155; line-height: 1.5;">
+            <strong>Wat vind je in dit ${reportType === 'uitgebreid' ? 'uitgebreide' : 'compacte'} rapport?</strong>
+            <ul style="margin: 6px 0 0 0; padding-left: 18px;">
+              <li>Praktische isolatiemaatregelen toegespitst op jouw woningtype en bouwjaar</li>
+              <li>ISDE &amp; NIP subsidies (inclusief gemeentelijke voorwaarden)</li>
+              <li>Realistische stookgedrag-check &amp; warmteverlies-inschatting</li>
+              <li>Kansen voor zonnepanelen, thuisbatterij en (hybride) warmtepomp</li>
+            </ul>
+          </div>
+
+          <h3 style="color: #0f172a; margin-top: 24px; margin-bottom: 8px; font-size: 14px; font-weight: 700; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
+            ${reportType === 'uitgebreid' ? 'Volledig Uitgebreid Adviesrapport (9-fasen):' : 'Adviesrapport Overzicht:'}
+          </h3>
+          <div style="background-color: #ffffff; border: 1px solid #cbd5e1; padding: 16px; border-radius: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 12.5px; color: #334155; line-height: 1.6; max-height: 500px; overflow-y: auto; white-space: pre-wrap;">
+${reportText}
+          </div>
+
+          <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 13px; color: #475569; line-height: 1.6;">
+            <p style="margin: 0 0 8px 0;">
+              <strong>Vragen of adviesgesprek inplannen?</strong><br />
+              Heeft u hulp nodig bij het aanvragen van subsidies, offertes vergelijken of het zetten van de eerste stap? De vrijwillige energiecoaches van de energiecoöperatie denken graag onafhankelijk met u mee.
+            </p>
+            <p style="margin: 12px 0 0 0;">
+              Met vriendelijke groet,<br />
+              <strong>${senderCoach}</strong><br />
+              <span style="color: #64748b; font-size: 12px;">${senderOrganization}</span>
+            </p>
+          </div>
+        </div>
+
+        <div style="text-align: center; font-size: 11px; color: #94a3b8; margin-top: 16px; padding: 6px;">
+          Dit rapport is onafhankelijk opgesteld met de Energieplanner Peel en Maas in samenwerking met de lokale energiecoöperatie en gemeente.
+        </div>
+      </div>
+    `;
 
     let sent = false;
     let messageId = '';
@@ -306,43 +417,11 @@ app.post('/api/send-email', async (req, res) => {
       });
 
       const info = await transporter.sendMail({
-        from: `"Energie planner Peel en Maas" <${from}>`,
+        from: `"${senderOrganization}" <${from}>`,
         to: email,
-        subject: `Jouw Energie planner Peel en Maas Adviesrapport - ${clientName || 'Bewoner'}`,
-        text: reportText || 'Hierbij ontvangt u uw adviesrapport.',
-        html: `
-          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #334155; line-height: 1.6;">
-            <div style="background-color: #10b981; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-              <h1 style="margin: 0; font-size: 24px;">Energie planner Peel en Maas</h1>
-              <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">Jouw persoonlijke verduurzamingsadvies</p>
-            </div>
-            <div style="padding: 24px; background-color: #ffffff; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px;">
-              <p>Beste <strong>${clientName || 'bewoner'}</strong>,</p>
-              <p>Bedankt voor het invullen van de Energie planner Peel en Maas. Op basis van jouw ingevoerde gegevens hebben we een onafhankelijk en deskundig adviesrapport opgesteld om je te helpen besparen op gas en elektriciteit en maximaal te profiteren van beschikbare subsidies zoals het NIP en ISDE.</p>
-              
-              <div style="background-color: #f8fafc; border-left: 4px solid #10b981; padding: 15px; margin: 20px 0; font-size: 14px; color: #475569;">
-                <strong>Verwachte resultaten:</strong>
-                <ul style="margin: 8px 0 0 0; padding-left: 20px;">
-                  <li>Onafhankelijk stappenplan specifiek voor jouw woning</li>
-                  <li>Overzicht van isolatiesubsidies (ISDE + NIP tot wel €2.900)</li>
-                  <li>Inzicht in zonnepanelen, saldering en warmtepomp-mogelijkheden</li>
-                </ul>
-              </div>
-
-              <h3 style="color: #0f172a; margin-top: 25px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Jouw Persoonlijke Adviesrapport:</h3>
-              <div style="background-color: #fafafa; border: 1px solid #f1f5f9; padding: 15px; border-radius: 6px; white-space: pre-wrap; font-family: monospace; font-size: 12px; color: #334155; max-height: 400px; overflow-y: auto;">
-                ${reportText}
-              </div>
-
-              <p style="margin-top: 25px;">Heb je vragen over dit rapport of wil je hulp bij de vervolgstappen? Neem gerust contact op met de Energiecoaches van Peel en Maas.</p>
-              
-              <p style="margin-bottom: 0;">Met vriendelijke groet,<br><strong>Energie planner Peel en Maas</strong></p>
-            </div>
-            <div style="text-align: center; font-size: 11px; color: #94a3b8; margin-top: 20px; padding: 10px;">
-              Dit is een automatisch gegenereerd rapport opgesteld door de Energie planner Peel en Maas zelfscan.
-            </div>
-          </div>
-        `
+        subject: subject,
+        text: reportText || 'Hierbij ontvangt u uw persoonlijke verduurzamingsadvies.',
+        html: emailHtml
       });
 
       sent = true;
@@ -355,7 +434,7 @@ app.post('/api/send-email', async (req, res) => {
       console.log(`[Email API] SIMULATIE MODUS: E-mail succesvol opgesteld en gelogd voor ${email}.`);
     }
 
-    res.json({ success: true, isSimulated, email, messageId });
+    res.json({ success: true, isSimulated, email, messageId, subject });
   } catch (error: any) {
     console.error('Fout bij verzenden van e-mail:', error);
     res.status(500).json({ error: error.message || 'Fout bij het verzenden van de e-mail.' });

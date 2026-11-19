@@ -164,11 +164,13 @@ export default function BatterySolarChart({
     }
   }, [tech.capaciteitAccu, calcResult.solar.annualYieldKwh]);
 
+  const totalHouseConsumptionKwh = calcResult.electricityBalance?.totalConsumptionKwh ?? (calcResult.house.verbruikKwh || 3500);
+
   // Compute monthly battery simulation
   const batteryChartData = useMemo(() => {
     return getBatterySimulationData(
       calcResult.solar.annualYieldKwh || 0,
-      calcResult.house.verbruikKwh || 3500,
+      totalHouseConsumptionKwh || 3500,
       chartBatteryCapacity || 10,
       calcResult.tech.omzettingsverliezen || 20,
       calcResult.solar.selfConsumptionBase || 30,
@@ -178,7 +180,7 @@ export default function BatterySolarChart({
     );
   }, [
     calcResult.solar.annualYieldKwh, 
-    calcResult.house.verbruikKwh, 
+    totalHouseConsumptionKwh, 
     chartBatteryCapacity, 
     calcResult.tech.omzettingsverliezen, 
     calcResult.solar.selfConsumptionBase, 
@@ -732,7 +734,7 @@ export default function BatterySolarChart({
           <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block">Autonomie (Zonne-dekking)</span>
           <div className="flex items-baseline gap-1">
             <span className="text-xl font-bold text-slate-900">
-              {Math.min(100, Math.round((totalDirectWithBatteryKwh / (calcResult.house.verbruikKwh || 1)) * 100))}%
+              {Math.min(100, Math.round((totalDirectWithBatteryKwh / (totalHouseConsumptionKwh || 1)) * 100))}%
             </span>
             <span className="text-[11px] text-slate-500 font-medium">zelfvoorzienend</span>
           </div>
