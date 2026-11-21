@@ -106,19 +106,25 @@ export default function InputForm({
   const [bagSuccess, setBagSuccess] = useState<boolean | null>(null);
   const [smartCalcReason, setSmartCalcReason] = useState<string>('');
   const [simulatedSpotPrice, setSimulatedSpotPrice] = useState<number>(0.08);
-  const [activePreset, setActivePreset] = useState<'60s' | '70s' | '80s' | '90s' | '2000s' | 'modern' | null>(() => {
-    if (house.bouwjaar === 1965) return '60s';
-    if (house.bouwjaar === 1974) return '70s';
-    if (house.bouwjaar === 1984) return '80s';
-    if (house.bouwjaar === 1994) return '90s';
-    if (house.bouwjaar === 2005) return '2000s';
-    if (house.bouwjaar === 2010 || house.bouwjaar === 2023) return 'modern';
-    return null;
+  const [activePreset, setActivePreset] = useState<'voor-1975' | '1975-1991' | '1992-2005' | '2006-2015' | 'na-2015' | null>(() => {
+    if (!house.bouwjaar || house.bouwjaar <= 0 || !house.woonoppervlakte || house.woonoppervlakte <= 0) return null;
+    if (house.bouwjaar < 1975) return 'voor-1975';
+    if (house.bouwjaar <= 1991) return '1975-1991';
+    if (house.bouwjaar <= 2005) return '1992-2005';
+    if (house.bouwjaar <= 2015) return '2006-2015';
+    return 'na-2015';
   });
 
   const [presetSnapshot, setPresetSnapshot] = useState<{ house: HouseData; tech: TechData } | null>(() => {
     return { house: { ...house }, tech: { ...tech } };
   });
+
+  useEffect(() => {
+    if (!house.woonoppervlakte || house.woonoppervlakte <= 0) {
+      setActivePreset(null);
+      setPresetSnapshot(null);
+    }
+  }, [house.woonoppervlakte]);
 
   const [showSimExplanation, setShowSimExplanation] = useState<boolean>(false);
   const [showMainGuide, setShowMainGuide] = useState<boolean>(false);
@@ -604,18 +610,18 @@ export default function InputForm({
     setSmartCalcReason(`Slim berekend op ${finalVal}% op basis van ingevoerde gegevens.`);
   };
 
-  // Presets
-  const applyPreset = (type: '60s' | '70s' | '80s' | '90s' | '2000s' | 'modern') => {
+  // Presets (5 Bouwbesluit-categorieën, 100% conform bouwjaar-isolatienorm, zonder vooraf gekozen woningtype)
+  const applyPreset = (type: 'voor-1975' | '1975-1991' | '1992-2005' | '2006-2015' | 'na-2015') => {
     setActivePreset(type);
     const todayStr = new Date().toISOString().split('T')[0];
     let nextHouse: HouseData;
     let nextTech: TechData;
 
-    if (type === '60s') {
+    if (type === 'voor-1975') {
       setResident({
         naam: 'Piet Berends',
-        registratiecode: 'PM-60PB-19',
-        brutoGezinsinkomen: 38000,
+        registratiecode: 'PM-BB75-19',
+        brutoGezinsinkomen: 42000,
         coach: 'Online Zelfscan',
         datum: todayStr,
         aanhef: 'De heer',
@@ -632,13 +638,13 @@ export default function InputForm({
         akkoord: true
       });
       nextHouse = {
-        wozWaarde: 295000,
+        wozWaarde: 305000,
         energielabel: 'F',
         verbruikKwh: 2900,
-        verbruikM3: 1750,
-        soortWoning: 'Tussenwoning',
-        bouwjaar: 1965,
-        woonoppervlakte: 115,
+        verbruikM3: 1520,
+        soortWoning: '',
+        bouwjaar: 1968,
+        woonoppervlakte: 120,
         verwarming: 'CV-ketel',
         afgiftesysteem: 'Radiatoren',
         tapwater: 'CV-ketel',
@@ -665,9 +671,9 @@ export default function InputForm({
         bodem: 0,
         spouw: 55,
         zolderVliering: 0,
-        dakBinnenzijde: 0,
+        dakBinnenzijde: 45,
         gevelBuitenzijde: 0,
-        glasEnkelHR: 10,
+        glasEnkelHR: 12,
         glasDubbelHR: 0,
         glasTripleHout: 0,
       });
@@ -678,17 +684,23 @@ export default function InputForm({
         capaciteitAccu: 0,
         omzettingsverliezen: 20,
         typeContract: 'Vast',
+        dynamicProvider: 'Zonneplan',
+        opslagLeverancier: 0.0218,
+        solarStatus: 'nieuw',
+        heatpumpStatus: 'nieuw',
+        batteryStatus: 'nieuw',
+        laadpaalStatus: 'nieuw',
         evKilometers: 0,
         evVerbruik: 18,
         evThuisLaden: 0,
         laadvermogen: 0,
       };
       setTech(nextTech);
-    } else if (type === '70s') {
+    } else if (type === '1975-1991') {
       setResident({
         naam: 'Jan Janssen',
-        registratiecode: 'PM-70TJ-88',
-        brutoGezinsinkomen: 45000,
+        registratiecode: 'PM-BB82-45',
+        brutoGezinsinkomen: 48000,
         coach: 'Online Zelfscan',
         datum: todayStr,
         aanhef: 'De heer',
@@ -705,13 +717,13 @@ export default function InputForm({
         akkoord: true
       });
       nextHouse = {
-        wozWaarde: 325000,
+        wozWaarde: 345000,
         energielabel: 'E',
-        verbruikKwh: 3200,
-        verbruikM3: 1600,
-        soortWoning: 'Twee onder een kap',
-        bouwjaar: 1974,
-        woonoppervlakte: 120,
+        verbruikKwh: 3100,
+        verbruikM3: 1370,
+        soortWoning: '',
+        bouwjaar: 1982,
+        woonoppervlakte: 130,
         verwarming: 'CV-ketel',
         afgiftesysteem: 'Radiatoren',
         tapwater: 'CV-ketel',
@@ -724,9 +736,9 @@ export default function InputForm({
         stookgedragOverride: 'auto',
         stookgedragBerekend: 'Normaal (1.0x)',
         stookgedragFactor: 1.0,
-        isoDak: 'slecht',
-        isoGevel: 'slecht',
-        isoGlasBg: 'slecht',
+        isoDak: 'matig',
+        isoGevel: 'matig',
+        isoGlasBg: 'dubbel',
         isoGlasVd: 'slecht',
         isoVloer: 'slecht',
         isoKieren: 'Nee, onderhoud nodig',
@@ -734,57 +746,63 @@ export default function InputForm({
       };
       setHouse(nextHouse);
       setInsulation({
-        vloer: 0,
+        vloer: 50,
         bodem: 0,
         spouw: 60,
-        zolderVliering: 40,
+        zolderVliering: 45,
         dakBinnenzijde: 0,
         gevelBuitenzijde: 0,
-        glasEnkelHR: 12,
-        glasDubbelHR: 0,
+        glasEnkelHR: 8,
+        glasDubbelHR: 10,
         glasTripleHout: 0,
       });
       nextTech = {
-        aantalZonnepanelen: 4,
-        dakOrientatie: 45, // South-West
+        aantalZonnepanelen: 0,
+        dakOrientatie: 0,
         huidigDirectVerbruik: 30,
         capaciteitAccu: 0,
         omzettingsverliezen: 20,
         typeContract: 'Vast',
+        dynamicProvider: 'Zonneplan',
+        opslagLeverancier: 0.0218,
+        solarStatus: 'nieuw',
+        heatpumpStatus: 'nieuw',
+        batteryStatus: 'nieuw',
+        laadpaalStatus: 'nieuw',
         evKilometers: 0,
         evVerbruik: 18,
         evThuisLaden: 0,
         laadvermogen: 0,
       };
       setTech(nextTech);
-    } else if (type === '80s') {
+    } else if (type === '1992-2005') {
       setResident({
-        naam: 'Karel Visser',
-        registratiecode: 'PM-80KV-33',
-        brutoGezinsinkomen: 52000,
+        naam: 'Familie Smeets',
+        registratiecode: 'PM-BB98-12',
+        brutoGezinsinkomen: 68000,
         coach: 'Online Zelfscan',
         datum: todayStr,
-        aanhef: 'De heer',
-        voorletters: 'K.',
-        achternaam: 'Visser',
-        straat: 'Dorpsstraat',
-        huisnummer: '33',
+        aanhef: 'De heer en mevrouw',
+        voorletters: 'H. & M.',
+        achternaam: 'Smeets',
+        straat: 'Rijksweg',
+        huisnummer: '12',
         toevoeging: '',
-        postcode: '5981AE',
-        plaats: 'Panningen',
+        postcode: '5991BC',
+        plaats: 'Baarlo',
         aantalPersonen: 3,
-        telefoon: '0622334455',
-        email: 'karel@visser.nl',
+        telefoon: '0687654321',
+        email: 'info@smeets.nl',
         akkoord: true
       });
       nextHouse = {
-        wozWaarde: 365000,
-        energielabel: 'D',
-        verbruikKwh: 3100,
-        verbruikM3: 1450,
-        soortWoning: 'Hoekwoning',
-        bouwjaar: 1984,
-        woonoppervlakte: 125,
+        wozWaarde: 410000,
+        energielabel: 'A - B - C',
+        verbruikKwh: 3400,
+        verbruikM3: 1210,
+        soortWoning: '',
+        bouwjaar: 1998,
+        woonoppervlakte: 140,
         verwarming: 'CV-ketel',
         afgiftesysteem: 'Radiatoren',
         tapwater: 'CV-ketel',
@@ -797,117 +815,50 @@ export default function InputForm({
         stookgedragOverride: 'auto',
         stookgedragBerekend: 'Normaal (1.0x)',
         stookgedragFactor: 1.0,
-        isoDak: 'matig',
-        isoGevel: 'slecht',
-        isoGlasBg: 'slecht',
-        isoGlasVd: 'slecht',
-        isoVloer: 'matig',
-        isoKieren: 'Nee, onderhoud nodig',
-        inkomenCheck: true
+        isoDak: 'goed',
+        isoGevel: 'goed',
+        isoGlasBg: 'matig',
+        isoGlasVd: 'matig',
+        isoVloer: 'goed',
+        isoKieren: 'Ja, in orde',
+        inkomenCheck: false
       };
       setHouse(nextHouse);
       setInsulation({
-        vloer: 45,
+        vloer: 0,
         bodem: 0,
-        spouw: 60,
+        spouw: 0,
         zolderVliering: 0,
         dakBinnenzijde: 0,
         gevelBuitenzijde: 0,
         glasEnkelHR: 0,
-        glasDubbelHR: 14,
+        glasDubbelHR: 16,
         glasTripleHout: 0,
       });
       nextTech = {
-        aantalZonnepanelen: 0,
+        aantalZonnepanelen: 8,
         dakOrientatie: 0,
-        huidigDirectVerbruik: 30,
+        huidigDirectVerbruik: 35,
         capaciteitAccu: 0,
         omzettingsverliezen: 20,
         typeContract: 'Vast',
+        dynamicProvider: 'Zonneplan',
+        opslagLeverancier: 0.0218,
+        solarStatus: 'nieuw',
+        heatpumpStatus: 'nieuw',
+        batteryStatus: 'nieuw',
+        laadpaalStatus: 'nieuw',
         evKilometers: 0,
         evVerbruik: 18,
         evThuisLaden: 0,
         laadvermogen: 0,
       };
       setTech(nextTech);
-    } else if (type === '90s') {
-      setResident({
-        naam: 'Familie Smeets',
-        registratiecode: 'PM-90HW-42',
-        brutoGezinsinkomen: 72000,
-        coach: 'Online Zelfscan',
-        datum: todayStr,
-        aanhef: 'De heer en mevrouw',
-        voorletters: 'H. & M.',
-        achternaam: 'Smeets',
-        straat: 'Rijksweg',
-        huisnummer: '12',
-        toevoeging: 'A',
-        postcode: '5991BC',
-        plaats: 'Baarlo',
-        aantalPersonen: 4,
-        telefoon: '0687654321',
-        email: 'info@smeets.nl',
-        akkoord: true
-      });
-      nextHouse = {
-        wozWaarde: 410000,
-        energielabel: 'D',
-        verbruikKwh: 3800,
-        verbruikM3: 2100,
-        soortWoning: 'Vrijstaand',
-        bouwjaar: 1994,
-        woonoppervlakte: 160,
-        verwarming: 'CV-ketel',
-        afgiftesysteem: 'Radiatoren',
-        tapwater: 'CV-ketel',
-        koken: 'Inductie',
-        ventilatie: 'Mechanisch (Type C)',
-        zonnepanelenPresent: 'Ja',
-        elektraPrijs: 0.31,
-        elektraTeruglevering: 1500,
-        gasPrijs: 1.50,
-        stookgedragOverride: 'auto',
-        stookgedragBerekend: 'Normaal (1.0x)',
-        stookgedragFactor: 1.0,
-        isoDak: 'slecht',
-        isoGevel: 'slecht',
-        isoGlasBg: 'matig',
-        isoGlasVd: 'slecht',
-        isoVloer: 'slecht',
-        isoKieren: 'Ja, in orde',
-        inkomenCheck: false
-      };
-      setHouse(nextHouse);
-      setInsulation({
-        vloer: 50,
-        bodem: 0,
-        spouw: 0,
-        zolderVliering: 0,
-        dakBinnenzijde: 50,
-        gevelBuitenzijde: 0,
-        glasEnkelHR: 0,
-        glasDubbelHR: 15,
-        glasTripleHout: 0,
-      });
-      nextTech = {
-        aantalZonnepanelen: 10,
-        dakOrientatie: 0, // South
-        huidigDirectVerbruik: 35,
-        capaciteitAccu: 5,
-        omzettingsverliezen: 20,
-        typeContract: 'Dynamisch',
-        evKilometers: 10000,
-        evVerbruik: 18,
-        evThuisLaden: 60,
-        laadvermogen: 11,
-      };
-      setTech(nextTech);
-    } else if (type === '2000s') {
+    } else if (type === '2006-2015') {
       setResident({
         naam: 'Familie Hendriks',
-        registratiecode: 'PM-05VW-28',
-        brutoGezinsinkomen: 85000,
+        registratiecode: 'PM-BB10-28',
+        brutoGezinsinkomen: 78000,
         coach: 'Online Zelfscan',
         datum: todayStr,
         aanhef: 'De heer en mevrouw',
@@ -918,27 +869,27 @@ export default function InputForm({
         toevoeging: '',
         postcode: '5981NE',
         plaats: 'Panningen',
-        aantalPersonen: 4,
+        aantalPersonen: 3,
         telefoon: '0698765432',
         email: 'info@hendriks-bosrand.nl',
         akkoord: true
       });
       nextHouse = {
-        wozWaarde: 440000,
+        wozWaarde: 455000,
         energielabel: 'A - B - C',
-        verbruikKwh: 3500,
-        verbruikM3: 1350,
-        soortWoning: 'Twee onder een kap',
-        bouwjaar: 2005,
-        woonoppervlakte: 145,
+        verbruikKwh: 3600,
+        verbruikM3: 975,
+        soortWoning: '',
+        bouwjaar: 2010,
+        woonoppervlakte: 150,
         verwarming: 'CV-ketel',
         afgiftesysteem: 'Vloerverwarming',
         tapwater: 'CV-ketel',
         koken: 'Inductie',
         ventilatie: 'Mechanisch (Type C)',
-        zonnepanelenPresent: 'Ja',
+        zonnepanelenPresent: 'Nee',
         elektraPrijs: 0.31,
-        elektraTeruglevering: 1500,
+        elektraTeruglevering: 0,
         gasPrijs: 1.50,
         stookgedragOverride: 'auto',
         stookgedragBerekend: 'Normaal (1.0x)',
@@ -960,28 +911,35 @@ export default function InputForm({
         dakBinnenzijde: 0,
         gevelBuitenzijde: 0,
         glasEnkelHR: 0,
-        glasDubbelHR: 20,
+        glasDubbelHR: 0,
         glasTripleHout: 0,
       });
       nextTech = {
         aantalZonnepanelen: 10,
-        dakOrientatie: 0, // South
+        dakOrientatie: 0,
         huidigDirectVerbruik: 35,
         capaciteitAccu: 0,
         omzettingsverliezen: 20,
         typeContract: 'Vast',
+        dynamicProvider: 'Zonneplan',
+        opslagLeverancier: 0.0218,
         batteryGridTrading: false,
+        solarStatus: 'nieuw',
+        heatpumpStatus: 'nieuw',
+        batteryStatus: 'nieuw',
+        laadpaalStatus: 'nieuw',
         evKilometers: 0,
         evVerbruik: 18,
         evThuisLaden: 0,
         laadvermogen: 0,
       };
       setTech(nextTech);
-    } else if (type === 'modern') {
+    } else {
+      // na-2015: Nieuwbouw / BENG na 2015 (volledig geïsoleerd, gasloos / All-Electric, WTW, vloerverwarming)
       setResident({
         naam: 'Anouk de Vries',
-        registratiecode: 'PM-10AV-11',
-        brutoGezinsinkomen: 78000,
+        registratiecode: 'PM-BENG-21',
+        brutoGezinsinkomen: 85000,
         coach: 'Online Zelfscan',
         datum: todayStr,
         aanhef: 'Mevrouw',
@@ -992,27 +950,27 @@ export default function InputForm({
         toevoeging: '',
         postcode: '5995XH',
         plaats: 'Kessel',
-        aantalPersonen: 4,
+        aantalPersonen: 3,
         telefoon: '0655443322',
         email: 'anouk@devries.nl',
         akkoord: true
       });
       nextHouse = {
-        wozWaarde: 580000,
+        wozWaarde: 540000,
         energielabel: 'A - B - C',
         verbruikKwh: 4200,
-        verbruikM3: 1700,
-        soortWoning: 'Vrijstaand',
-        bouwjaar: 2010,
-        woonoppervlakte: 250,
-        verwarming: 'CV-ketel',
+        verbruikM3: 0,
+        soortWoning: '',
+        bouwjaar: 2021,
+        woonoppervlakte: 160,
+        verwarming: 'Volledige warmtepomp',
         afgiftesysteem: 'Vloerverwarming',
-        tapwater: 'CV-ketel',
+        tapwater: 'Warmtepompboiler',
         koken: 'Inductie',
-        ventilatie: 'Mechanisch (Type C)',
+        ventilatie: 'Balans (Type D/WTW)',
         zonnepanelenPresent: 'Ja',
         elektraPrijs: 0.31,
-        elektraTeruglevering: 2000,
+        elektraTeruglevering: 2200,
         gasPrijs: 1.50,
         stookgedragOverride: 'auto',
         stookgedragBerekend: 'Normaal (1.0x)',
@@ -1034,16 +992,25 @@ export default function InputForm({
         dakBinnenzijde: 0,
         gevelBuitenzijde: 0,
         glasEnkelHR: 0,
-        glasDubbelHR: 25,
+        glasDubbelHR: 0,
         glasTripleHout: 0,
       });
       nextTech = {
         aantalZonnepanelen: 12,
-        dakOrientatie: 0, // South
+        dakOrientatie: 0,
         huidigDirectVerbruik: 35,
-        capaciteitAccu: 0,
+        capaciteitAccu: 5,
         omzettingsverliezen: 20,
-        typeContract: 'Vast',
+        typeContract: 'Dynamisch',
+        dynamicProvider: 'Zonneplan',
+        opslagLeverancier: 0.0218,
+        batteryGridTrading: true,
+        solarStatus: 'bestaand',
+        heatpumpStatus: 'bestaand',
+        selectedWarmtepompType: 'All-Electric',
+        selectedWarmtepompModel: 'Standard',
+        batteryStatus: 'nieuw',
+        laadpaalStatus: 'nieuw',
         evKilometers: 0,
         evVerbruik: 18,
         evThuisLaden: 0,
@@ -1127,7 +1094,7 @@ export default function InputForm({
         {[
           {
             id: 'isolatie',
-            label: 'Isolatie',
+            label: 'Overzicht & Isolatie',
             icon: Layers,
             activeBg: 'bg-emerald-800 text-white border-emerald-800 shadow-xs',
             inactiveBg: 'bg-white text-slate-700 border-slate-200/80 hover:bg-emerald-50 hover:text-emerald-900 hover:border-emerald-300',
@@ -1187,12 +1154,12 @@ export default function InputForm({
               key={t.id}
               type="button"
               onClick={() => setActiveTab(t.id as any)}
-              className={`flex items-center justify-center gap-1.5 py-1.5 md:py-2 px-1.5 md:px-2.5 rounded-lg text-xs font-bold border transition-all duration-150 cursor-pointer ${
+              className={`flex items-center justify-center gap-1 py-1.5 md:py-2 px-1.5 md:px-2 rounded-lg text-[11px] xl:text-xs leading-tight text-center font-bold border transition-all duration-150 cursor-pointer ${
                 isActive ? t.activeBg : t.inactiveBg
               }`}
             >
               <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? t.iconActive : t.iconInactive}`} />
-              <span className="truncate">{t.label}</span>
+              <span>{t.label}</span>
             </button>
           );
         })}
@@ -1200,7 +1167,7 @@ export default function InputForm({
 
       {/* Conditional rendering of tab panels */}
       {activeTab === 'isolatie' && (
-        <div className="space-y-6 animate-fadeIn">
+        <div className="space-y-3.5 animate-fadeIn">
           {/* Snelkoppelingen Presets */}
           <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
@@ -1232,81 +1199,78 @@ export default function InputForm({
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-slate-500 mb-2.5">
-              Pas details aan in het overeenkomstige Tabblad.
+            <p className="text-[11px] text-slate-500 mb-2">
+              Kies een Bouwbesluit-categorie (100% conform bouwjaar-isolatienorm). Het woningtype kiest u desgewenst later in het overzicht hieronder.
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5">
               {[
                 {
-                  id: '60s' as const,
-                  title: "Jaren '60",
-                  subtitle: 'Tussenwoning • 110 m² • Label F',
-                  activeStyle: 'bg-rose-600 text-white border-rose-600 ring-2 ring-rose-400 shadow-md scale-[1.03]',
+                  id: 'voor-1975' as const,
+                  title: 'Vóór 1975',
+                  subtitle: 'Geen bouwbesluit isolatie',
+                  meta: '120 m² • Label F',
+                  activeStyle: 'bg-rose-600 text-white border-rose-600 ring-2 ring-rose-400 shadow-xs',
                   inactiveStyle: 'border-rose-200 bg-rose-50/40 text-rose-800 hover:bg-rose-100/70',
                 },
                 {
-                  id: '70s' as const,
-                  title: "Jaren '70",
-                  subtitle: '2-onder-1-kap • 130 m² • Label E',
-                  activeStyle: 'bg-orange-600 text-white border-orange-600 ring-2 ring-orange-400 shadow-md scale-[1.03]',
+                  id: '1975-1991' as const,
+                  title: '1975 – 1991',
+                  subtitle: 'Matige basisisolatie',
+                  meta: '130 m² • Label E',
+                  activeStyle: 'bg-orange-600 text-white border-orange-600 ring-2 ring-orange-400 shadow-xs',
                   inactiveStyle: 'border-orange-200 bg-orange-50/40 text-orange-800 hover:bg-orange-100/70',
                 },
                 {
-                  id: '80s' as const,
-                  title: "Jaren '80",
-                  subtitle: 'Hoekwoning • 125 m² • Label D',
-                  activeStyle: 'bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400 shadow-md scale-[1.03]',
+                  id: '1992-2005' as const,
+                  title: '1992 – 2005',
+                  subtitle: 'Redelijke schilisolatie',
+                  meta: '140 m² • Label A - B - C',
+                  activeStyle: 'bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400 shadow-xs',
                   inactiveStyle: 'border-amber-200 bg-amber-50/40 text-amber-800 hover:bg-amber-100/70',
                 },
                 {
-                  id: '90s' as const,
-                  title: "Jaren '90",
-                  subtitle: 'Vrijstaand • 160 m² • Label C',
-                  activeStyle: 'bg-yellow-600 text-white border-yellow-600 ring-2 ring-yellow-400 shadow-md scale-[1.03]',
-                  inactiveStyle: 'border-yellow-200 bg-yellow-50/40 text-yellow-800 hover:bg-yellow-100/70',
-                },
-                {
-                  id: '2000s' as const,
-                  title: '2000 - 2010',
-                  subtitle: '2-onder-1-kap • 145 m² • Label B',
-                  activeStyle: 'bg-sky-600 text-white border-sky-600 ring-2 ring-sky-400 shadow-md scale-[1.03]',
+                  id: '2006-2015' as const,
+                  title: 'Na 2005 (2006–2015)',
+                  subtitle: 'Goede moderne isolatienorm',
+                  meta: '150 m² • Label A - B - C',
+                  activeStyle: 'bg-sky-600 text-white border-sky-600 ring-2 ring-sky-400 shadow-xs',
                   inactiveStyle: 'border-sky-200 bg-sky-50/40 text-sky-800 hover:bg-sky-100/70',
                 },
                 {
-                  id: 'modern' as const,
-                  title: 'Woning 2010',
-                  subtitle: 'Vrijstaand • 250 m² • Label A',
-                  activeStyle: 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-400 shadow-md scale-[1.03]',
+                  id: 'na-2015' as const,
+                  title: 'Na 2015 (BENG)',
+                  subtitle: 'Nieuwbouw / BENG-norm',
+                  meta: '160 m² • Label A - B - C',
+                  activeStyle: 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-400 shadow-xs',
                   inactiveStyle: 'border-emerald-200 bg-emerald-50/40 text-emerald-800 hover:bg-emerald-100/70',
                 },
               ].map((preset) => {
                 const isActive = activePreset === preset.id;
-                
-                const liveType = house.soortWoning === 'Twee onder een kap' ? '2-onder-1-kap' : (house.soortWoning || '');
                 const liveArea = house.woonoppervlakte ? `${house.woonoppervlakte} m²` : '';
                 const rawLabel = house.energielabel || '';
                 const liveLabel = rawLabel ? (rawLabel.startsWith('Label') ? rawLabel : `Label ${rawLabel}`) : '';
-                const liveSubtitle = [liveType, liveArea, liveLabel].filter(Boolean).join(' • ');
-                const displaySubtitle = (isActive && liveSubtitle) ? liveSubtitle : preset.subtitle;
+                const liveMeta = [liveArea, liveLabel].filter(Boolean).join(' • ');
+                const displayMeta = (isActive && liveMeta) ? liveMeta : preset.meta;
 
                 return (
                   <button
                     key={preset.id}
                     onClick={() => applyPreset(preset.id)}
                     type="button"
-                    className={`relative flex flex-col items-center justify-center p-2.5 text-xs font-medium border rounded-xl transition duration-150 ${
+                    title={`${preset.title} — ${preset.subtitle} (${displayMeta})`}
+                    className={`relative flex flex-col items-center justify-center py-1.5 px-2 text-xs font-medium border rounded-lg transition duration-150 text-center leading-tight cursor-pointer ${
                       isActive ? preset.activeStyle : preset.inactiveStyle
                     }`}
                     id={`preset-${preset.id}-btn`}
                   >
                     {isActive && (
-                      <span className="absolute -top-2 -right-1 bg-white text-emerald-800 font-extrabold text-[9px] px-1.5 py-0.5 rounded-full border border-emerald-300 shadow-xs flex items-center gap-0.5 whitespace-nowrap">
+                      <span className="absolute -top-2 -right-1 bg-white text-emerald-800 font-extrabold text-[8.5px] px-1 py-0.2 rounded-full border border-emerald-300 shadow-xs flex items-center gap-0.5 whitespace-nowrap">
                         <Check className="w-2.5 h-2.5 text-emerald-600 stroke-[3]" /> Gekozen
                       </span>
                     )}
-                    <span className="font-extrabold">{preset.title}</span>
-                    <span className={`text-[10px] ${isActive ? 'text-white/90 font-medium' : 'text-slate-600'}`}>
-                      {displaySubtitle}
+                    <span className="font-extrabold text-[11px] leading-tight">{preset.title}</span>
+                    <span className={`text-[9.5px] font-medium leading-tight truncate max-w-full ${isActive ? 'text-white/90' : 'text-slate-600'}`}>
+                      {preset.subtitle}
                     </span>
                   </button>
                 );
@@ -1314,7 +1278,7 @@ export default function InputForm({
             </div>
 
             {/* Quick Profile Modifiers */}
-            <div className="mt-4 pt-4 border-t border-slate-100 bg-slate-50/70 -mx-5 -mb-5 p-4 rounded-b-2xl">
+            <div className="mt-3 pt-3 border-t border-slate-100 bg-slate-50/70 -mx-5 -mb-5 p-4 rounded-b-2xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-3">
                 <div className="flex items-center gap-2 flex-wrap">
                   <Sliders className="w-4 h-4 text-emerald-600" />
@@ -2182,6 +2146,41 @@ export default function InputForm({
                 ? (liveCalcResult.solar?.selfConsumptionWithBattery || 65)
                 : (liveCalcResult.solar?.selfConsumptionBase || 35);
 
+              const hasNewSolar = tech.solarStatus !== 'bestaand';
+              const hasNewBattery = batteryCap > 0 && !isBaselineBatteryBestaand;
+              const hasNewEv = (tech.evKilometers || 0) > 0 && tech.laadpaalStatus !== 'bestaand';
+
+              // Fysiek eigen verbruik van zonnestroom (direct + accu) en werkelijke bruto teruglevering aan het net:
+              // Bij ongewijzigde bestaande zonnepanelen (zonder nieuwe thuisbatterij) blijft het directe eigenverbruik gelijk aan de nulmeting.
+              const baseSolarDirect = solarKwh > 0
+                ? (!hasNewSolar && isBaselineSolarBestaand
+                    ? (hasNewBattery
+                        ? Math.min(houseKwh, Math.max(baselineDirectSelfKwh, (solarKwh * postSelfConsPct) / 100))
+                        : Math.min(houseKwh, baselineDirectSelfKwh))
+                    : Math.min(houseKwh, (solarKwh * postSelfConsPct) / 100))
+                : 0;
+              const baseGridImport = Math.max(0, houseKwh - baseSolarDirect);
+              const solarRemainingAfterBase = Math.max(0, solarKwh - baseSolarDirect);
+
+              // Stap 2: Resterende zonnestroom naar warmtepomp
+              const wpSolarFraction = (batteryCap > 0 || isBaselineBatteryBestaand) ? 0.35 : 0.25;
+              const wpSolarDirect = (postAddElektraKwh > 0 && solarRemainingAfterBase > 0)
+                ? Math.min(postAddElektraKwh * wpSolarFraction, solarRemainingAfterBase)
+                : 0;
+              const wpGridImport = Math.max(0, postAddElektraKwh - wpSolarDirect);
+              const solarRemainingAfterWp = Math.max(0, solarRemainingAfterBase - wpSolarDirect);
+
+              // Stap 3: Resterende zonnestroom naar nieuwe EV-laadpaal (bestaande EV zit al in houseKwh)
+              const evDemand = liveCalcResult.laadpaal?.evAnnualDemandKwh || 0;
+              const evSolarDirect = hasNewEv && solarRemainingAfterWp > 0
+                ? Math.min(liveCalcResult.laadpaal?.evSolarCoverageKwh || (evDemand * 0.35), solarRemainingAfterWp)
+                : 0;
+              const evGridImport = Math.max(0, evDemand - evSolarDirect);
+              const solarRemainingAfterEv = Math.max(0, solarRemainingAfterWp - evSolarDirect);
+
+              const physicalDirectSelfKwh = baseSolarDirect + wpSolarDirect + evSolarDirect;
+              const physicalGrossFeedInKwh = Math.max(0, solarRemainingAfterEv);
+
               let postDirectSelfKwh = 0;
               let postFeedInKwh = 0;
               let postGridImportKwh = 0;
@@ -2189,12 +2188,14 @@ export default function InputForm({
 
               if (postIsVast) {
                 // VAST CONTRACT MET SALDERINGSREGELING (Jaarbalans 1-op-1)
+                // Saldering verrekent afname en teruglevering 1-op-1 tegen het leveringstarief,
+                // maar vaste leveranciers rekenen terugleverkosten over álle fysiek teruggeleverde kWh aan het net.
                 const postSaldeerd = Math.min(solarKwh, postHouseKwh);
                 const postSurplus = Math.max(0, solarKwh - postHouseKwh);
                 const postImportAfterSaldering = Math.max(0, postHouseKwh - solarKwh);
 
                 postDirectSelfKwh = postSaldeerd;
-                postFeedInKwh = postSurplus;
+                postFeedInKwh = physicalGrossFeedInKwh;
                 postGridImportKwh = postImportAfterSaldering;
 
                 postElektraYr = Math.round(
@@ -2204,30 +2205,9 @@ export default function InputForm({
                 );
               } else {
                 // DYNAMISCH CONTRACT (Uur-/Seizoensbasis zonder jaarsaldering)
-                // Stap 1: Zonnestroom direct/via accu naar basisverbruik van het huishouden
-                const baseSolarDirect = solarKwh > 0 ? Math.min(houseKwh, (solarKwh * postSelfConsPct) / 100) : 0;
-                const baseGridImport = Math.max(0, houseKwh - baseSolarDirect);
-                const solarRemainingAfterBase = Math.max(0, solarKwh - baseSolarDirect);
-
-                // Stap 2: Resterende zonnestroom naar warmtepomp
-                const wpSolarFraction = batteryCap > 0 ? 0.35 : 0.25;
-                const wpSolarDirect = (postAddElektraKwh > 0 && solarRemainingAfterBase > 0)
-                  ? Math.min(postAddElektraKwh * wpSolarFraction, solarRemainingAfterBase)
-                  : 0;
-                const wpGridImport = Math.max(0, postAddElektraKwh - wpSolarDirect);
-                const solarRemainingAfterWp = Math.max(0, solarRemainingAfterBase - wpSolarDirect);
-
-                // Stap 3: Resterende zonnestroom naar EV (indien van toepassing)
-                const evDemand = liveCalcResult.laadpaal?.evAnnualDemandKwh || 0;
-                const evSolarDirect = (isBaselineLaadpaalBestaand || (tech.evKilometers || 0) > 0) && solarRemainingAfterWp > 0
-                  ? Math.min(liveCalcResult.laadpaal?.evSolarCoverageKwh || (evDemand * 0.35), solarRemainingAfterWp)
-                  : 0;
-                const evGridImport = Math.max(0, evDemand - evSolarDirect);
-                const solarRemainingAfterEv = Math.max(0, solarRemainingAfterWp - evSolarDirect);
-
-                postDirectSelfKwh = baseSolarDirect + wpSolarDirect + evSolarDirect;
-                postFeedInKwh = Math.max(0, solarRemainingAfterEv);
-                postGridImportKwh = baseGridImport + wpGridImport + ((isBaselineLaadpaalBestaand || (tech.evKilometers || 0) > 0) ? evGridImport : 0);
+                postDirectSelfKwh = physicalDirectSelfKwh;
+                postFeedInKwh = physicalGrossFeedInKwh;
+                postGridImportKwh = baseGridImport + wpGridImport + (hasNewEv ? evGridImport : 0);
 
                 postElektraYr = Math.round(
                   (postGridImportKwh * postDynInkoopTarief) - 
@@ -2431,7 +2411,7 @@ export default function InputForm({
                             Maatregelen simuleren
                           </div>
                           <p className="text-[10px] text-slate-600 leading-snug">
-                            Klik op <strong>Warmtepomp</strong>, <strong>Zonnepanelen</strong>, <strong>Thuisaccu</strong>, <strong>Laadpaal</strong> en <strong>Isolatie</strong> om aantallen/m² te testen. De jaarkosten, besparing en terugverdientijd (TVT) rekenen direct live mee.
+                            Klik op <strong>Warmtepomp</strong>, <strong>Zonnepanelen</strong>, <strong>Thuisaccu</strong>, <strong>Laadpaal</strong> en <strong>Overzicht &amp; Isolatie</strong> om aantallen/m² te testen. De jaarkosten, besparing en terugverdientijd (TVT) rekenen direct live mee.
                           </p>
                         </div>
 
@@ -2775,7 +2755,7 @@ export default function InputForm({
                               {totalGasSavingsM3 > 0 ? (
                                 <tr>
                                   <td className="py-1.5 px-2.5 font-sans text-slate-700">
-                                    − Isolatiemaatregelen (tabblad Isolatie)
+                                    − Isolatiemaatregelen (tabblad Overzicht &amp; Isolatie)
                                   </td>
                                   <td className="py-1.5 px-2 text-right text-emerald-700">
                                     − {Math.round(totalGasSavingsM3).toLocaleString('nl-NL')} m³/jr
@@ -2787,7 +2767,7 @@ export default function InputForm({
                               ) : (
                                 <tr className="text-slate-500 italic">
                                   <td className="py-1 px-2.5 font-sans" colSpan={3}>
-                                    Geen isolatiemaatregelen ingevuld op tabblad Isolatie
+                                    Geen isolatiemaatregelen ingevuld op tabblad Overzicht &amp; Isolatie
                                   </td>
                                 </tr>
                               )}
@@ -2876,19 +2856,31 @@ export default function InputForm({
                                 </td>
                               </tr>
 
-                              {postFeedInKwh > 0 && (
-                                <tr>
-                                  <td className="py-1.5 px-2.5 font-sans text-slate-700">
-                                    − Opbrengst teruglevering (tabblad Instellingen, {postIsVast ? 'vast contract' : 'dynamisch contract'})
-                                  </td>
-                                  <td className="py-1.5 px-2 text-right text-emerald-700">
-                                    − {Math.round(postFeedInKwh).toLocaleString('nl-NL')} kWh/jr
-                                  </td>
-                                  <td className="py-1.5 px-2.5 text-right text-emerald-700 font-bold">
-                                    − € {Math.round(postIsVast ? (Math.max(0, solarKwh - postHouseKwh) * postVastTerugleverVergoeding - postFeedInKwh * postVastTerugleverkosten) : (postFeedInKwh * postDynTerugleverTarief)).toLocaleString('nl-NL')}
-                                  </td>
-                                </tr>
-                              )}
+                              {postFeedInKwh > 0 && (() => {
+                                const netFeedInBenefit = Math.round(
+                                  postIsVast
+                                    ? (Math.max(0, solarKwh - postHouseKwh) * postVastTerugleverVergoeding - postFeedInKwh * postVastTerugleverkosten)
+                                    : (postFeedInKwh * postDynTerugleverTarief)
+                                );
+                                const isNetCost = netFeedInBenefit < 0;
+                                return (
+                                  <tr>
+                                    <td className="py-1.5 px-2.5 font-sans text-slate-700">
+                                      {isNetCost
+                                        ? `+ Netto terugleverkosten (na vergoeding, ${postIsVast ? 'vast contract' : 'dynamisch contract'})`
+                                        : `− Opbrengst teruglevering (tabblad Instellingen, ${postIsVast ? 'vast contract' : 'dynamisch contract'})`}
+                                    </td>
+                                    <td className={`py-1.5 px-2 text-right ${isNetCost ? 'text-slate-600' : 'text-emerald-700'}`}>
+                                      − {Math.round(postFeedInKwh).toLocaleString('nl-NL')} kWh/jr
+                                    </td>
+                                    <td className={`py-1.5 px-2.5 text-right font-bold ${isNetCost ? 'text-amber-700' : 'text-emerald-700'}`}>
+                                      {isNetCost
+                                        ? `+ € ${Math.abs(netFeedInBenefit).toLocaleString('nl-NL')}`
+                                        : `− € ${netFeedInBenefit.toLocaleString('nl-NL')}`}
+                                    </td>
+                                  </tr>
+                                );
+                              })()}
 
                               {batteryTradingYield > 0 && (
                                 <tr>
@@ -2954,21 +2946,21 @@ export default function InputForm({
                   )}
 
                   <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-                    <table className="w-full text-left border-collapse text-[10px]">
+                    <table className="w-full text-left border-collapse text-[11px]">
                       <thead>
-                        <tr className="bg-slate-100/90 text-slate-600 font-bold border-b border-slate-200 text-[9px] uppercase tracking-wider">
-                          <th className="py-1 px-2">Situatie</th>
-                          <th className="py-1 px-1.5 text-right text-amber-900 bg-amber-50/50">Gas / mnd</th>
-                          <th className="py-1 px-1.5 text-right text-amber-950 bg-amber-50/50">Gas / jaar</th>
-                          <th className="py-1 px-1.5 text-right text-sky-900 bg-sky-50/50">Elektra / mnd</th>
-                          <th className="py-1 px-1.5 text-right text-sky-950 bg-sky-50/50">Elektra / jaar</th>
-                          <th className="py-1 px-1.5 text-right text-emerald-950 bg-emerald-50/70 font-black">Totaal / mnd</th>
-                          <th className="py-1 px-1.5 text-right text-emerald-950 bg-emerald-50/70 font-black">Totaal / jaar</th>
+                        <tr className="bg-slate-100/90 text-slate-600 font-bold border-b border-slate-200 text-[9.5px] uppercase tracking-wider">
+                          <th className="py-1.5 px-2">Situatie</th>
+                          <th className="py-1.5 px-2 text-right text-amber-900 bg-amber-50/50">Gas / mnd</th>
+                          <th className="py-1.5 px-2 text-right text-amber-950 bg-amber-50/50">Gas / jaar</th>
+                          <th className="py-1.5 px-2 text-right text-sky-900 bg-sky-50/50">Elektra / mnd</th>
+                          <th className="py-1.5 px-2 text-right text-sky-950 bg-sky-50/50">Elektra / jaar</th>
+                          <th className="py-1.5 px-2 text-right text-emerald-950 bg-emerald-50/70 font-black">Totaal / mnd</th>
+                          <th className="py-1.5 px-2 text-right text-emerald-950 bg-emerald-50/70 font-black">Totaal / jaar</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-150 font-mono text-[10px]">
-                        <tr className="bg-amber-50/20 font-bold">
-                          <td className="py-1 px-2 font-sans font-bold text-amber-950">
+                      <tbody className="divide-y divide-slate-200 font-mono text-[11px] sm:text-xs">
+                        <tr className="bg-amber-50/25 font-bold">
+                          <td className="py-2.5 px-2 font-sans font-bold text-amber-950 text-[11px] sm:text-xs">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
                               <span>{huidigeSituatieLabel}</span>
@@ -2976,14 +2968,14 @@ export default function InputForm({
                                 type="button"
                                 onClick={() => setTech(prev => ({ ...prev, baselineTypeContract: baselineIsVast ? 'Dynamisch' : 'Vast' }))}
                                 title="Klik om contract voor 0-meting te wisselen (Vast / Dynamisch)"
-                                className={`text-[8.5px] font-semibold px-1.5 py-0.2 rounded border transition cursor-pointer inline-flex items-center gap-0.5 ${
+                                className={`text-[9.5px] font-semibold px-1.5 py-0.5 rounded border transition cursor-pointer inline-flex items-center gap-1 ${
                                   baselineIsVast
                                     ? 'bg-white/95 border-amber-300 text-amber-900 hover:bg-amber-100'
                                     : 'bg-white/95 border-blue-300 text-blue-900 hover:bg-blue-100'
                                 }`}
                               >
                                 <span>{baselineIsVast ? '🔒 vast contract' : '⚡ dynamisch contract'}</span>
-                                <span className="text-[7.5px] text-slate-400">⇄</span>
+                                <span className="text-[8px] text-slate-400">⇄</span>
                               </button>
 
                               {baselineIsVast ? (
@@ -2999,7 +2991,7 @@ export default function InputForm({
                                       baselineGasTarief: prov.gasTarief
                                     }));
                                   }}
-                                  className="text-[8.5px] bg-white border border-amber-300 text-amber-950 font-bold rounded px-1 py-0.2 focus:outline-amber-500 cursor-pointer"
+                                  className="text-[9.5px] bg-white border border-amber-300 text-amber-950 font-bold rounded px-1.5 py-0.5 focus:outline-amber-500 cursor-pointer"
                                 >
                                   {TOP4_FIXED_PROVIDERS.map(p => (
                                     <option key={p.id} value={p.id}>
@@ -3020,7 +3012,7 @@ export default function InputForm({
                                       baselineDynamischTerugleverTarief: prov.stroomTeruglever
                                     }));
                                   }}
-                                  className="text-[8.5px] bg-white border border-blue-300 text-blue-950 font-bold rounded px-1 py-0.2 focus:outline-blue-500 cursor-pointer"
+                                  className="text-[9.5px] bg-white border border-blue-300 text-blue-950 font-bold rounded px-1.5 py-0.5 focus:outline-blue-500 cursor-pointer"
                                 >
                                   {TOP4_DYNAMIC_PROVIDERS.map(p => (
                                     <option key={p.id} value={p.id}>
@@ -3031,20 +3023,20 @@ export default function InputForm({
                               )}
                             </div>
                           </td>
-                          <td className="py-1 px-1.5 text-right text-amber-900 font-bold">€ {currentGasMth.toLocaleString('nl-NL')}</td>
-                          <td className="py-1 px-1.5 text-right text-amber-950 font-bold">€ {currentGasYr.toLocaleString('nl-NL')}</td>
-                          <td className="py-1 px-1.5 text-right text-sky-900 font-bold">
+                          <td className="py-2.5 px-2 text-right text-amber-900 font-bold whitespace-nowrap">€ {currentGasMth.toLocaleString('nl-NL')}</td>
+                          <td className="py-2.5 px-2 text-right text-amber-950 font-bold whitespace-nowrap">€ {currentGasYr.toLocaleString('nl-NL')}</td>
+                          <td className="py-2.5 px-2 text-right text-sky-900 font-bold whitespace-nowrap">
                             {currentElektraMth < 0 ? <span className="text-emerald-700 font-extrabold">€ - {Math.abs(currentElektraMth).toLocaleString('nl-NL')}</span> : `€ ${currentElektraMth.toLocaleString('nl-NL')}`}
                           </td>
-                          <td className="py-1 px-1.5 text-right text-sky-950 font-bold">
+                          <td className="py-2.5 px-2 text-right text-sky-950 font-bold whitespace-nowrap">
                             {currentElektraYr < 0 ? <span className="text-emerald-700 font-extrabold">€ - {Math.abs(currentElektraYr).toLocaleString('nl-NL')}</span> : `€ ${currentElektraYr.toLocaleString('nl-NL')}`}
                           </td>
-                          <td className="py-1 px-1.5 text-right bg-amber-100/40 text-slate-900 font-bold">
+                          <td className="py-2.5 px-2 text-right bg-amber-100/40 text-slate-900 font-extrabold text-[11px] sm:text-[13px] whitespace-nowrap">
                             {currentTotalMth < 0 ? <span className="text-emerald-700 font-extrabold">€ - {Math.abs(currentTotalMth).toLocaleString('nl-NL')}</span> : `€ ${currentTotalMth.toLocaleString('nl-NL')}`}
                           </td>
-                          <td className="py-1 px-1.5 text-right bg-amber-100/40 text-slate-950 font-black">
+                          <td className="py-2.5 px-2 text-right bg-amber-100/40 text-slate-950 font-black text-[11px] sm:text-[13px] whitespace-nowrap">
                             {currentTotalYr < 0 ? (
-                              <span className="text-emerald-800 font-black bg-emerald-100/90 px-1 py-0.5 rounded text-[9.5px]">
+                              <span className="text-emerald-800 font-black bg-emerald-100/90 px-1.5 py-0.5 rounded text-[10px]">
                                 € - {Math.abs(currentTotalYr).toLocaleString('nl-NL')} (Opbrengst)
                               </span>
                             ) : (
@@ -3052,8 +3044,8 @@ export default function InputForm({
                             )}
                           </td>
                         </tr>
-                        <tr className="bg-emerald-50/30 font-bold">
-                          <td className="py-1 px-2 font-sans font-bold text-emerald-950">
+                        <tr className="bg-emerald-50/35 font-bold">
+                          <td className="py-2.5 px-2 font-sans font-bold text-emerald-950 text-[11px] sm:text-xs">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
                               <span>{naVerduurzamingLabel}</span>
@@ -3064,14 +3056,14 @@ export default function InputForm({
                                   return { ...prev, typeContract: next, batteryGridTrading: next === 'Dynamisch' };
                                 })}
                                 title="Klik om contract na verduurzaming te wisselen (Vast / Dynamisch)"
-                                className={`text-[8.5px] font-semibold px-1.5 py-0.2 rounded border transition cursor-pointer inline-flex items-center gap-0.5 ${
+                                className={`text-[9.5px] font-semibold px-1.5 py-0.5 rounded border transition cursor-pointer inline-flex items-center gap-1 ${
                                   postIsVast
                                     ? 'bg-white/95 border-emerald-300 text-emerald-900 hover:bg-emerald-100'
                                     : 'bg-white/95 border-blue-300 text-blue-900 hover:bg-blue-100'
                                 }`}
                               >
                                 <span>{postIsVast ? '🔒 vast contract' : '⚡ dynamisch contract'}</span>
-                                <span className="text-[7.5px] text-slate-400">⇄</span>
+                                <span className="text-[8px] text-slate-400">⇄</span>
                               </button>
 
                               {postIsVast ? (
@@ -3089,7 +3081,7 @@ export default function InputForm({
                                       vastTerugleverVergoeding: prov.terugleverVergoeding
                                     }));
                                   }}
-                                  className="text-[8.5px] bg-white border border-emerald-300 text-emerald-950 font-bold rounded px-1 py-0.2 focus:outline-emerald-500 cursor-pointer"
+                                  className="text-[9.5px] bg-white border border-emerald-300 text-emerald-950 font-bold rounded px-1.5 py-0.5 focus:outline-emerald-500 cursor-pointer"
                                 >
                                   {TOP4_FIXED_PROVIDERS.map(p => (
                                     <option key={p.id} value={p.id}>
@@ -3111,7 +3103,7 @@ export default function InputForm({
                                       opslagLeverancier: prov.opslagLeverancier
                                     }));
                                   }}
-                                  className="text-[8.5px] bg-white border border-blue-300 text-blue-950 font-bold rounded px-1 py-0.2 focus:outline-blue-500 cursor-pointer"
+                                  className="text-[9.5px] bg-white border border-blue-300 text-blue-950 font-bold rounded px-1.5 py-0.5 focus:outline-blue-500 cursor-pointer"
                                 >
                                   {TOP4_DYNAMIC_PROVIDERS.map(p => (
                                     <option key={p.id} value={p.id}>
@@ -3122,24 +3114,24 @@ export default function InputForm({
                               )}
                             </div>
                           </td>
-                          <td className="py-1 px-1.5 text-right text-amber-900 font-bold">
-                            {postGasM3 === 0 ? <span className="text-emerald-700 font-extrabold bg-emerald-100/90 px-1 py-0.5 rounded text-[9px]">€ 0 (Gasloos)</span> : `€ ${postGasMth.toLocaleString('nl-NL')}`}
+                          <td className="py-2.5 px-2 text-right text-amber-900 font-bold whitespace-nowrap">
+                            {postGasM3 === 0 ? <span className="text-emerald-700 font-extrabold bg-emerald-100/90 px-1.5 py-0.5 rounded text-[9.5px]">€ 0 (Gasloos)</span> : `€ ${postGasMth.toLocaleString('nl-NL')}`}
                           </td>
-                          <td className="py-1 px-1.5 text-right text-amber-950 font-bold">
-                            {postGasM3 === 0 ? <span className="text-emerald-700 font-extrabold bg-emerald-100/90 px-1 py-0.5 rounded text-[9px]">€ 0 (0 m³)</span> : `€ ${postGasYr.toLocaleString('nl-NL')}`}
+                          <td className="py-2.5 px-2 text-right text-amber-950 font-bold whitespace-nowrap">
+                            {postGasM3 === 0 ? <span className="text-emerald-700 font-extrabold bg-emerald-100/90 px-1.5 py-0.5 rounded text-[9.5px]">€ 0 (0 m³)</span> : `€ ${postGasYr.toLocaleString('nl-NL')}`}
                           </td>
-                          <td className="py-1 px-1.5 text-right text-sky-900 font-bold">
+                          <td className="py-2.5 px-2 text-right text-sky-900 font-bold whitespace-nowrap">
                             {postElektraMth < 0 ? <span className="text-emerald-700 font-extrabold">€ - {Math.abs(postElektraMth).toLocaleString('nl-NL')}</span> : `€ ${postElektraMth.toLocaleString('nl-NL')}`}
                           </td>
-                          <td className="py-1 px-1.5 text-right text-sky-950 font-bold">
+                          <td className="py-2.5 px-2 text-right text-sky-950 font-bold whitespace-nowrap">
                             {postElektraYr < 0 ? <span className="text-emerald-700 font-extrabold">€ - {Math.abs(postElektraYr).toLocaleString('nl-NL')}</span> : `€ ${postElektraYr.toLocaleString('nl-NL')}`}
                           </td>
-                          <td className="py-1 px-1.5 text-right bg-emerald-100/50 text-emerald-950 font-extrabold">
+                          <td className="py-2.5 px-2 text-right bg-emerald-100/50 text-emerald-950 font-extrabold text-[11px] sm:text-[13px] whitespace-nowrap">
                             {postTotalMth < 0 ? <span className="text-emerald-700 font-extrabold">€ - {Math.abs(postTotalMth).toLocaleString('nl-NL')}</span> : `€ ${postTotalMth.toLocaleString('nl-NL')}`}
                           </td>
-                          <td className="py-1 px-1.5 text-right bg-emerald-100/50 text-emerald-950 font-black">
+                          <td className="py-2.5 px-2 text-right bg-emerald-100/50 text-emerald-950 font-black text-[11px] sm:text-[13px] whitespace-nowrap">
                             {postTotalYr < 0 ? (
-                              <span className="text-emerald-800 font-black bg-emerald-200/80 px-1.5 py-0.5 rounded text-[9.5px] shadow-2xs">
+                              <span className="text-emerald-800 font-black bg-emerald-200/80 px-1.5 py-0.5 rounded text-[10px] shadow-2xs">
                                 € - {Math.abs(postTotalYr).toLocaleString('nl-NL')} (Netto Opbrengst)
                               </span>
                             ) : (
@@ -3490,7 +3482,7 @@ export default function InputForm({
 
           {/* 1. Bewoner & Adres (BAG API!) */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+            <div className="bg-slate-50 px-3.5 py-1.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <User className="w-4 h-4 text-emerald-600" />
                 <h3 className="text-sm font-semibold text-slate-700">1. Bewoners &amp; Adres Gegevens</h3>
@@ -3512,19 +3504,19 @@ export default function InputForm({
                     <span>Compleet</span>
                   </span>
                 )}
-                <span className="text-[10px] font-bold text-slate-400 bg-slate-200/50 px-2.5 py-0.5 rounded-full uppercase tracking-wider font-mono">
+                <span className="text-[10px] font-bold text-slate-400 bg-slate-200/50 px-2 py-0.5 rounded-full uppercase tracking-wider font-mono">
                   {resident.registratiecode || "PM-CONCEPT"}
                 </span>
               </div>
             </div>
-            <div className="p-3.5 sm:p-4 space-y-2.5 sm:space-y-3">
-              <div className="bg-emerald-50/50 rounded-xl p-2.5 sm:p-3 border border-emerald-100/50 space-y-2">
+            <div className="p-2.5 sm:p-3 space-y-1.5 sm:space-y-2">
+              <div className="bg-emerald-50/50 rounded-xl p-2 border border-emerald-100/50 space-y-1.5">
                 <p className="text-[10.5px] text-emerald-800 leading-tight">
                   Vul postcode en huisnummer in. Adres, bouwjaar, oppervlak én <strong>Energielabel</strong> (EP-Online) worden automatisch ingeladen.
                 </p>
                 <div className="grid grid-cols-3 gap-2">
                   <div>
-                    <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5">
+                    <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 leading-tight">
                       Postcode
                     </label>
                     <input
@@ -3533,12 +3525,12 @@ export default function InputForm({
                       onChange={(e) => updateResident({ postcode: e.target.value.toUpperCase() })}
                       onBlur={autoFetchBag}
                       placeholder="5981AD"
-                      className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 uppercase text-center transition ${getFieldHighlight('postcode', 'bg-white border-slate-200')}`}
+                      className={`w-full text-xs border rounded-lg px-2 py-1 font-semibold text-slate-800 focus:outline-emerald-500 uppercase text-center transition ${getFieldHighlight('postcode', 'bg-white border-slate-200')}`}
                       id="postcode"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5">
+                    <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 leading-tight">
                       Huisnummer
                     </label>
                     <input
@@ -3547,12 +3539,12 @@ export default function InputForm({
                       onChange={(e) => updateResident({ huisnummer: e.target.value })}
                       onBlur={autoFetchBag}
                       placeholder="12"
-                      className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 text-center transition ${getFieldHighlight('huisnummer', 'bg-white border-slate-200')}`}
+                      className={`w-full text-xs border rounded-lg px-2 py-1 font-semibold text-slate-800 focus:outline-emerald-500 text-center transition ${getFieldHighlight('huisnummer', 'bg-white border-slate-200')}`}
                       id="huisnummer"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5">
+                    <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 leading-tight">
                       Toev.
                     </label>
                     <input
@@ -3561,7 +3553,7 @@ export default function InputForm({
                       onChange={(e) => updateResident({ toevoeging: e.target.value })}
                       onBlur={autoFetchBag}
                       placeholder="A"
-                      className="w-full text-xs sm:text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 text-center"
+                      className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1 font-semibold text-slate-800 focus:outline-emerald-500 text-center"
                       id="toev"
                     />
                   </div>
@@ -3582,13 +3574,13 @@ export default function InputForm({
 
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight">
                     Aanhef
                   </label>
                   <select
                     value={resident.aanhef}
                     onChange={(e) => updateResident({ aanhef: e.target.value })}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500"
                     id="aanhef"
                   >
                     <option>De heer</option>
@@ -3597,54 +3589,54 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight">
                     Voorletters
                   </label>
                   <input
                     type="text"
                     value={resident.voorletters}
                     onChange={(e) => updateResident(prev => ({ voorletters: e.target.value, naam: `${e.target.value} ${prev.achternaam}`.trim() }))}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500"
                     placeholder="Bijv. J."
                     id="voorletters"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight">
                     Achternaam
                   </label>
                   <input
                     type="text"
                     value={resident.achternaam}
                     onChange={(e) => updateResident(prev => ({ achternaam: e.target.value, naam: `${prev.voorletters} ${e.target.value}`.trim() }))}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('achternaam')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('achternaam')}`}
                     placeholder="Bijv. Janssen"
                     id="achternaam"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight">
                     Straat
                   </label>
                   <input
                     type="text"
                     value={resident.straat}
                     onChange={(e) => updateResident({ straat: e.target.value })}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500"
                     id="straat"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight">
                     Kerkdorp
                   </label>
                   <select
                     value={resident.plaats}
                     onChange={(e) => updateResident({ plaats: e.target.value })}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('plaats')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('plaats')}`}
                     id="plaats"
                   >
                     <option value="">-- Selecteer Kerkdorp --</option>
@@ -3655,35 +3647,35 @@ export default function InputForm({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight">
                     Telefoon / mobiel
                   </label>
                   <input
                     type="tel"
                     value={resident.telefoon}
                     onChange={(e) => updateResident({ telefoon: e.target.value })}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('telefoon')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('telefoon')}`}
                     placeholder="0612345678"
                     id="telefoon"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight">
                     E-mailadres
                   </label>
                   <input
                     type="email"
                     value={resident.email}
                     onChange={(e) => updateResident({ email: e.target.value })}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500"
                     placeholder="naam@voorbeeld.nl"
                     id="email"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center justify-between">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight flex items-center justify-between">
                     <span>Datum opname</span>
                     <span className="text-[10px] text-emerald-600 font-medium">Auto-update</span>
                   </label>
@@ -3691,22 +3683,22 @@ export default function InputForm({
                     type="date"
                     value={resident.datum || new Date().toISOString().split('T')[0]}
                     onChange={(e) => updateResident({ datum: e.target.value })}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-medium"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 font-medium"
                     id="datum"
                   />
                 </div>
               </div>
 
               {/* Inkomens- & NIP-check */}
-              <div className="pt-2.5 border-t border-slate-100 space-y-2">
+              <div className="pt-1.5 border-t border-slate-100 space-y-1.5">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10.5px] font-bold text-emerald-700 uppercase tracking-wider">NIP-Subsidie criteria (Inkomenseis)</span>
+                  <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">NIP-Subsidie criteria (Inkomenseis)</span>
                   <Tooltip text="Het Nationaal Isolatieprogramma (NIP) heeft in Peel en Maas een inkomenseis van maximaal €60.000 bruto gezinsinkomen per jaar OF een handmatige controle door de coach." />
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                    <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight flex items-center gap-1">
                       <span>Bruto gezinsjaarinkomen (€)</span>
                       <Tooltip text="Het gezamenlijke bruto jaarinkomen van het huishouden. Dit is relevant voor de inkomensgrens van de NIP-subsidie (maximaal €60.000)." />
                     </label>
@@ -3714,14 +3706,14 @@ export default function InputForm({
                       type="number"
                       value={resident.brutoGezinsinkomen || ''}
                       onChange={(e) => setResident(prev => ({ ...prev, brutoGezinsinkomen: Number(e.target.value) }))}
-                      className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-mono"
+                      className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 font-mono"
                       placeholder="Bijv. 45000"
                       id="bruto_gezinsinkomen"
                     />
                   </div>
                   <div>
                     <div className="flex items-center justify-between gap-1 mb-0.5">
-                      <label className="text-xs font-medium text-slate-500 flex items-center gap-1" htmlFor="inkomen_check">
+                      <label className="text-[11px] font-medium text-slate-500 leading-tight flex items-center gap-1" htmlFor="inkomen_check">
                         <span>Inkomensverklaring gecontroleerd?</span>
                         <Tooltip text="Geef aan of de inkomensverklaring (IB60) gecontroleerd is. De bewoner kan deze gratis en direct downloaden via Mijn Belastingdienst met DigiD, of telefonisch aanvragen via 0800-0543." align="right" />
                       </label>
@@ -3729,7 +3721,7 @@ export default function InputForm({
                         href="https://mijn.belastingdienst.nl/"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded px-1.5 py-0.5 transition shrink-0"
+                        className="inline-flex items-center gap-1 text-[9.5px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded px-1.5 py-0.2 transition shrink-0"
                         title="Direct naar Mijn Belastingdienst (DigiD) om de inkomensverklaring te downloaden"
                         id="link_inkomensverklaring_top"
                       >
@@ -3740,13 +3732,13 @@ export default function InputForm({
                     <select
                       value={house.inkomenCheck ? "Ja" : "Nee"}
                       onChange={(e) => setHouse(prev => ({ ...prev, inkomenCheck: e.target.value === "Ja" }))}
-                      className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                      className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500"
                       id="inkomen_check"
                     >
                       <option value="Nee">Nee (toetsing via inkomen &lt; €60.000)</option>
                       <option value="Ja">Ja (altijd akkoord via coach controle)</option>
                     </select>
-                    <div className="mt-1 flex flex-wrap items-center justify-between gap-1 text-[10.5px]">
+                    <div className="mt-0.5 flex flex-wrap items-center justify-between gap-1 text-[10px]">
                       <a
                         href="https://mijn.belastingdienst.nl/"
                         target="_blank"
@@ -3755,7 +3747,7 @@ export default function InputForm({
                         title="Direct inloggen op Mijn Belastingdienst met DigiD om de inkomensverklaring op te halen"
                         id="link_inkomensverklaring_direct"
                       >
-                        <ExternalLink className="w-3 h-3 text-emerald-600 shrink-0" />
+                        <ExternalLink className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
                         <span>Mijn Belastingdienst (DigiD)</span>
                       </a>
                       <a
@@ -3778,7 +3770,7 @@ export default function InputForm({
 
           {/* 2. Woning Kenmerken & Installaties */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+            <div className="bg-slate-50 px-3.5 py-1.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <Home className="w-4 h-4 text-emerald-600" />
                 <h3 className="text-sm font-semibold text-slate-700">2. Woning &amp; Huidige Installaties</h3>
@@ -3800,18 +3792,18 @@ export default function InputForm({
                 </span>
               )}
             </div>
-            <div className="p-3.5 sm:p-4 space-y-2.5 sm:space-y-3">
+            <div className="p-2.5 sm:p-3 space-y-1.5 sm:space-y-2">
               {/* Basis Woninggegevens in 3 kolommen */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                  <label className="block text-[11px] leading-tight font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Soort woning</span>
                     <Tooltip text="Het type woning is bepalend voor de berekening van het referentieverwarmingsgas (G_ref) en de warmteverliesberekening." />
                   </label>
                   <select
                     value={house.soortWoning}
                     onChange={(e) => setHouse(prev => ({ ...prev, soortWoning: e.target.value }))}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('soortWoning')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('soortWoning')}`}
                     id="soort_woning"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3825,7 +3817,7 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                  <label className="block text-[11px] leading-tight font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Bouwjaar</span>
                     <Tooltip text="Het bouwjaar van de woning (BAG). Dit bepaalt de initiële isolatiewaarden van de schil als er nog geen na-isolatie is toegepast." align="right" />
                   </label>
@@ -3833,13 +3825,13 @@ export default function InputForm({
                     type="number"
                     value={house.bouwjaar || ''}
                     onChange={(e) => setHouse(prev => ({ ...prev, bouwjaar: Number(e.target.value) }))}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('bouwjaar')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('bouwjaar')}`}
                     placeholder="Bijv. 1978"
                     id="bouwjaar"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                  <label className="block text-[11px] leading-tight font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Woonoppervlakte (m²)</span>
                     <Tooltip text="De totale gebruiksoppervlakte van de verwarmde zones in de woning. Dit is cruciaal voor de warmteverliesberekening en G_ref." />
                   </label>
@@ -3847,13 +3839,13 @@ export default function InputForm({
                     type="number"
                     value={house.woonoppervlakte || ''}
                     onChange={(e) => setHouse(prev => ({ ...prev, woonoppervlakte: Number(e.target.value) }))}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('woonoppervlakte')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('woonoppervlakte')}`}
                     placeholder="Bijv. 115"
                     id="woonopp"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                  <label className="block text-[11px] leading-tight font-medium text-slate-500 mb-0.5 flex items-center gap-1">
                     <span>Aantal bewoners</span>
                     <Tooltip text="Het aantal personen in het huishouden. We rekenen met een gemiddeld gasverbruik van 100 m³ per persoon per jaar voor warm tapwater." align="right" />
                   </label>
@@ -3861,13 +3853,13 @@ export default function InputForm({
                     type="number"
                     value={resident.aantalPersonen || ''}
                     onChange={(e) => setResident(prev => ({ ...prev, aantalPersonen: Number(e.target.value) }))}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('aantalPersonen')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('aantalPersonen')}`}
                     placeholder="Bijv. 2"
                     id="aantal_personen"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex justify-between items-center gap-1">
+                  <label className="block text-[11px] leading-tight font-medium text-slate-500 mb-0.5 flex justify-between items-center gap-1">
                     <span className="flex items-center gap-1">
                       <span>WOZ-waarde (€)</span>
                       <Tooltip text="De WOZ-waarde van de woning (peildatum 2024). Voor de NIP-subsidie mag deze niet hoger zijn dan €477.000." />
@@ -3878,13 +3870,13 @@ export default function InputForm({
                     type="number"
                     value={house.wozWaarde || ''}
                     onChange={(e) => setHouse(prev => ({ ...prev, wozWaarde: Number(e.target.value) }))}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('wozWaarde')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 font-semibold text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('wozWaarde')}`}
                     placeholder="Bijv. 385000"
                     id="woz_waarde"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex justify-between items-center gap-1">
+                  <label className="block text-[11px] leading-tight font-medium text-slate-500 mb-0.5 flex justify-between items-center gap-1">
                     <span className="flex items-center gap-1">
                       <span>Energielabel</span>
                       <Tooltip text="Het geregistreerde energielabel van de woning. Voor de NIP-subsidie komen alleen woningen met label D, E, F, G of Geen label in aanmerking." align="right" />
@@ -3894,7 +3886,7 @@ export default function InputForm({
                   <select
                     value={house.energielabel}
                     onChange={(e) => setHouse(prev => ({ ...prev, energielabel: e.target.value as any }))}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-semibold text-slate-800 focus:outline-emerald-500"
                     id="energielabel"
                   >
                     <option value="Geen">Label Geen</option>
@@ -3908,9 +3900,9 @@ export default function InputForm({
               </div>
 
               {/* Installaties subgrid in 3 kolommen */}
-              <div className="pt-2 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
+              <div className="pt-1.5 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center">
+                  <label className="block text-[11px] leading-tight font-medium text-slate-500 mb-0.5 flex items-center">
                     <span>Verwarming</span>
                     <Tooltip text={
                       <div className="space-y-1">
@@ -3927,14 +3919,14 @@ export default function InputForm({
                       const val = e.target.value;
                       setHouse(prev => ({ ...prev, verwarming: val }));
                       if (val === 'CV-ketel' || val === 'Geen / Overig' || val === 'Andere' || val === '') {
-                        setTech(prev => ({ ...prev, selectedWarmtepompType: undefined, selectedWarmtepompModel: undefined }));
+                        setTech(prev => ({ ...prev, selectedWarmtepompType: undefined, selectedWarmtepompModel: undefined, heatpumpStatus: 'nieuw' }));
                       } else if (val === 'Hybride warmtepomp') {
-                        setTech(prev => ({ ...prev, selectedWarmtepompType: 'Hybride' }));
+                        setTech(prev => ({ ...prev, selectedWarmtepompType: 'Hybride', selectedWarmtepompModel: prev.selectedWarmtepompModel || 'Standard' }));
                       } else if (val === 'Volledige warmtepomp' || val === 'Full electric') {
-                        setTech(prev => ({ ...prev, selectedWarmtepompType: 'All-Electric' }));
+                        setTech(prev => ({ ...prev, selectedWarmtepompType: 'All-Electric', selectedWarmtepompModel: prev.selectedWarmtepompModel || 'Standard' }));
                       }
                     }}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('verwarming')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('verwarming')}`}
                     id="verwarming"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3946,7 +3938,7 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center">
+                  <label className="block text-[11px] leading-tight font-medium text-slate-500 mb-0.5 flex items-center">
                     <span>Afgiftesysteem</span>
                     <Tooltip text={
                       <div className="space-y-1">
@@ -3960,7 +3952,7 @@ export default function InputForm({
                   <select
                     value={house.afgiftesysteem}
                     onChange={(e) => setHouse(prev => ({ ...prev, afgiftesysteem: e.target.value }))}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('afgiftesysteem')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('afgiftesysteem')}`}
                     id="afgiftesysteem"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3972,7 +3964,7 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center">
+                  <label className="block text-[11px] leading-tight font-medium text-slate-500 mb-0.5 flex items-center">
                     <span>Tapwater</span>
                     <Tooltip text={
                       <div className="space-y-1">
@@ -3986,7 +3978,7 @@ export default function InputForm({
                   <select
                     value={house.tapwater}
                     onChange={(e) => setHouse(prev => ({ ...prev, tapwater: e.target.value }))}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('tapwater')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('tapwater')}`}
                     id="tapwater"
                   >
                     <option value="">-- Selecteer --</option>
@@ -3999,7 +3991,7 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center">
+                  <label className="block text-[11px] leading-tight font-medium text-slate-500 mb-0.5 flex items-center">
                     <span>Koken op</span>
                     <Tooltip text={
                       <div className="space-y-1">
@@ -4013,7 +4005,7 @@ export default function InputForm({
                   <select
                     value={house.koken}
                     onChange={(e) => setHouse(prev => ({ ...prev, koken: e.target.value }))}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('koken')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('koken')}`}
                     id="koken"
                   >
                     <option value="">-- Selecteer --</option>
@@ -4024,7 +4016,7 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center">
+                  <label className="block text-[11px] leading-tight font-medium text-slate-500 mb-0.5 flex items-center">
                     <span>Ventilatie</span>
                     <Tooltip text={
                       <div className="space-y-1.5">
@@ -4038,7 +4030,7 @@ export default function InputForm({
                   <select
                     value={house.ventilatie}
                     onChange={(e) => setHouse(prev => ({ ...prev, ventilatie: e.target.value }))}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('ventilatie')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('ventilatie')}`}
                     id="ventilatie"
                   >
                     <option value="">-- Selecteer --</option>
@@ -4049,7 +4041,7 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5">Al zonnepanelen aanwezig?</label>
+                  <label className="block text-[11px] leading-tight font-medium text-slate-500 mb-0.5">Al zonnepanelen aanwezig?</label>
                   <select
                     value={house.zonnepanelenPresent}
                     onChange={(e) => {
@@ -4071,7 +4063,7 @@ export default function InputForm({
                         setHouse(prev => ({ ...prev, elektraTeruglevering: 0 }));
                       }
                     }}
-                    className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500"
                     id="zonnepanelen"
                   >
                     <option value="Nee">Nee</option>
@@ -4083,10 +4075,10 @@ export default function InputForm({
               {/* Openklapbare sectie: Bestaande Zonnepanelen (Opwekking & Teruglevering) */}
               {(house.zonnepanelenPresent === 'Ja' || tech.aantalZonnepanelen > 0) && (
                 <div className="mt-2 pt-2 border-t border-slate-200/90" id="solar-isolation-sync-panel">
-                  <div className="bg-amber-50/70 border border-amber-200/90 rounded-xl p-2.5 sm:p-3 space-y-2">
+                  <div className="bg-amber-50/70 border border-amber-200/90 rounded-xl p-2 sm:p-2.5 space-y-1.5">
                     {/* Header */}
                     <div className="flex items-center justify-between pb-1 border-b border-amber-200/70">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <Sun className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                         <h4 className="text-xs font-bold text-slate-900">Bestaande Zonnepanelen</h4>
                       </div>
@@ -4096,11 +4088,11 @@ export default function InputForm({
                     </div>
 
                     {/* Invoervelden Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
                       {/* 1. Aantal panelen */}
                       <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_aantal_panelen">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <label className="text-[11px] leading-tight font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_aantal_panelen">
                             <span>Aantal panelen</span>
                             <Tooltip text="Het aantal bestaande zonnepanelen op het dak." />
                           </label>
@@ -4117,22 +4109,22 @@ export default function InputForm({
                               handleAantalZonnepanelenChange(val);
                               setTech(prev => ({ ...prev, solarStatus: 'bestaand' }));
                             }}
-                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-emerald-500 pr-14"
+                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1 font-mono text-slate-800 focus:outline-emerald-500 pr-12"
                             placeholder="bijv. 10"
                           />
-                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
                             stuks
                           </span>
                         </div>
-                        <div className="mt-1 text-[10px] text-slate-500 font-mono">
+                        <div className="mt-0.5 text-[10px] text-slate-500 font-mono leading-tight">
                           <span>⚡ {tech.aantalZonnepanelen * (tech.vermogenPerPaneel || 400)} Wp totaal</span>
                         </div>
                       </div>
 
                       {/* 2. Hoeveel Wp (Vermogen per paneel) */}
                       <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_vermogen_paneel">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <label className="text-[11px] leading-tight font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_vermogen_paneel">
                             <span>Vermogen (Wp)</span>
                             <Tooltip text="Het piekvermogen van een enkel zonnepaneel in Wattpiek (Wp). Oudere panelen hebben vaak 270-360 Wp, moderne panelen 400 tot 450 Wp." />
                           </label>
@@ -4161,22 +4153,22 @@ export default function InputForm({
                                 return { ...prev, vermogenPerPaneel: clamped };
                               });
                             }}
-                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-emerald-500 pr-10"
+                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1 font-mono text-slate-800 focus:outline-emerald-500 pr-9"
                             placeholder="400"
                           />
-                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
                             Wp
                           </span>
                         </div>
-                        <div className="mt-1 text-[10px] text-slate-500 font-mono">
+                        <div className="mt-0.5 text-[10px] text-slate-500 font-mono leading-tight">
                           <span>{((tech.aantalZonnepanelen * (tech.vermogenPerPaneel || 400)) / 1000).toFixed(2)} kWp vermogen</span>
                         </div>
                       </div>
 
                       {/* 3. Jaaropwekking (kWh) */}
                       <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_solar_opwekking">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <label className="text-[11px] leading-tight font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_solar_opwekking">
                             <span>Jaaropwekking</span>
                             <Tooltip text="De werkelijke jaaropbrengst van je zonnepanelen in kWh (af te lezen in je SolarEdge, Enphase, Growatt of SMA omvormer-app). Jouw opgave is 100% leidend voor alle berekeningen. Laat leeg om automatisch te rekenen o.b.v. aantal panelen." />
                             {tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0 ? (
@@ -4219,7 +4211,7 @@ export default function InputForm({
                                 return updated;
                               });
                             }}
-                            className={`w-full text-xs font-bold rounded-lg px-2.5 py-1.5 font-mono focus:outline-emerald-500 pr-12 transition ${
+                            className={`w-full text-xs font-bold rounded-lg px-2 py-1 font-mono focus:outline-emerald-500 pr-11 transition ${
                               tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0
                                 ? 'bg-amber-50/60 border-amber-400 text-amber-950 ring-1 ring-amber-300/80'
                                 : 'bg-white border border-slate-200 text-slate-800'
@@ -4227,11 +4219,11 @@ export default function InputForm({
                             placeholder={calculatedYieldKwh > 0 ? `${calculatedYieldKwh} (berekend)` : 'bijv. 3600'}
                             id="isolatie_solar_opwekking"
                           />
-                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
                             kWh/j
                           </span>
                         </div>
-                        <div className="mt-1 text-[10px]">
+                        <div className="mt-0.5 text-[10px] leading-tight">
                           {tech.userAnnualSolar !== undefined && tech.userAnnualSolar > 0 ? (
                             <span className="text-amber-900 font-bold block">
                               ✓ {tech.userAnnualSolar.toLocaleString('nl-NL')} kWh/j is leidend (overschrijft {calculatedYieldKwh.toLocaleString('nl-NL')} kWh).
@@ -4256,8 +4248,8 @@ export default function InputForm({
 
                       {/* 4. Stroomverbruik (kWh) - Direct overgenomen in Blok 3: Energieverbruik & Stookgedrag */}
                       <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_elektra_verbruik">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <label className="text-[11px] leading-tight font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_elektra_verbruik">
                             <span>Stroomverbruik</span>
                             <Tooltip text="Je jaarlijkse elektriciteitsafname van het net (netto afname in kWh volgens je jaarnota). Bij bestaande zonnepanelen telt de rekentool automatisch je direct verbruikte zonnestroom (opwekking − teruglevering) hierbij op voor het totale stroomverbruik. Wordt gesynchroniseerd met Blok 3." />
                             <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
@@ -4276,22 +4268,22 @@ export default function InputForm({
                               const val = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
                               setHouse(prev => ({ ...prev, verbruikKwh: val }));
                             }}
-                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-emerald-500 pr-12"
+                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1 font-mono text-slate-800 focus:outline-emerald-500 pr-11"
                             placeholder="bijv. 3500"
                           />
-                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
                             kWh/j
                           </span>
                         </div>
-                        <div className="mt-1 text-[10px] text-blue-700 font-medium">
+                        <div className="mt-0.5 text-[10px] text-blue-700 font-medium leading-tight">
                           <span>🔗 Overgenomen in Blok 3</span>
                         </div>
                       </div>
 
                       {/* 5. Teruglevering aan het net (kWh) */}
                       <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_solar_teruglevering">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <label className="text-[11px] leading-tight font-bold text-slate-700 flex items-center gap-1" htmlFor="isolatie_solar_teruglevering">
                             <span>Teruglevering net</span>
                             <Tooltip text="De hoeveelheid zonnestroom in kWh die je jaarlijks daadwerkelijk teruglevert aan het net, conform de jaarafrekening van je energieleverancier." />
                           </label>
@@ -4312,15 +4304,15 @@ export default function InputForm({
                                 setTech(prev => ({ ...prev, huidigDirectVerbruik: pct }));
                               }
                             }}
-                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono text-slate-800 focus:outline-emerald-500 pr-12"
+                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1 font-mono text-slate-800 focus:outline-emerald-500 pr-11"
                             placeholder="bijv. 2000"
                             id="isolatie_solar_teruglevering"
                           />
-                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
                             kWh/j
                           </span>
                         </div>
-                        <div className="mt-1 text-[10px]">
+                        <div className="mt-0.5 text-[10px] leading-tight">
                           {(house.elektraTeruglevering || 0) > localAnnualYieldKwh && localAnnualYieldKwh > 0 ? (
                             <span className="text-rose-600 font-bold">⚠️ Hoger dan opwekking!</span>
                           ) : (
@@ -4337,7 +4329,7 @@ export default function InputForm({
 
           {/* 3. Energie verbruik en kosten */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+            <div className="bg-slate-50 px-3.5 py-1.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4 text-emerald-600" />
                 <h3 className="text-sm font-semibold text-slate-700">3. Energieverbruik &amp; Stookgedrag (Jaarrekening)</h3>
@@ -4359,16 +4351,16 @@ export default function InputForm({
                 </span>
               )}
             </div>
-            <div className="p-3.5 sm:p-4 space-y-2.5 sm:space-y-3">
-              <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+            <div className="p-2.5 sm:p-3 space-y-1.5 sm:space-y-2">
+              <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
                 <div>
                   <div className="flex items-center justify-between mb-0.5">
-                    <label className="block text-xs font-medium text-slate-500 flex items-center gap-1" htmlFor="elektra_verbruik">
+                    <label className="block text-[11px] font-medium text-slate-500 leading-tight flex items-center gap-1" htmlFor="elektra_verbruik">
                       <span>Elektra (kWh)</span>
                       <Tooltip text="Je jaarlijkse elektriciteitsafname van het net (netto afname in kWh volgens je meest recente jaarrekening). Gesynchroniseerd met het blok Bestaande Zonnepanelen." />
                     </label>
                     {(house.zonnepanelenPresent === 'Ja' || tech.aantalZonnepanelen > 0) && (
-                      <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+                      <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.2">
                         ✓ Gekoppeld
                       </span>
                     )}
@@ -4380,18 +4372,18 @@ export default function InputForm({
                       const val = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
                       setHouse(prev => ({ ...prev, verbruikKwh: val }));
                     }}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-mono font-medium transition ${getFieldHighlight('verbruikKwh')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 font-mono font-medium transition ${getFieldHighlight('verbruikKwh')}`}
                     id="elektra_verbruik"
                     placeholder="bijv. 3500"
                   />
                   {(house.zonnepanelenPresent === 'Ja' || tech.aantalZonnepanelen > 0) && (
-                    <span className="text-[10px] text-slate-500 mt-0.5 block">
+                    <span className="text-[9.5px] text-slate-500 mt-0.5 block leading-tight">
                       Overgenomen uit Zonnepanelen ({house.verbruikKwh || 0} kWh)
                     </span>
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight flex items-center gap-1">
                     <span>Prijs (€/kWh)</span>
                     <Tooltip text="Het huidige stroomtarief per kWh dat de bewoner betaalt (of het gemiddelde tarief bij een dynamisch contract)." align="right" />
                   </label>
@@ -4399,7 +4391,7 @@ export default function InputForm({
                     type="number"
                     value={house.elektraPrijs || ''}
                     onChange={(e) => setHouse(prev => ({ ...prev, elektraPrijs: Number(e.target.value) }))}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('elektraPrijs')}`}
+                    className={`w-full text-xs border rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 transition ${getFieldHighlight('elektraPrijs')}`}
                     step="0.01"
                     id="elektra_prijs"
                   />
@@ -4408,12 +4400,12 @@ export default function InputForm({
 
               {/* Gesynchroniseerde teruglevering & zonne-opwekking weergave in jaarrekening */}
               {(house.zonnepanelenPresent === 'Ja' || tech.aantalZonnepanelen > 0) && (
-                <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl px-2.5 py-1.5 flex flex-wrap items-center justify-between text-xs gap-2">
+                <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl px-2.5 py-1 flex flex-wrap items-center justify-between text-xs gap-2">
                   <div className="flex items-center gap-1.5">
                     <Sun className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span className="font-semibold text-amber-900 text-xs">Zonnestroom op jaarnota:</span>
+                    <span className="font-semibold text-amber-900 text-[11px]">Zonnestroom op jaarnota:</span>
                   </div>
-                  <div className="flex items-center gap-2.5 text-[11px] sm:text-xs font-mono">
+                  <div className="flex items-center gap-2 text-[11px] font-mono">
                     <span className="text-slate-700">
                       Opwekking: <strong className="text-slate-900">{localAnnualYieldKwh.toLocaleString('nl-NL')} kWh</strong>
                     </span>
@@ -4425,17 +4417,17 @@ export default function InputForm({
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-2.5 sm:gap-3 pt-1">
+              <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
                 <div>
                   <div className="flex items-center justify-between mb-0.5">
-                    <label className="block text-xs font-medium text-slate-500 flex items-center gap-1">
+                    <label className="block text-[11px] font-medium text-slate-500 leading-tight flex items-center gap-1">
                       <span>Gasverbruik (m³)</span>
                       <Tooltip text="Het actuele jaarlijkse gasverbruik in m³ van de woning. Bij een all-electric woning of bestaande warmtepomp is dit N.V.T. (0 m³)." />
                     </label>
                     <button
                       type="button"
                       onClick={() => setHouse(prev => ({ ...prev, verbruikM3: prev.verbruikM3 === 0 ? 1200 : 0 }))}
-                      className={`text-[9px] px-1.5 py-0.5 rounded font-bold cursor-pointer transition ${
+                      className={`text-[9px] px-1.5 py-0.2 rounded font-bold cursor-pointer transition ${
                         house.verbruikM3 === 0 
                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
@@ -4461,7 +4453,7 @@ export default function InputForm({
                       setHouse(prev => ({ ...prev, verbruikM3: clean === '' ? 0 : Number(clean) }));
                     }}
                     placeholder={house.verbruikM3 === 0 ? 'N.V.T. (0 m³)' : '0'}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-sans transition ${
+                    className={`w-full text-xs border rounded-lg px-2 py-1 focus:outline-emerald-500 font-sans transition ${
                       (!house.verbruikM3 || house.verbruikM3 === 0) && !isAllElectricOrBestaandWp && (house.verwarming === 'Hybride warmtepomp' || tech.selectedWarmtepompType === 'Hybride' || (tech.selectedWarmtepompType === 'All-Electric' && house.verwarming === 'CV-ketel'))
                         ? 'border-rose-400 bg-rose-50/40 text-rose-950 font-medium'
                         : (house.verbruikM3 === 0 && isAllElectricOrBestaandWp)
@@ -4494,7 +4486,7 @@ export default function InputForm({
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center justify-between">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight flex items-center justify-between">
                     <span className="flex items-center gap-1">
                       <span>Gas prijs (€/m³)</span>
                       <Tooltip text="Het huidige gastarief per m³ dat de bewoner betaalt inclusief belastingen. Bij gasloze woningen is dit N.V.T." align="right" />
@@ -4510,7 +4502,7 @@ export default function InputForm({
                       const val = e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.');
                       setHouse(prev => ({ ...prev, gasPrijs: Number(val) }));
                     }}
-                    className={`w-full text-xs sm:text-sm border rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 transition ${
+                    className={`w-full text-xs border rounded-lg px-2 py-1 focus:outline-emerald-500 transition ${
                       house.verbruikM3 === 0 && isAllElectricOrBestaandWp
                         ? 'bg-slate-100/70 border-slate-200 text-slate-400 font-medium'
                         : getFieldHighlight('gasPrijs')
@@ -4520,10 +4512,10 @@ export default function InputForm({
                 </div>
               </div>
 
-              <div className="pt-2.5 border-t border-slate-100 space-y-2">
-                <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+              <div className="pt-1.5 border-t border-slate-100 space-y-1.5">
+                <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                    <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight flex items-center gap-1">
                       <span>Stookgedrag (Auto)</span>
                       <Tooltip text="Deze waarde vergelijkt het werkelijke gasverbruik met het gemiddelde verbruik van een gelijkwaardige woning en gezinssamenstelling." />
                     </label>
@@ -4531,19 +4523,19 @@ export default function InputForm({
                       type="text"
                       value={liveStookgedragBerekend || 'Vul in...'}
                       readOnly
-                      className="w-full text-xs sm:text-sm bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1.5 font-bold text-emerald-800"
+                      className="w-full text-xs bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 font-bold text-emerald-800"
                       id="stookgedrag_berekend"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                    <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight flex items-center gap-1">
                       <span>Correctie / Forceer</span>
                       <Tooltip text="Laat op 'Berekend (Auto)' om het stookgedrag automatisch af te stemmen op uw werkelijke verbruik, of kies handmatig een vaste factor in Jip-en-Janneketaal." align="right" />
                     </label>
                     <select
                       value={house.stookgedragOverride}
                       onChange={(e) => setHouse(prev => ({ ...prev, stookgedragOverride: e.target.value as any }))}
-                      className="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-medium"
+                      className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500 font-medium"
                       id="stookgedrag_override"
                     >
                       <option value="auto">Berekend (Auto)</option>
@@ -4616,7 +4608,7 @@ export default function InputForm({
 
           {/* 4. Huidige Isolatie Status */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+            <div className="bg-slate-50 px-3.5 py-1.5 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <Layers className="w-4 h-4 text-emerald-600" />
                 <h3 className="text-sm font-semibold text-slate-700">4. Huidige Isolatie Status</h3>
@@ -4627,7 +4619,7 @@ export default function InputForm({
                   const norm = getBouwjaarNorm(house.bouwjaar);
                   handleApplyBouwjaarNorm(norm, house.bouwjaar || 1978);
                 }}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-100/90 hover:bg-emerald-200 border border-emerald-300 rounded-lg px-2.5 py-1 transition shadow-xs"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-100/90 hover:bg-emerald-200 border border-emerald-300 rounded-lg px-2 py-0.5 transition shadow-xs"
                 id="btn_bouwjaarnorm_direct"
                 title={`Direct realistische standaard isolatiewaarden toepassen voor ${house.bouwjaar ? `bouwjaar ${house.bouwjaar}` : 'bouwjaar (bijv. 1978)'}`}
               >
@@ -4635,10 +4627,10 @@ export default function InputForm({
                 <span>Gebruik bouwjaarnorm {house.bouwjaar ? `(${house.bouwjaar})` : '(bijv. 1978)'}</span>
               </button>
             </div>
-            <div className="p-3.5 sm:p-4">
+            <div className="p-2.5 sm:p-3">
               {/* Slimme "Niet Zeker / Standaardwaarden" balk per bouwjaarklasse */}
-              <div className="mb-3 p-2.5 sm:p-3 bg-slate-50/90 border border-slate-200/90 rounded-xl" id="bouwjaarnorm_selector_bar">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-2">
+              <div className="mb-2 p-2 bg-slate-50/90 border border-slate-200/90 rounded-xl" id="bouwjaarnorm_selector_bar">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1.5">
                   <div className="flex items-center gap-1.5">
                     <HelpCircle className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                     <span className="text-xs font-semibold text-slate-700">Niet zeker wat er in de spouw of onder de vloer zit?</span>
@@ -4661,7 +4653,7 @@ export default function InputForm({
                         key={norm.id}
                         type="button"
                         onClick={() => handleApplyBouwjaarNorm(norm, house.bouwjaar || undefined)}
-                        className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1 ${
+                        className={`text-[11px] px-2 py-0.5 rounded-lg border transition-all flex items-center gap-1 ${
                           isSelected
                             ? 'bg-emerald-700 text-white border-emerald-800 font-bold shadow-xs'
                             : isCurrentMatch
@@ -4681,7 +4673,7 @@ export default function InputForm({
 
                 {/* Feedback banner wanneer toegepast */}
                 {appliedNormInfo && (
-                  <div className="mt-2.5 pt-2 border-t border-slate-200/80 flex items-start justify-between gap-2 text-xs">
+                  <div className="mt-2 pt-1.5 border-t border-slate-200/80 flex items-start justify-between gap-2 text-xs">
                     <div className="flex items-start gap-1.5 text-emerald-950">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                       <div>
@@ -4705,16 +4697,16 @@ export default function InputForm({
                 )}
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight flex items-center gap-1">
                     <span>Dakisolatie</span>
                     <Tooltip text="De huidige isolatiestatus van het dak. 'Geen' of 'Matig' betekent dat er nog veel winst te behalen is met na-isolatie." />
                   </label>
                   <select
                     value={house.isoDak}
                     onChange={(e) => setHouse(prev => ({ ...prev, isoDak: e.target.value }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500"
                     id="iso_dak"
                   >
                     <option value="">-- Selecteer --</option>
@@ -4724,14 +4716,14 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight flex items-center gap-1">
                     <span>Gevelisolatie</span>
                     <Tooltip text="De huidige isolatiestatus van de gevels of spouwmuren." align="right" />
                   </label>
                   <select
                     value={house.isoGevel}
                     onChange={(e) => setHouse(prev => ({ ...prev, isoGevel: e.target.value }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500"
                     id="iso_gevel"
                   >
                     <option value="">-- Selecteer --</option>
@@ -4741,14 +4733,14 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight flex items-center gap-1">
                     <span>Glas (begane grond)</span>
                     <Tooltip text="Het type glas op de begane grond (bijv. HR++ of dubbel glas)." />
                   </label>
                   <select
                     value={house.isoGlasBg}
                     onChange={(e) => setHouse(prev => ({ ...prev, isoGlasBg: e.target.value }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500"
                     id="iso_glas_bg"
                   >
                     <option value="">-- Selecteer --</option>
@@ -4760,14 +4752,14 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight flex items-center gap-1">
                     <span>Glas (verdieping)</span>
                     <Tooltip text="Het type glas op de verdiepingen van de woning." align="right" />
                   </label>
                   <select
                     value={house.isoGlasVd}
                     onChange={(e) => setHouse(prev => ({ ...prev, isoGlasVd: e.target.value }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500"
                     id="iso_glas_vd"
                   >
                     <option value="">-- Selecteer --</option>
@@ -4779,14 +4771,14 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight flex items-center gap-1">
                     <span>Vloer / Bodem</span>
                     <Tooltip text="De huidige isolatiestatus van de vloer of de kruipruimtebodem." />
                   </label>
                   <select
                     value={house.isoVloer}
                     onChange={(e) => setHouse(prev => ({ ...prev, isoVloer: e.target.value }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500"
                     id="iso_vloer"
                   >
                     <option value="">-- Selecteer --</option>
@@ -4796,14 +4788,14 @@ export default function InputForm({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                  <label className="block text-[11px] font-medium text-slate-500 mb-0.5 leading-tight flex items-center gap-1">
                     <span>Naden/kieren in orde?</span>
                     <Tooltip text="Geeft aan of er tocht of kouval aanwezig is door kieren bij ramen, deuren of kozijnen." align="right" />
                   </label>
                   <select
                     value={house.isoKieren}
                     onChange={(e) => setHouse(prev => ({ ...prev, isoKieren: e.target.value }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-emerald-500"
                     id="iso_kieren"
                   >
                     <option value="">-- Selecteer --</option>
@@ -4817,12 +4809,12 @@ export default function InputForm({
 
           {/* 5. Ingemeten isolatie oppervlakten (m2) */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center gap-2">
+            <div className="bg-slate-50 px-3.5 py-1.5 border-b border-slate-100 flex items-center gap-2">
               <Layers className="w-4 h-4 text-emerald-600" />
               <h3 className="text-sm font-semibold text-slate-700">5. Ingemeten Isolatie Oppervlakten (m²)</h3>
             </div>
-            <div className="p-3.5 sm:p-4">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5">
+            <div className="p-2.5 sm:p-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2">
                 <div>
                   <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-0.5">
                     <span>Vloer (onder)</span>
@@ -4832,7 +4824,7 @@ export default function InputForm({
                     type="number"
                     value={insulation.vloer || ''}
                     onChange={(e) => setInsulation(prev => ({ ...prev, vloer: Number(e.target.value) }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
                     id="m_vloer_ond"
                     placeholder="0"
                   />
@@ -4846,7 +4838,7 @@ export default function InputForm({
                     type="number"
                     value={insulation.bodem || ''}
                     onChange={(e) => setInsulation(prev => ({ ...prev, bodem: Number(e.target.value) }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
                     id="m_bodem"
                     placeholder="0"
                   />
@@ -4860,7 +4852,7 @@ export default function InputForm({
                     type="number"
                     value={insulation.spouw || ''}
                     onChange={(e) => setInsulation(prev => ({ ...prev, spouw: Number(e.target.value) }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
                     id="m_spouw"
                     placeholder="0"
                   />
@@ -4874,7 +4866,7 @@ export default function InputForm({
                     type="number"
                     value={insulation.zolderVliering || ''}
                     onChange={(e) => setInsulation(prev => ({ ...prev, zolderVliering: Number(e.target.value) }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
                     id="m_zolder"
                     placeholder="0"
                   />
@@ -4888,7 +4880,7 @@ export default function InputForm({
                     type="number"
                     value={insulation.dakBinnenzijde || ''}
                     onChange={(e) => setInsulation(prev => ({ ...prev, dakBinnenzijde: Number(e.target.value) }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
                     id="m_dak_bin"
                     placeholder="0"
                   />
@@ -4902,7 +4894,7 @@ export default function InputForm({
                     type="number"
                     value={insulation.gevelBuitenzijde || ''}
                     onChange={(e) => setInsulation(prev => ({ ...prev, gevelBuitenzijde: Number(e.target.value) }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
                     id="m_gev_bui"
                     placeholder="0"
                   />
@@ -4916,7 +4908,7 @@ export default function InputForm({
                     type="number"
                     value={insulation.glasEnkelHR || ''}
                     onChange={(e) => setInsulation(prev => ({ ...prev, glasEnkelHR: Number(e.target.value) }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
                     id="m_glas_enk_hr"
                     placeholder="0"
                   />
@@ -4930,7 +4922,7 @@ export default function InputForm({
                     type="number"
                     value={insulation.glasDubbelHR || ''}
                     onChange={(e) => setInsulation(prev => ({ ...prev, glasDubbelHR: Number(e.target.value) }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
                     id="m_glas_dub_hr"
                     placeholder="0"
                   />
@@ -4944,7 +4936,7 @@ export default function InputForm({
                     type="number"
                     value={insulation.glasTripleHout || ''}
                     onChange={(e) => setInsulation(prev => ({ ...prev, glasTripleHout: Number(e.target.value) }))}
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-center text-slate-800 focus:outline-emerald-500 font-semibold font-mono"
                     id="m_glas_trip"
                     placeholder="0"
                   />
@@ -4954,11 +4946,11 @@ export default function InputForm({
           </div>
 
           {/* Action buttons under section 6 */}
-          <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-3">
+          <div className="bg-white rounded-2xl p-3 border border-slate-100 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-2">
             <button
               onClick={onWis}
               type="button"
-              className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl hover:bg-red-100 transition shadow-sm"
+              className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl hover:bg-red-100 transition shadow-sm"
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>Nieuw formulier (Wis)</span>
@@ -4968,7 +4960,7 @@ export default function InputForm({
               <button
                 onClick={onDownloadExcel}
                 type="button"
-                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition shadow-sm"
+                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition shadow-sm"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Opslaan (Excel)</span>
@@ -4976,7 +4968,7 @@ export default function InputForm({
               <button
                 onClick={onDownloadJSON}
                 type="button"
-                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2.5 text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-xl hover:bg-slate-200 transition shadow-sm"
+                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-xl hover:bg-slate-200 transition shadow-sm"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Opslaan (JSON)</span>
@@ -5453,7 +5445,7 @@ export default function InputForm({
                           <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">%</span>
                         </div>
                         <div className="mt-1 text-[10px] text-emerald-700 font-medium">
-                          <span>🔄 Gekoppeld aan Isolatie</span>
+                          <span>🔄 Gekoppeld aan Overzicht &amp; Isolatie</span>
                         </div>
                       </div>
                     </div>
@@ -7292,19 +7284,21 @@ export default function InputForm({
                       const val = e.target.value;
                       setHouse(prev => ({ ...prev, verwarming: val }));
                       if (val === 'CV-ketel' || val === 'Geen / Overig' || val === 'Andere' || val === '') {
-                        setTech(prev => ({ ...prev, selectedWarmtepompType: undefined, selectedWarmtepompModel: undefined }));
+                        setTech(prev => ({ ...prev, selectedWarmtepompType: undefined, selectedWarmtepompModel: undefined, heatpumpStatus: 'nieuw' }));
                       } else if (val === 'Hybride warmtepomp') {
-                        setTech(prev => ({ ...prev, selectedWarmtepompType: 'Hybride' }));
+                        setTech(prev => ({ ...prev, selectedWarmtepompType: 'Hybride', selectedWarmtepompModel: prev.selectedWarmtepompModel || 'Standard' }));
                       } else if (val === 'Volledige warmtepomp' || val === 'Full electric') {
-                        setTech(prev => ({ ...prev, selectedWarmtepompType: 'All-Electric' }));
+                        setTech(prev => ({ ...prev, selectedWarmtepompType: 'All-Electric', selectedWarmtepompModel: prev.selectedWarmtepompModel || 'Standard' }));
                       }
                     }}
                     className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-semibold"
                   >
-                    <option>CV-ketel</option>
-                    <option>Hybride warmtepomp</option>
-                    <option>Full electric</option>
-                    <option>Andere</option>
+                    <option value="">-- Selecteer --</option>
+                    <option value="CV-ketel">CV-ketel</option>
+                    <option value="Hybride warmtepomp">Hybride warmtepomp</option>
+                    <option value="Volledige warmtepomp">Volledige warmtepomp</option>
+                    <option value="Full electric">Full electric</option>
+                    <option value="Andere">Andere</option>
                   </select>
                 </div>
                 <div>
@@ -7324,6 +7318,7 @@ export default function InputForm({
                     onChange={(e) => setHouse(prev => ({ ...prev, afgiftesysteem: e.target.value }))}
                     className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-emerald-500 font-medium"
                   >
+                    <option value="">-- Selecteer --</option>
                     <option>Radiatoren</option>
                     <option>Vloerverwarming</option>
                     <option>LTV</option>
@@ -7496,7 +7491,7 @@ export default function InputForm({
                         }
                       ].map((model) => {
                         const currentModel = tech.selectedWarmtepompModel || 'Standard';
-                        const currentType = tech.selectedWarmtepompType || 'Hybride';
+                        const currentType = tech.selectedWarmtepompType || (house.verwarming === 'Hybride warmtepomp' ? 'Hybride' : (house.verwarming === 'Volledige warmtepomp' || house.verwarming === 'Full electric') ? 'All-Electric' : undefined);
                         const isSelected = currentModel === model.id && currentType === 'Hybride';
                         return (
                           <button
@@ -7585,7 +7580,7 @@ export default function InputForm({
                         }
                       ].map((model) => {
                         const currentModel = tech.selectedWarmtepompModel || 'Standard';
-                        const currentType = tech.selectedWarmtepompType || 'Hybride';
+                        const currentType = tech.selectedWarmtepompType || (house.verwarming === 'Hybride warmtepomp' ? 'Hybride' : (house.verwarming === 'Volledige warmtepomp' || house.verwarming === 'Full electric') ? 'All-Electric' : undefined);
                         const isSelected = currentModel === model.id && currentType === 'All-Electric';
                         return (
                           <button

@@ -579,6 +579,37 @@ export default function App() {
       ? (calculation.solar.selfConsumptionWithBattery || 65)
       : (calculation.solar.selfConsumptionBase || 35);
 
+    const hasNewSolar = tech.solarStatus !== 'bestaand';
+    const hasNewBattery = batteryCap > 0 && !isBaselineBatteryBestaand;
+    const hasNewEv = (tech.evKilometers || 0) > 0 && !isLpBestaand;
+
+    const postBaseSolarDirect = solarKwh > 0
+      ? (!hasNewSolar && isBaselineSolarBestaand
+          ? (hasNewBattery
+              ? Math.min(houseKwh, Math.max(baselineDirectSelfKwh, (solarKwh * postSelfConsPct) / 100))
+              : Math.min(houseKwh, baselineDirectSelfKwh))
+          : Math.min(houseKwh, (solarKwh * postSelfConsPct) / 100))
+      : 0;
+    const postBaseGridImport = Math.max(0, houseKwh - postBaseSolarDirect);
+    const postSolarRemainingAfterBase = Math.max(0, solarKwh - postBaseSolarDirect);
+
+    const postWpSolarFraction = (batteryCap > 0 || isBaselineBatteryBestaand) ? 0.35 : 0.25;
+    const postWpSolarDirect = (postAddElektraKwh > 0 && postSolarRemainingAfterBase > 0)
+      ? Math.min(postAddElektraKwh * postWpSolarFraction, postSolarRemainingAfterBase)
+      : 0;
+    const postWpGridImport = Math.max(0, postAddElektraKwh - postWpSolarDirect);
+    const postSolarRemainingAfterWp = Math.max(0, postSolarRemainingAfterBase - postWpSolarDirect);
+
+    const postEvDemand = calculation.laadpaal?.evAnnualDemandKwh || 0;
+    const postEvSolarDirect = hasNewEv && postSolarRemainingAfterWp > 0
+      ? Math.min(calculation.laadpaal?.evSolarCoverageKwh || (postEvDemand * 0.35), postSolarRemainingAfterWp)
+      : 0;
+    const postEvGridImport = Math.max(0, postEvDemand - postEvSolarDirect);
+    const postSolarRemainingAfterEv = Math.max(0, postSolarRemainingAfterWp - postEvSolarDirect);
+
+    const physicalDirectSelfKwh = postBaseSolarDirect + postWpSolarDirect + postEvSolarDirect;
+    const physicalGrossFeedInKwh = Math.max(0, postSolarRemainingAfterEv);
+
     let postDirectSelfKwh = 0;
     let postFeedInKwh = 0;
     let postGridImportKwh = 0;
@@ -591,7 +622,7 @@ export default function App() {
       const postImportAfterSaldering = Math.max(0, postHouseKwh - solarKwh);
 
       postDirectSelfKwh = postSaldeerd;
-      postFeedInKwh = postSurplus;
+      postFeedInKwh = physicalGrossFeedInKwh;
       postGridImportKwh = postImportAfterSaldering;
 
       postElektraYr = Math.round(
@@ -601,30 +632,9 @@ export default function App() {
       );
     } else {
       // DYNAMISCH CONTRACT (Uur-/Seizoensbasis zonder jaarsaldering)
-      // Stap 1: Zonnestroom direct/via accu naar basisverbruik van het huishouden
-      const baseSolarDirect = solarKwh > 0 ? Math.min(houseKwh, (solarKwh * postSelfConsPct) / 100) : 0;
-      const baseGridImport = Math.max(0, houseKwh - baseSolarDirect);
-      const solarRemainingAfterBase = Math.max(0, solarKwh - baseSolarDirect);
-
-      // Stap 2: Resterende zonnestroom naar warmtepomp
-      const wpSolarFraction = batteryCap > 0 ? 0.35 : 0.25;
-      const wpSolarDirect = (postAddElektraKwh > 0 && solarRemainingAfterBase > 0)
-        ? Math.min(postAddElektraKwh * wpSolarFraction, solarRemainingAfterBase)
-        : 0;
-      const wpGridImport = Math.max(0, postAddElektraKwh - wpSolarDirect);
-      const solarRemainingAfterWp = Math.max(0, solarRemainingAfterBase - wpSolarDirect);
-
-      // Stap 3: Resterende zonnestroom naar EV (indien van toepassing)
-      const evDemand = calculation.laadpaal?.evAnnualDemandKwh || 0;
-      const evSolarDirect = (isLpBestaand || (tech.evKilometers || 0) > 0) && solarRemainingAfterWp > 0
-        ? Math.min(calculation.laadpaal?.evSolarCoverageKwh || (evDemand * 0.35), solarRemainingAfterWp)
-        : 0;
-      const evGridImport = Math.max(0, evDemand - evSolarDirect);
-      const solarRemainingAfterEv = Math.max(0, solarRemainingAfterWp - evSolarDirect);
-
-      postDirectSelfKwh = baseSolarDirect + wpSolarDirect + evSolarDirect;
-      postFeedInKwh = Math.max(0, solarRemainingAfterEv);
-      postGridImportKwh = baseGridImport + wpGridImport + ((isLpBestaand || (tech.evKilometers || 0) > 0) ? evGridImport : 0);
+      postDirectSelfKwh = physicalDirectSelfKwh;
+      postFeedInKwh = physicalGrossFeedInKwh;
+      postGridImportKwh = postBaseGridImport + postWpGridImport + (hasNewEv ? postEvGridImport : 0);
 
       postElektraYr = Math.round(
         (postGridImportKwh * postDynInkoopTarief) - 
@@ -1415,16 +1425,9 @@ export default function App() {
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 space-y-8">
-        {/* 1. Invoer Gegevens & Instellingen (Woning, Isolatie, Zon, Accu, Warmtepomp, EV/Laadpaal) */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 pt-3 pb-8 md:px-8 md:pt-4 md:pb-8 space-y-8">
+        {/* Invoer & Live Overzicht (Woning, Isolatie, Zon, Accu, Warmtepomp, EV/Laadpaal) */}
         <div className="space-y-2.5">
-          <div className="flex items-center justify-between pb-0.5">
-            <h2 className="text-base md:text-lg font-bold text-slate-800 flex items-center gap-2">
-              <span className="bg-emerald-600 text-white text-xs w-5 h-5 rounded-full inline-flex items-center justify-center font-bold shadow-2xs">1</span>
-              Invoer Gegevens &amp; Instellingen
-            </h2>
-          </div>
-
           <InputForm
             key={formKey}
             resident={resident}
@@ -1445,11 +1448,10 @@ export default function App() {
           />
         </div>
 
-        {/* 2. Energieplanner Peel en Maas - Totaalvoorstel & Persoonlijk Advies */}
+        {/* Energieplanner Peel en Maas - Totaalvoorstel & Persoonlijk Advies */}
         <div className="space-y-6 pt-2">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <span className="bg-emerald-600 text-white text-xs w-5 h-5 rounded-full inline-flex items-center justify-center font-bold">2</span>
               Energie planner Peel en Maas - Totaalvoorstel &amp; Advies
             </h2>
             {calculation.addedMeasureForOptimization && (

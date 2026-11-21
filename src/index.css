@@ -1,14 +1,17 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 body {
   background-color: #faf7f2;
   color: #1e293b;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Custom Markdown Prose Styling to avoid needing tailwind/typography plugin */
@@ -116,7 +119,7 @@ body {
   body.pdf-modal-open footer {
     display: none !important;
   }
-  header, footer, #copy-report-btn, #print-report-btn, .print\:hidden, #preset-70s-btn, #preset-90s-btn, #preset-modern-btn {
+  header, footer, #copy-report-btn, #print-report-btn, .print\:hidden, [id^="preset-"][id$="-btn"] {
     display: none !important;
   }
   main {
